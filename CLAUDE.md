@@ -20,7 +20,7 @@
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 0 | Project Foundation & DB Schema | **NOT STARTED** |
+| 0 | Project Foundation & DB Schema | **COMPLETED** |
 | 1 | Core UI Shell + Auth + Admin | NOT STARTED |
 | 2 | Research Management (Upload) | NOT STARTED |
 | 3 | Research Analysis Engine | NOT STARTED |
@@ -32,9 +32,9 @@
 | 9 | Image Builder | NOT STARTED |
 | 10 | A+ Content + Polish | NOT STARTED |
 
-**Current Phase:** 0
+**Current Phase:** 1
 **Last Updated:** February 7, 2026
-**App Version:** 0.0.0
+**App Version:** 0.1.0
 
 ### Phase Dependencies & Parallelization Rules
 
@@ -871,3 +871,36 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 - **Scope:** Created CLAUDE.md file
 - **What was done:** Designed and wrote the complete CLAUDE.md with all phases, database schema, project structure, conventions, and reference patterns
 - **Next:** Execute Phase 0 (project initialization + database setup)
+
+### Session 2 — February 7, 2026
+- **Scope:** Execute Phase 0 — full project scaffolding + database setup
+- **What was done:**
+  - Initialized Next.js 14.0.4 with TypeScript, Tailwind, ESLint, App Router, `src/` dir
+  - Installed all dependencies (core, UI, AI, utilities, Radix primitives)
+  - Configured Tailwind with HSL CSS variables (shadcn/ui pattern), globals.css with light/dark themes
+  - Created Supabase clients (`client.ts` browser, `server.ts` server + admin)
+  - Created TypeScript types for all 15 `lb_*` tables (`types/database.ts`)
+  - Created Zustand stores (`auth-store`, `research-store`, `listing-store`, `ui-store`)
+  - Created utility functions (`cn()`, `formatDate()`, `formatNumber()`, etc.)
+  - Created constants (`BRANDS`, `SECTION_TYPES`, `FILE_TYPES`, `DEFAULT_CHAR_LIMITS`)
+  - Created 12 shadcn/ui components (Button, Input, Label, Badge, Dialog, Select, Tabs, Tooltip, Switch, Progress, Separator, Dropdown Menu)
+  - Created 4 shared components (LoadingSpinner, EmptyState, ConfirmDialog, StatusBadge)
+  - Created layout components (Sidebar with nav links, Header with user menu)
+  - Created 17 stub components (dashboard/4, research/4, listings/7, images/2)
+  - Created 9 placeholder dashboard pages + login page + auth callback
+  - Created 17 API route stubs (health check fully implemented, others return 501)
+  - Ran 15 database migrations via Supabase MCP (all `lb_*` tables)
+  - Seeded `lb_countries` with 10 marketplaces (US, UK, DE, FR, CA, IT, ES, MX, AU, AE)
+  - Created `lb-research-files` storage bucket (50MB, CSV/text MIME types)
+  - Enabled RLS on all 15 tables (60 policies total)
+  - Created `.env.local`, `.env.example`, `railway.toml`, `.gitignore`
+  - Git init, committed 147 files (~17K lines), created GitHub repo `anuj29111/listing-builder`, pushed
+  - Fixed build error: `AlertDialogHeader`/`AlertDialogFooter` are shadcn wrappers not Radix exports → replaced with plain `div` elements
+- **Verification results:**
+  - `npm run build` ✅ (27 routes, zero errors)
+  - `npm run dev` ✅ (starts on port 3000)
+  - `/api/health` ✅ (`{"status":"ok","app":"listing-builder","version":"0.0.0"}`)
+  - Database ✅ (15 tables, 10 countries, 60 RLS policies, storage bucket)
+  - GitHub ✅ (`https://github.com/anuj29111/listing-builder`)
+- **Known issues:** None
+- **Next:** Phase 1 (Core UI Shell + Auth + Admin). User must first create Railway project and link GitHub repo in Railway dashboard.
