@@ -22,7 +22,7 @@
 | Phase | Name | Status |
 |-------|------|--------|
 | 0 | Project Foundation & DB Schema | **COMPLETED** |
-| 1 | Core UI Shell + Auth + Admin | NOT STARTED |
+| 1 | Core UI Shell + Auth + Admin | **COMPLETED** |
 | 2 | Research Management (Upload) | NOT STARTED |
 | 3 | Research Analysis Engine | NOT STARTED |
 | 4 | Listing Builder - Single Mode | NOT STARTED |
@@ -33,8 +33,8 @@
 | 9 | Image Builder | NOT STARTED |
 | 10 | A+ Content + Polish | NOT STARTED |
 
-**Current Phase:** 1
-**Last Updated:** February 7, 2026
+**Current Phase:** 2
+**Last Updated:** February 8, 2026
 **App Version:** 0.1.0
 
 ### Phase Dependencies & Parallelization Rules
@@ -928,60 +928,70 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
   - Google OAuth not yet tested (needs Supabase Auth provider config for production URL redirect)
 - **Next:** Phase 1 (Core UI Shell + Auth + Admin)
 
+### Session 3 — February 8, 2026
+- **Scope:** Execute Phase 1 — Core UI Shell + Auth + Admin
+- **What was done:**
+  - Created `src/lib/auth.ts` — shared auth helpers (`getAuthenticatedUser`, `requireAdmin`, `upsertLoginUser`)
+  - Created `src/middleware.ts` — auth middleware protecting dashboard routes, using `@supabase/ssr` createServerClient with request/response cookie pattern
+  - Modified `src/app/(auth)/auth/callback/route.ts` — added user auto-creation via `upsertLoginUser()` after session exchange (first user = admin)
+  - Modified `src/app/(dashboard)/layout.tsx` — queries `lb_users` by auth_id, passes userRole to Sidebar, lbUser to Header, wraps in AuthProvider
+  - Created `src/components/providers/AuthProvider.tsx` — hydrates Zustand auth store from server-passed lbUser prop
+  - Modified `src/components/layouts/Sidebar.tsx` — added `userRole` prop, Shield icon admin badge at sidebar bottom
+  - Modified `src/components/layouts/Header.tsx` — added `lbUser` prop, shows full_name, Google avatar, admin badge
+  - Implemented `src/app/api/countries/route.ts` — GET with optional `?active=true` filter
+  - Implemented `src/app/api/categories/route.ts` — GET list (ordered by brand, name) + POST create (validates name/slug/brand, handles unique constraint 23505)
+  - Implemented `src/app/api/categories/[id]/route.ts` — GET single, PATCH partial update, DELETE by ID
+  - Implemented `src/app/api/admin/users/route.ts` — GET list + PATCH role change (admin-only, prevents self-demotion)
+  - Implemented `src/app/api/admin/settings/route.ts` — GET list + PUT upsert by key (admin-only)
+  - Modified `src/app/(dashboard)/dashboard/page.tsx` — Server Component with 4 parallel count queries + 5 recent listings
+  - Modified `src/components/dashboard/StatsCards.tsx` — 4 stat cards: Categories (blue), Countries (green), Research (orange), Listings (purple)
+  - Modified `src/components/dashboard/RecentListings.tsx` — listing display with EmptyState
+  - Modified `src/components/dashboard/QuickActions.tsx` — 3 disabled buttons for future phases
+  - Modified `src/app/(dashboard)/settings/page.tsx` — Server Component fetching categories, users (admin), settings (admin)
+  - Created `src/components/settings/SettingsClient.tsx` — client component with Tabs (Categories, Users, Admin Settings)
+  - Created `src/components/settings/CategoriesTab.tsx` — full CRUD table with Dialog form, ConfirmDialog delete, toast notifications
+  - Created `src/components/settings/UsersTab.tsx` — user management table with role Select dropdown, "You" badge for current user
+  - Created `src/components/settings/AdminSettingsTab.tsx` — key-value settings with inline edit, dirty state tracking, add form
+- **Files changed:** 21 files (14 modified, 7 new), 1,752 lines added
+- **Verification results:**
+  - `npm run build` ✅ (27 routes, zero errors, 2 img warnings for Google avatars)
+  - Git commit + push ✅ → Railway auto-deploy triggered
+- **Known issues:**
+  - Google OAuth login not yet tested end-to-end (requires browser login with @chalkola.com)
+  - Remaining API stubs (research, listings, batch, images, export) still return 501
+  - Remaining pages (research, listings, images, aplus) still show Phase X placeholders
+- **Next:** Phase 2 (Research Management — Upload)
+
 ---
 
-## Phase 1 Handoff — What Needs to Be Built
+## Phase 2 Handoff — What Needs to Be Built
 
-**Goal:** Working app with Google OAuth login, sidebar navigation, dashboard layout, admin settings page, and categories CRUD.
+**Goal:** Upload CSV research files (keywords, reviews, Q&A, Rufus Q&A), organize by category/country, view research status matrix.
 
-### Pre-requisites (before starting Phase 1)
-1. **Supabase Auth:** Ensure Google OAuth provider is configured in Supabase dashboard with production redirect URL: `https://listing-builder-production.up.railway.app/auth/callback`
-2. **Allowed emails:** Only `@chalkola.com` Google accounts should be able to log in
+### What Phase 1 Already Built
+- Auth system working (middleware, callback, user auto-creation)
+- Categories CRUD (needed for file organization)
+- Countries API (needed for file organization)
+- Dashboard with stats (will show research file counts)
+- Settings page with admin tabs
 
-### What Phase 0 Already Created (stubs to be replaced)
-These files exist but contain placeholder/stub code that Phase 1 needs to replace with real implementations:
+### What Phase 2 Needs to Implement
+- `src/app/(dashboard)/research/page.tsx` — Research file management + status matrix
+- `src/components/research/FileUploader.tsx` — Drag-and-drop CSV upload with react-dropzone
+- `src/components/research/FileList.tsx` — List of uploaded files per category/country
+- `src/components/dashboard/ResearchStatusMatrix.tsx` — Category x Country coverage grid
+- `src/app/api/research/files/route.ts` — GET list + POST upload to Supabase Storage + registry
+- `src/app/api/research/status/route.ts` — GET status matrix data
 
-**Auth (stubs exist, need real logic):**
-- `src/app/(auth)/login/page.tsx` — Has Google OAuth button, may need redirect URL update to production
-- `src/app/(auth)/auth/callback/route.ts` — Has code exchange logic, may need redirect URL update
-- `src/app/page.tsx` — Has auth check + redirect logic
+### Database Tables Used by Phase 2
+- `lb_research_files` — Full CRUD (upload, list, delete)
+- `lb_categories` — Read (for file organization dropdowns)
+- `lb_countries` — Read (for file organization dropdowns)
 
-**Layout (stubs exist, need real auth guard + polish):**
-- `src/app/(dashboard)/layout.tsx` — Has auth guard + Sidebar + Header shell
-- `src/components/layouts/Sidebar.tsx` — Has nav links, needs active state styling, user role visibility
-- `src/components/layouts/Header.tsx` — Has user email + sign out, needs polish
+### Storage
+- Bucket `lb-research-files` already exists (50MB limit, CSV/text MIME types)
 
-**Dashboard (stubs exist, need real data):**
-- `src/app/(dashboard)/dashboard/page.tsx` — Placeholder, needs stat cards with real DB queries
-- `src/components/dashboard/StatsCards.tsx` — Stub, needs real counts from lb_* tables
-- `src/components/dashboard/RecentListings.tsx` — Stub
-- `src/components/dashboard/QuickActions.tsx` — Stub
-
-**API Routes (return 501, need real implementation):**
-- `src/app/api/categories/route.ts` — GET list, POST create
-- `src/app/api/categories/[id]/route.ts` — GET, PATCH, DELETE
-- `src/app/api/countries/route.ts` — GET list
-- `src/app/api/admin/settings/route.ts` — GET, PUT (admin-only)
-- `src/app/api/admin/users/route.ts` — GET, PATCH (admin-only)
-
-**Settings (stub exists, needs real UI):**
-- `src/app/(dashboard)/settings/page.tsx` — Placeholder, needs admin settings form
-
-### What Phase 1 Needs to Create (new files)
-- `src/middleware.ts` — Next.js middleware for auth protection on all `/dashboard/*` routes
-- Categories management page (possibly under settings or as its own page)
-- User management UI for admins
-- Auto-create `lb_users` row on first login (sync from Supabase Auth)
-
-### Database Tables Used by Phase 1
-- `lb_users` — Read/write (auto-create on login, admin role check)
-- `lb_categories` — Full CRUD
-- `lb_countries` — Read only (for dropdowns)
-- `lb_admin_settings` — Read/write (admin only)
-
-### Key Patterns to Follow
-- Use `createClient()` from `lib/supabase/server.ts` in API routes
-- Use `createAdminClient()` for operations that bypass RLS (like auto-creating users)
-- Use `createBrowserClient` from `lib/supabase/client.ts` in client components
-- Always use production URL for OAuth redirects: `https://listing-builder-production.up.railway.app`
-- First user to login with `@chalkola.com` should be auto-assigned `admin` role
+### Key Patterns
+- File upload: react-dropzone → FormData → API route → Supabase Storage + lb_research_files insert
+- Status matrix: cross-join categories × countries, left join research_files to show coverage
+- CSV parsing: PapaParse for preview/validation before upload
