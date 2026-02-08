@@ -7,7 +7,7 @@ export async function GET() {
     await getAuthenticatedUser()
     const supabase = createClient()
 
-    const [categoriesResult, countriesResult, filesResult] = await Promise.all([
+    const [categoriesResult, countriesResult, filesResult, analysisResult] = await Promise.all([
       supabase
         .from('lb_categories')
         .select('id, name, slug, brand')
@@ -21,6 +21,9 @@ export async function GET() {
       supabase
         .from('lb_research_files')
         .select('category_id, country_id, file_type'),
+      supabase
+        .from('lb_research_analysis')
+        .select('category_id, country_id, analysis_type, status'),
     ])
 
     if (categoriesResult.error || countriesResult.error || filesResult.error) {
@@ -39,11 +42,20 @@ export async function GET() {
       }
     }
 
+    // Build analysis status map: "categoryId:countryId" => { keyword_analysis: "completed", ... }
+    const analysisStatus: Record<string, Record<string, string>> = {}
+    for (const a of analysisResult.data || []) {
+      const key = `${a.category_id}:${a.country_id}`
+      if (!analysisStatus[key]) analysisStatus[key] = {}
+      analysisStatus[key][a.analysis_type] = a.status
+    }
+
     return NextResponse.json({
       data: {
         categories: categoriesResult.data || [],
         countries: countriesResult.data || [],
         coverage,
+        analysisStatus,
       },
     })
   } catch (e) {

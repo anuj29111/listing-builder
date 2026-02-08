@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
+import { ArrowRight } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -137,13 +139,24 @@ export function ResearchClient({
         </div>
 
         {selectedCategory && selectedCountry && (
-          <p className="text-sm text-muted-foreground mt-3">
-            Showing research files for{' '}
-            <span className="font-medium">{selectedCategory.name}</span> in{' '}
-            <span className="font-medium">
-              {selectedCountry.flag_emoji} {selectedCountry.name}
-            </span>
-          </p>
+          <div className="flex items-center justify-between mt-3">
+            <p className="text-sm text-muted-foreground">
+              Showing research files for{' '}
+              <span className="font-medium">{selectedCategory.name}</span> in{' '}
+              <span className="font-medium">
+                {selectedCountry.flag_emoji} {selectedCountry.name}
+              </span>
+            </p>
+            {files.length > 0 && (
+              <Link
+                href={`/research/${categoryId}/${countryId}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                View Analysis
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+            )}
+          </div>
         )}
       </div>
 
