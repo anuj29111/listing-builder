@@ -138,7 +138,6 @@ src/
 │   │   └── auth/callback/route.ts         # OAuth callback handler
 │   ├── (dashboard)/
 │   │   ├── layout.tsx                     # Sidebar + header shell
-│   │   ├── page.tsx                       # Redirect to /dashboard
 │   │   ├── dashboard/page.tsx             # Stats + research matrix
 │   │   ├── research/
 │   │   │   ├── page.tsx                   # Research file management + status matrix
@@ -203,6 +202,13 @@ src/
 │   │   ├── SectionCard.tsx
 │   │   ├── ModularChat.tsx
 │   │   └── ExportOptions.tsx
+│   ├── settings/
+│   │   ├── SettingsClient.tsx             # Tabs container (Categories, Users, Admin)
+│   │   ├── CategoriesTab.tsx              # CRUD table + Dialog form
+│   │   ├── UsersTab.tsx                   # User mgmt + role change
+│   │   └── AdminSettingsTab.tsx           # Key-value settings
+│   ├── providers/
+│   │   └── AuthProvider.tsx               # Hydrates Zustand auth store
 │   ├── images/
 │   │   ├── PromptEditor.tsx
 │   │   └── ImageGallery.tsx
@@ -215,6 +221,7 @@ src/
 │   ├── supabase/
 │   │   ├── client.ts                      # Browser client (createBrowserClient)
 │   │   └── server.ts                      # Server client + admin client
+│   ├── auth.ts                            # Auth helpers (getAuthenticatedUser, upsertLoginUser)
 │   ├── claude.ts                          # Anthropic API wrapper
 │   ├── openai.ts                          # DALL-E wrapper
 │   ├── gemini.ts                          # Google Gemini wrapper
@@ -879,88 +886,86 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 ### Session 1 — February 7, 2026
 - **Scope:** Created CLAUDE.md file
 - **What was done:** Designed and wrote the complete CLAUDE.md with all phases, database schema, project structure, conventions, and reference patterns
-- **Next:** Execute Phase 0 (project initialization + database setup)
 
 ### Session 2 — February 7, 2026
-- **Scope:** Execute Phase 0 — full project scaffolding + database setup
+- **Scope:** Phase 0 — full project scaffolding + database setup
 - **What was done:**
-  - Initialized Next.js 14.0.4 with TypeScript, Tailwind, ESLint, App Router, `src/` dir
-  - Installed all dependencies (core, UI, AI, utilities, Radix primitives)
-  - Configured Tailwind with HSL CSS variables (shadcn/ui pattern), globals.css with light/dark themes
-  - Created Supabase clients (`client.ts` browser, `server.ts` server + admin)
-  - Created TypeScript types for all 15 `lb_*` tables (`types/database.ts`)
-  - Created Zustand stores (`auth-store`, `research-store`, `listing-store`, `ui-store`)
-  - Created utility functions (`cn()`, `formatDate()`, `formatNumber()`, etc.)
-  - Created constants (`BRANDS`, `SECTION_TYPES`, `FILE_TYPES`, `DEFAULT_CHAR_LIMITS`)
-  - Created 12 shadcn/ui components (Button, Input, Label, Badge, Dialog, Select, Tabs, Tooltip, Switch, Progress, Separator, Dropdown Menu)
-  - Created 4 shared components (LoadingSpinner, EmptyState, ConfirmDialog, StatusBadge)
-  - Created layout components (Sidebar with nav links, Header with user menu)
-  - Created 17 stub components (dashboard/4, research/4, listings/7, images/2)
-  - Created 9 placeholder dashboard pages + login page + auth callback
-  - Created 17 API route stubs (health check fully implemented, others return 501)
-  - Ran 15 database migrations via Supabase MCP (all `lb_*` tables)
-  - Seeded `lb_countries` with 10 marketplaces (US, UK, DE, FR, CA, IT, ES, MX, AU, AE)
-  - Created `lb-research-files` storage bucket (50MB, CSV/text MIME types)
-  - Enabled RLS on all 15 tables (60 policies total)
-  - Created `.env.local`, `.env.example`, `railway.toml`, `.gitignore`
-  - Git init, committed 147 files (~17K lines), created GitHub repo `anuj29111/listing-builder`, pushed
-  - Fixed build error: `AlertDialogHeader`/`AlertDialogFooter` are shadcn wrappers not Radix exports → replaced with plain `div` elements
-- **Verification results:**
-  - `npm run build` ✅ (27 routes, zero errors)
-  - `npm run dev` ✅ (starts on port 3000)
-  - `/api/health` ✅ (`{"status":"ok","app":"listing-builder","version":"0.0.0"}`)
-  - Database ✅ (15 tables, 10 countries, 60 RLS policies, storage bucket)
-  - GitHub ✅ (`https://github.com/anuj29111/listing-builder`)
-  - Created Railway project `listing-builder`, deployed, generated domain
-  - Set all Railway env vars (Supabase URL, anon key, service role key, app URL, NODE_ENV)
-  - Production health check verified: `https://listing-builder-production.up.railway.app/api/health` ✅
-- **Verification results:**
-  - `npm run build` ✅ (27 routes, zero errors)
-  - `npm run dev` ✅ (starts on port 3000)
-  - `/api/health` ✅ (both local and production)
-  - Database ✅ (15 tables, 10 countries, 60 RLS policies, storage bucket)
-  - GitHub ✅ (`https://github.com/anuj29111/listing-builder`)
-  - Railway ✅ (`https://listing-builder-production.up.railway.app` — deploy SUCCESS)
-- **Known issues:**
-  - Railway uses Node.js 18 by default (Supabase warns about deprecation) — works fine, can pin Node 20 later
-  - All API routes except `/api/health` return 501 (stubs for future phases)
-  - All dashboard pages show placeholder "Coming in Phase X" content
-  - Google OAuth not yet tested (needs Supabase Auth provider config for production URL redirect)
-- **Next:** Phase 1 (Core UI Shell + Auth + Admin)
+  - Initialized Next.js 14.0.4 project, installed all dependencies
+  - Configured Tailwind with HSL CSS variables, globals.css with light/dark themes
+  - Created Supabase clients, TypeScript types, Zustand stores, utilities, constants
+  - Created 12 shadcn/ui components, 4 shared components, layout components
+  - Created 17 stub components, 9 placeholder pages, 17 API route stubs
+  - Ran 15 database migrations, seeded 10 countries, created storage bucket, enabled RLS (60 policies)
+  - Created GitHub repo, pushed, deployed to Railway
+- **Issues fixed:** AlertDialogHeader/AlertDialogFooter → plain divs (not Radix exports)
 
 ### Session 3 — February 8, 2026
-- **Scope:** Execute Phase 1 — Core UI Shell + Auth + Admin
+- **Scope:** Phase 1 — Core UI Shell + Auth + Admin
 - **What was done:**
   - Created `src/lib/auth.ts` — shared auth helpers (`getAuthenticatedUser`, `requireAdmin`, `upsertLoginUser`)
-  - Created `src/middleware.ts` — auth middleware protecting dashboard routes, using `@supabase/ssr` createServerClient with request/response cookie pattern
-  - Modified `src/app/(auth)/auth/callback/route.ts` — added user auto-creation via `upsertLoginUser()` after session exchange (first user = admin)
-  - Modified `src/app/(dashboard)/layout.tsx` — queries `lb_users` by auth_id, passes userRole to Sidebar, lbUser to Header, wraps in AuthProvider
-  - Created `src/components/providers/AuthProvider.tsx` — hydrates Zustand auth store from server-passed lbUser prop
-  - Modified `src/components/layouts/Sidebar.tsx` — added `userRole` prop, Shield icon admin badge at sidebar bottom
-  - Modified `src/components/layouts/Header.tsx` — added `lbUser` prop, shows full_name, Google avatar, admin badge
-  - Implemented `src/app/api/countries/route.ts` — GET with optional `?active=true` filter
-  - Implemented `src/app/api/categories/route.ts` — GET list (ordered by brand, name) + POST create (validates name/slug/brand, handles unique constraint 23505)
-  - Implemented `src/app/api/categories/[id]/route.ts` — GET single, PATCH partial update, DELETE by ID
-  - Implemented `src/app/api/admin/users/route.ts` — GET list + PATCH role change (admin-only, prevents self-demotion)
-  - Implemented `src/app/api/admin/settings/route.ts` — GET list + PUT upsert by key (admin-only)
-  - Modified `src/app/(dashboard)/dashboard/page.tsx` — Server Component with 4 parallel count queries + 5 recent listings
-  - Modified `src/components/dashboard/StatsCards.tsx` — 4 stat cards: Categories (blue), Countries (green), Research (orange), Listings (purple)
-  - Modified `src/components/dashboard/RecentListings.tsx` — listing display with EmptyState
-  - Modified `src/components/dashboard/QuickActions.tsx` — 3 disabled buttons for future phases
-  - Modified `src/app/(dashboard)/settings/page.tsx` — Server Component fetching categories, users (admin), settings (admin)
-  - Created `src/components/settings/SettingsClient.tsx` — client component with Tabs (Categories, Users, Admin Settings)
-  - Created `src/components/settings/CategoriesTab.tsx` — full CRUD table with Dialog form, ConfirmDialog delete, toast notifications
-  - Created `src/components/settings/UsersTab.tsx` — user management table with role Select dropdown, "You" badge for current user
-  - Created `src/components/settings/AdminSettingsTab.tsx` — key-value settings with inline edit, dirty state tracking, add form
-- **Files changed:** 21 files (14 modified, 7 new), 1,752 lines added
+  - Created `src/middleware.ts` — auth middleware with `@supabase/ssr` cookie pattern
+  - Modified callback route — user auto-creation via `upsertLoginUser()`, first user = admin
+  - Modified dashboard layout — queries `lb_users`, passes props to Sidebar/Header, wraps in AuthProvider
+  - Created `src/components/providers/AuthProvider.tsx` — hydrates Zustand auth store
+  - Modified Sidebar (userRole prop, admin badge) and Header (lbUser prop, avatar, admin badge)
+  - Implemented API routes: categories CRUD, countries GET, admin users GET/PATCH, admin settings GET/PUT
+  - Built dashboard page: 4 stat cards, recent listings, quick actions
+  - Built settings page: SettingsClient (Tabs), CategoriesTab (CRUD), UsersTab (role mgmt), AdminSettingsTab (key-value)
+
+### Session 4 — February 8, 2026
+- **Scope:** Fix production deployment issues + OAuth login
+- **What was done:**
+  - Fixed 500 error: removed `src/app/(dashboard)/page.tsx` (redirect-only page caused `page_client-reference-manifest.js` missing error in Next.js 14.0.4)
+  - Tried standalone mode for Railway — failed (Nixpacks `COPY . /app` overwrites build output), reverted
+  - Pinned Node 20 in `package.json` engines field
+  - Added `images.remotePatterns` for Google avatars in `next.config.js`
+  - Fixed OAuth login: hardcoded production URL in login page + callback route (was using `process.env.NEXT_PUBLIC_APP_URL` which isn't available at build time in client components)
+  - Fixed middleware: now runs Supabase `getUser()` for ALL routes (including `/auth/callback`) to ensure cookies are properly propagated during session exchange
+  - Fixed stale Supabase anon key on Railway — the `NEXT_PUBLIC_SUPABASE_ANON_KEY` env var had an old/invalid JWT, causing `exchangeCodeForSession` to fail with "Invalid API key 401"
+  - Added `https://listing-builder-production.up.railway.app/auth/callback` to Supabase Auth → URL Configuration → Redirect URLs
 - **Verification results:**
-  - `npm run build` ✅ (27 routes, zero errors, 2 img warnings for Google avatars)
-  - Git commit + push ✅ → Railway auto-deploy triggered
-- **Known issues:**
-  - Google OAuth login not yet tested end-to-end (requires browser login with @chalkola.com)
-  - Remaining API stubs (research, listings, batch, images, export) still return 501
-  - Remaining pages (research, listings, images, aplus) still show Phase X placeholders
-- **Next:** Phase 2 (Research Management — Upload)
+  - `npm run build` ✅
+  - Railway deploy ✅
+  - Health check ✅
+  - Google OAuth login ✅ (tested end-to-end with @chalkola.com account)
+  - User auto-created in `lb_users` as admin ✅
+
+---
+
+## Lessons Learned / Gotchas
+
+1. **`NEXT_PUBLIC_*` env vars in client components** — Inlined at build time, not read at runtime. If Railway builds before the env var is set, the value is `undefined`. **Always hardcode production URLs** in login/callback routes (matching keyword-tracker pattern).
+2. **Supabase API keys on Railway** — If Supabase rotates keys, Railway env vars become stale. The error is `Invalid API key 401`. Always verify with `get_publishable_keys` MCP tool.
+3. **Next.js 14.0.4 route groups** — A redirect-only `page.tsx` inside a route group `(dashboard)` causes missing `page_client-reference-manifest.js`. Don't create pages that only redirect.
+4. **Nixpacks + standalone mode** — Nixpacks runs `COPY . /app` after build, overwriting `.next/standalone`. Don't use `output: 'standalone'` with Nixpacks. Use `npm run start` instead.
+5. **Middleware cookie propagation** — The middleware must run the Supabase client for ALL routes (including `/auth/callback`) to ensure cookies from `exchangeCodeForSession` are properly propagated. Don't early-return before creating the Supabase client.
+6. **Supabase Redirect URLs** — Multiple apps can share the same Supabase project. Each app needs its callback URL added to Auth → URL Configuration → Redirect URLs. The Site URL is separate and is the default fallback.
+
+---
+
+## Current State (as of February 8, 2026)
+
+### What's Working
+- Google OAuth login with @chalkola.com ✅
+- Dashboard with stat cards ✅
+- Settings page: Categories CRUD, User management, Admin settings ✅
+- Sidebar navigation with admin badge ✅
+- Header with user avatar and name ✅
+- Auth middleware protecting all dashboard routes ✅
+- First user auto-created as admin ✅
+- Production deploy on Railway ✅
+- Health check endpoint ✅
+
+### What's Not Built Yet (stub pages/routes return 501)
+- Research file upload + management (Phase 2)
+- Research analysis engine (Phase 3)
+- Listing builder wizard (Phase 4)
+- Modular chats (Phase 5)
+- Speed/batch mode (Phase 6)
+- Apify/DataDive integration (Phase 7)
+- Google Drive integration (Phase 8)
+- Image builder (Phase 9)
+- A+ content (Phase 10)
 
 ---
 
