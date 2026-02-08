@@ -14,8 +14,8 @@ export default function LoginPage() {
     setIsLoading(true)
     setError(null)
 
-    // Use production URL for redirects (update after Railway deploy)
-    const productionUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    // Use production URL, not window.location.origin (which can be wrong)
+    const productionUrl = 'https://listing-builder-production.up.railway.app'
 
     try {
       const { error } = await supabase.auth.signInWithOAuth({

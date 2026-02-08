@@ -1,15 +1,8 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC_PATHS = ['/login', '/auth/callback', '/api/health']
-
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-
-  // Skip auth check for public paths
-  if (PUBLIC_PATHS.some((path) => pathname.startsWith(path))) {
-    return NextResponse.next()
-  }
 
   let response = NextResponse.next({
     request: { headers: request.headers },
@@ -41,20 +34,27 @@ export async function middleware(request: NextRequest) {
     }
   )
 
+  // Always refresh the session — this handles token refresh and cookie propagation
+  // IMPORTANT: must run for ALL routes including /auth/callback so cookies are set properly
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // No session + protected route → redirect to login
-  if (!user && !pathname.startsWith('/login')) {
-    const loginUrl = new URL('/login', request.url)
-    return NextResponse.redirect(loginUrl)
+  // Skip auth redirects for public paths
+  const isPublicPath = pathname.startsWith('/login') || pathname.startsWith('/auth/callback') || pathname.startsWith('/api/health')
+  if (isPublicPath) {
+    // Logged in + on login page → redirect to dashboard
+    if (user && pathname === '/login') {
+      const dashboardUrl = new URL('/dashboard', request.url)
+      return NextResponse.redirect(dashboardUrl)
+    }
+    return response
   }
 
-  // Logged in + on login page → redirect to dashboard
-  if (user && pathname === '/login') {
-    const dashboardUrl = new URL('/dashboard', request.url)
-    return NextResponse.redirect(dashboardUrl)
+  // No session + protected route → redirect to login
+  if (!user) {
+    const loginUrl = new URL('/login', request.url)
+    return NextResponse.redirect(loginUrl)
   }
 
   return response

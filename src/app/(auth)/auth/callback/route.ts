@@ -7,11 +7,15 @@ export async function GET(request: Request) {
   const code = searchParams.get('code')
   const next = searchParams.get('next') ?? '/dashboard'
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  // Use production URL, not origin (which can be wrong after Supabase changes)
+  const appUrl = 'https://listing-builder-production.up.railway.app'
 
   if (code) {
     const supabase = createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
+    if (error) {
+      console.error('Auth callback error:', error.message, error.status)
+    }
     if (!error) {
       // Get the authenticated user from the new session
       const {
