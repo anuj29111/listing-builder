@@ -24,7 +24,7 @@
 | 0 | Project Foundation & DB Schema | **COMPLETED** |
 | 1 | Core UI Shell + Auth + Admin | **COMPLETED** |
 | 2 | Research Management (Upload) | **COMPLETED** |
-| 3 | Research Analysis Engine | NOT STARTED |
+| 3 | Research Analysis Engine | **COMPLETED** |
 | 4 | Listing Builder - Single Mode | NOT STARTED |
 | 5 | Modular Chats | NOT STARTED |
 | 6 | Speed Mode (Batch) | NOT STARTED |
@@ -33,7 +33,7 @@
 | 9 | Image Builder | NOT STARTED |
 | 10 | A+ Content + Polish | NOT STARTED |
 
-**Current Phase:** 3
+**Current Phase:** 4
 **Last Updated:** February 8, 2026
 **App Version:** 0.1.0
 
@@ -952,6 +952,24 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
   - Railway deploy ✅ (healthcheck passed, confirmed live on production)
   - Research page verified working on production ✅
 
+### Session 6 — February 8, 2026
+- **Scope:** Phase 3 — Research Analysis Engine
+- **What was done:**
+  - Implemented `src/lib/claude.ts` — Anthropic API wrapper with typed result interfaces (KeywordAnalysisResult, ReviewAnalysisResult, QnAAnalysisResult), analysis prompts tailored to each CSV format, model `claude-sonnet-4-20250514`, MAX_TOKENS=8192
+  - Implemented `src/app/api/research/analyze/route.ts` — POST endpoint: validates inputs, downloads CSVs from Supabase Storage, sends to Claude, caches JSONB result in `lb_research_analysis`, handles re-analysis by deleting existing records first
+  - Created `src/app/api/research/analysis/route.ts` — GET endpoint for cached analysis results filtered by category/country/type
+  - Updated `src/app/api/research/status/route.ts` — added `analysisStatus` map alongside `coverage` in response
+  - Built `src/components/research/AnalysisProgress.tsx` — AnalysisProgress (status icon + badge) + AnalysisStatusPanel (lists 3 analysis types with Analyze/Re-analyze buttons)
+  - Built `src/components/research/AnalysisViewer.tsx` — Tabbed display with KeywordAnalysisView (tiers, stats), ReviewAnalysisView (themes, sentiment), QnAAnalysisView (gaps, insights)
+  - Created `src/components/research/AnalysisPageClient.tsx` — Client wrapper with optimistic UI updates, trigger flow, react-hot-toast notifications
+  - Built `src/app/(dashboard)/research/[categoryId]/[countryId]/page.tsx` — Server page with breadcrumb, file summary cards, AnalysisPageClient
+  - Modified `src/components/research/ResearchClient.tsx` — added "View Analysis" link when files exist
+  - Fixed TypeScript build errors: `[...new Set()]` → `Array.from(new Set())`, typed analysis result casting, removed unused `FILE_TYPE_TO_ANALYSIS` constant
+- **Verification results:**
+  - `npm run build` ✅ (28 routes, zero errors)
+  - Railway deploy ✅ (healthcheck passed, new image digest confirmed)
+- **Note:** `ANTHROPIC_API_KEY` not yet set in `.env.local` or Railway — user to add later
+
 ---
 
 ## Lessons Learned / Gotchas
@@ -965,7 +983,8 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 7. **FormData file upload** — Never set `Content-Type` header manually; the browser sets it with the multipart boundary. Server-side: convert File to Buffer via `Buffer.from(await file.arrayBuffer())` for Supabase Storage upload.
 8. **DataDive CSV BOM character** — Keyword CSVs from DataDive start with `\uFEFF` (BOM). Must strip before header detection. Also have empty first column — filter empty strings from headers.
 9. **Q&A vs Rufus Q&A** — Identical CSV format, can't auto-distinguish. Auto-detect defaults to `qna`, user manually selects `rufus_qna` via dropdown.
-10. **Railway auto-deploy can silently fail** — Git pushes to `main` don't always trigger Railway auto-deploy (webhook issues). If production shows stale code after push, use `railway deploy` CLI to force a direct upload from local. Always verify deploy happened by checking `list-deployments` timestamps.
+10. **Railway auto-deploy can silently fail** — Git pushes to `main` don't always trigger Railway auto-deploy (webhook issues). If production shows stale code after push, use `railway up` CLI to force a direct upload from local. Always verify deploy happened by checking `list-deployments` timestamps.
+11. **TypeScript Set spread syntax** — `[...new Set()]` fails with `--downlevelIteration` error in Next.js 14.0.4 tsconfig. Use `Array.from(new Set())` instead.
 
 ---
 
@@ -986,9 +1005,12 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 - Research coverage status matrix (category × country grid with colored dots) ✅
 - CSV parsing with BOM handling, row count, 5-row preview ✅
 - File storage in Supabase Storage (`lb-research-files` bucket) ✅
+- Research analysis engine: Claude AI analysis trigger + cached JSONB results ✅
+- Analysis viewer page with keyword tiers, review themes, Q&A gaps ✅
+- Analysis status panel with Analyze/Re-analyze buttons ✅
+- Analysis progress tracking with optimistic UI updates ✅
 
 ### What's Not Built Yet (stub pages/routes return 501)
-- Research analysis engine (Phase 3)
 - Listing builder wizard (Phase 4)
 - Modular chats (Phase 5)
 - Speed/batch mode (Phase 6)
@@ -999,35 +1021,41 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 
 ---
 
-## Phase 3 Handoff — What Needs to Be Built
+## Phase 4 Handoff — What Needs to Be Built
 
-**Goal:** Trigger Claude AI analysis on uploaded CSV research files, cache results as JSONB in `lb_research_analysis`, display analysis results.
+**Goal:** 4-step wizard to generate a single Amazon listing using cached research analysis + Claude AI.
 
-### What Phase 2 Already Built
-- Research file upload with CSV parsing, type detection, preview
-- Research file list with delete
-- Research status matrix (category × country coverage grid)
-- API routes: GET/POST files, DELETE file, GET status
-- Storage in `lb-research-files` bucket
+### What Phase 3 Already Built
+- `src/lib/claude.ts` — Anthropic API wrapper with keyword, review, Q&A analysis functions
+- `POST /api/research/analyze` — triggers Claude analysis, caches JSONB in `lb_research_analysis`
+- `GET /api/research/analysis` — fetches cached analysis results
+- Analysis viewer page at `/research/[categoryId]/[countryId]` with full result display
+- AnalysisStatusPanel with trigger buttons, AnalysisViewer with tabbed keyword/review/QnA views
 
-### What Phase 3 Needs to Implement
-- `src/lib/claude.ts` — Anthropic API wrapper with analysis prompts (keyword tier analysis, review theme extraction, Q&A gap analysis)
-- `src/app/api/research/analyze/route.ts` — POST trigger analysis (reads CSVs from storage, sends to Claude, caches result in `lb_research_analysis`)
-- `src/app/(dashboard)/research/[categoryId]/[countryId]/page.tsx` — Analysis viewer page
-- `src/components/research/AnalysisViewer.tsx` — Display keyword tiers, review themes, Q&A gaps from cached JSONB
-- `src/components/research/AnalysisProgress.tsx` — Progress indicator during analysis
+### What Phase 4 Needs to Implement
+- `src/app/(dashboard)/listings/new/page.tsx` — Wizard container
+- `src/components/listings/wizard/StepCategoryCountry.tsx` — Step 1: Select category + country
+- `src/components/listings/wizard/StepProductDetails.tsx` — Step 2: Enter product details (name, ASIN, attributes)
+- `src/components/listings/wizard/StepGeneration.tsx` — Step 3: Generate listing via Claude (using cached analysis)
+- `src/components/listings/wizard/StepReviewExport.tsx` — Step 4: Review sections, select variations, export
+- `src/components/listings/SectionCard.tsx` — Display section (title/bullet/description) with variation selector
+- `src/components/listings/ExportOptions.tsx` — CSV, clipboard export
+- `src/app/api/listings/route.ts` — GET list, POST generate listing
+- `src/app/api/listings/[id]/route.ts` — GET, PATCH, DELETE listing
+- Extend `src/lib/claude.ts` with listing generation prompts (uses cached analysis as context)
 
-### Database Tables Used by Phase 3
-- `lb_research_analysis` — Full CRUD (create analysis, read cached results, re-analyze)
-- `lb_research_files` — Read (to get file list + storage paths for a category/country)
-- `lb_categories` — Read (for display)
-- `lb_countries` — Read (for display + character limits)
+### Database Tables Used by Phase 4
+- `lb_listings` — Full CRUD
+- `lb_listing_sections` — Store per-section variations and selection state
+- `lb_product_types` — Product variants within categories
+- `lb_research_analysis` — Read cached analysis for generation context
+- `lb_countries` — Character limits per marketplace
 
 ### Key Patterns
-- Analysis flow: User clicks "Analyze" → API reads CSVs from Supabase Storage → sends to Claude → stores result in `lb_research_analysis` (JSONB)
-- Caching: One analysis per (category_id, country_id, analysis_type) — UNIQUE constraint already exists
-- Re-analysis: Delete existing record, create new one with fresh Claude output
-- Status tracking: pending → processing → completed/failed
+- Generation flow: Select category/country → enter product details → Claude generates listing using cached analysis → user reviews variations per section → export
+- Each section (title, 5 bullets, description, search terms) gets 2-3 variations
+- Uses `lb_research_analysis` JSONB as context for Claude generation prompts
+- Character limits enforced per country from `lb_countries`
 
 ### Environment Variables Needed
 - `ANTHROPIC_API_KEY` — must be set in `.env.local` and Railway for Claude API access
