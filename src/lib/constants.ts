@@ -28,6 +28,15 @@ export const SYNC_TYPES = ['google_drive', 'apify', 'datadive'] as const
 
 export const EXPORT_TYPES = ['csv', 'clipboard', 'flat_file'] as const
 
+export const FILE_TYPE_LABELS: Record<string, string> = {
+  keywords: 'Keywords',
+  reviews: 'Reviews',
+  qna: 'Q&A',
+  rufus_qna: 'Rufus Q&A',
+}
+
+export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024 // 50MB
+
 export const DEFAULT_CHAR_LIMITS = {
   title: 200,
   bullet: 500,
