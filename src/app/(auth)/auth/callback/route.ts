@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { upsertLoginUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
@@ -12,6 +13,28 @@ export async function GET(request: Request) {
     const supabase = createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) {
+      // Get the authenticated user from the new session
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (user) {
+        try {
+          // Upsert lb_users row (first user becomes admin)
+          await upsertLoginUser({
+            id: user.id,
+            email: user.email,
+            user_metadata: user.user_metadata as {
+              full_name?: string
+              avatar_url?: string
+            },
+          })
+        } catch (e) {
+          // Log but don't block login
+          console.error('Failed to upsert user:', e)
+        }
+      }
+
       return NextResponse.redirect(`${appUrl}${next}`)
     }
   }

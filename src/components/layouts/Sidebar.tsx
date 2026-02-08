@@ -12,6 +12,7 @@ import {
   Sparkles,
   Settings,
   ChevronLeft,
+  Shield,
 } from 'lucide-react'
 
 const navItems = [
@@ -23,7 +24,11 @@ const navItems = [
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  userRole: 'admin' | 'user'
+}
+
+export function Sidebar({ userRole }: SidebarProps) {
   const pathname = usePathname()
   const { sidebarOpen, toggleSidebar } = useUIStore()
 
@@ -35,22 +40,25 @@ export function Sidebar() {
       )}
     >
       <div className="flex items-center justify-between h-14 px-4 border-b">
-        {sidebarOpen && (
-          <span className="text-lg font-bold">LB</span>
-        )}
+        {sidebarOpen && <span className="text-lg font-bold">LB</span>}
         <button
           onClick={toggleSidebar}
           className="p-1.5 rounded-md hover:bg-accent"
         >
           <ChevronLeft
-            className={cn('h-4 w-4 transition-transform', !sidebarOpen && 'rotate-180')}
+            className={cn(
+              'h-4 w-4 transition-transform',
+              !sidebarOpen && 'rotate-180'
+            )}
           />
         </button>
       </div>
 
       <nav className="flex-1 p-3 space-y-1">
         {navItems.map((item) => {
-          const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
+          const isActive =
+            pathname === item.href ||
+            pathname?.startsWith(item.href + '/')
           return (
             <Link
               key={item.href}
@@ -67,6 +75,15 @@ export function Sidebar() {
           )
         })}
       </nav>
+
+      {userRole === 'admin' && sidebarOpen && (
+        <div className="p-3 border-t">
+          <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground">
+            <Shield className="h-3.5 w-3.5" />
+            <span>Admin</span>
+          </div>
+        </div>
+      )}
     </aside>
   )
 }
