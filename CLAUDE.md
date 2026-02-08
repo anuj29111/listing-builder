@@ -945,9 +945,12 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
   - Built `src/components/research/FileList.tsx` — table with type badges, delete with ConfirmDialog
   - Created `src/components/research/ResearchClient.tsx` — client wrapper with category/country dropdowns, manages files state, coordinates FileUploader + FileList
   - Built `src/app/(dashboard)/research/page.tsx` — server page fetching categories, countries, coverage, pre-filtered files in parallel
+  - Fixed Railway deploy: git push didn't trigger auto-deploy — used `railway deploy` CLI to force direct upload, confirmed live with new image digest
+  - Updated CLAUDE.md: Phase 2 → COMPLETED, Session 5 log, Phase 3 Handoff, new gotchas
 - **Verification results:**
   - `npm run build` ✅ (28 routes, zero errors)
-  - Railway deploy ✅ (healthcheck passed)
+  - Railway deploy ✅ (healthcheck passed, confirmed live on production)
+  - Research page verified working on production ✅
 
 ---
 
@@ -962,6 +965,7 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 7. **FormData file upload** — Never set `Content-Type` header manually; the browser sets it with the multipart boundary. Server-side: convert File to Buffer via `Buffer.from(await file.arrayBuffer())` for Supabase Storage upload.
 8. **DataDive CSV BOM character** — Keyword CSVs from DataDive start with `\uFEFF` (BOM). Must strip before header detection. Also have empty first column — filter empty strings from headers.
 9. **Q&A vs Rufus Q&A** — Identical CSV format, can't auto-distinguish. Auto-detect defaults to `qna`, user manually selects `rufus_qna` via dropdown.
+10. **Railway auto-deploy can silently fail** — Git pushes to `main` don't always trigger Railway auto-deploy (webhook issues). If production shows stale code after push, use `railway deploy` CLI to force a direct upload from local. Always verify deploy happened by checking `list-deployments` timestamps.
 
 ---
 
