@@ -10,6 +10,7 @@
 | **Database** | Supabase PostgreSQL (shared project `yawaopfqkkvdqtsagmng`) |
 | **Auth** | Google OAuth via Supabase Auth (`@chalkola.com` only) |
 | **Deployment** | Railway (auto-deploy from GitHub `main`) |
+| **Production URL** | `https://listing-builder-production.up.railway.app` |
 | **GitHub** | `anuj29111/listing-builder` |
 | **Table Prefix** | `lb_` (shared DB with Chalkola ONE, keyword-tracker, etc.) |
 | **Storage Bucket** | `lb-research-files` |
@@ -829,7 +830,15 @@ restartPolicyMaxRetries = 3
 ```
 
 **After code changes:** commit → push to main → Railway auto-deploys.
-**Production URL:** Will be set after first Railway deploy (update login redirect URL).
+**Production URL:** `https://listing-builder-production.up.railway.app`
+**Railway Project:** `listing-builder` (linked via Railway CLI)
+
+**Railway Environment Variables (set):**
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `NEXT_PUBLIC_APP_URL=https://listing-builder-production.up.railway.app`
+- `NODE_ENV=production`
 
 ---
 
@@ -902,5 +911,77 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
   - `/api/health` ✅ (`{"status":"ok","app":"listing-builder","version":"0.0.0"}`)
   - Database ✅ (15 tables, 10 countries, 60 RLS policies, storage bucket)
   - GitHub ✅ (`https://github.com/anuj29111/listing-builder`)
-- **Known issues:** None
-- **Next:** Phase 1 (Core UI Shell + Auth + Admin). User must first create Railway project and link GitHub repo in Railway dashboard.
+  - Created Railway project `listing-builder`, deployed, generated domain
+  - Set all Railway env vars (Supabase URL, anon key, service role key, app URL, NODE_ENV)
+  - Production health check verified: `https://listing-builder-production.up.railway.app/api/health` ✅
+- **Verification results:**
+  - `npm run build` ✅ (27 routes, zero errors)
+  - `npm run dev` ✅ (starts on port 3000)
+  - `/api/health` ✅ (both local and production)
+  - Database ✅ (15 tables, 10 countries, 60 RLS policies, storage bucket)
+  - GitHub ✅ (`https://github.com/anuj29111/listing-builder`)
+  - Railway ✅ (`https://listing-builder-production.up.railway.app` — deploy SUCCESS)
+- **Known issues:**
+  - Railway uses Node.js 18 by default (Supabase warns about deprecation) — works fine, can pin Node 20 later
+  - All API routes except `/api/health` return 501 (stubs for future phases)
+  - All dashboard pages show placeholder "Coming in Phase X" content
+  - Google OAuth not yet tested (needs Supabase Auth provider config for production URL redirect)
+- **Next:** Phase 1 (Core UI Shell + Auth + Admin)
+
+---
+
+## Phase 1 Handoff — What Needs to Be Built
+
+**Goal:** Working app with Google OAuth login, sidebar navigation, dashboard layout, admin settings page, and categories CRUD.
+
+### Pre-requisites (before starting Phase 1)
+1. **Supabase Auth:** Ensure Google OAuth provider is configured in Supabase dashboard with production redirect URL: `https://listing-builder-production.up.railway.app/auth/callback`
+2. **Allowed emails:** Only `@chalkola.com` Google accounts should be able to log in
+
+### What Phase 0 Already Created (stubs to be replaced)
+These files exist but contain placeholder/stub code that Phase 1 needs to replace with real implementations:
+
+**Auth (stubs exist, need real logic):**
+- `src/app/(auth)/login/page.tsx` — Has Google OAuth button, may need redirect URL update to production
+- `src/app/(auth)/auth/callback/route.ts` — Has code exchange logic, may need redirect URL update
+- `src/app/page.tsx` — Has auth check + redirect logic
+
+**Layout (stubs exist, need real auth guard + polish):**
+- `src/app/(dashboard)/layout.tsx` — Has auth guard + Sidebar + Header shell
+- `src/components/layouts/Sidebar.tsx` — Has nav links, needs active state styling, user role visibility
+- `src/components/layouts/Header.tsx` — Has user email + sign out, needs polish
+
+**Dashboard (stubs exist, need real data):**
+- `src/app/(dashboard)/dashboard/page.tsx` — Placeholder, needs stat cards with real DB queries
+- `src/components/dashboard/StatsCards.tsx` — Stub, needs real counts from lb_* tables
+- `src/components/dashboard/RecentListings.tsx` — Stub
+- `src/components/dashboard/QuickActions.tsx` — Stub
+
+**API Routes (return 501, need real implementation):**
+- `src/app/api/categories/route.ts` — GET list, POST create
+- `src/app/api/categories/[id]/route.ts` — GET, PATCH, DELETE
+- `src/app/api/countries/route.ts` — GET list
+- `src/app/api/admin/settings/route.ts` — GET, PUT (admin-only)
+- `src/app/api/admin/users/route.ts` — GET, PATCH (admin-only)
+
+**Settings (stub exists, needs real UI):**
+- `src/app/(dashboard)/settings/page.tsx` — Placeholder, needs admin settings form
+
+### What Phase 1 Needs to Create (new files)
+- `src/middleware.ts` — Next.js middleware for auth protection on all `/dashboard/*` routes
+- Categories management page (possibly under settings or as its own page)
+- User management UI for admins
+- Auto-create `lb_users` row on first login (sync from Supabase Auth)
+
+### Database Tables Used by Phase 1
+- `lb_users` — Read/write (auto-create on login, admin role check)
+- `lb_categories` — Full CRUD
+- `lb_countries` — Read only (for dropdowns)
+- `lb_admin_settings` — Read/write (admin only)
+
+### Key Patterns to Follow
+- Use `createClient()` from `lib/supabase/server.ts` in API routes
+- Use `createAdminClient()` for operations that bypass RLS (like auto-creating users)
+- Use `createBrowserClient` from `lib/supabase/client.ts` in client components
+- Always use production URL for OAuth redirects: `https://listing-builder-production.up.railway.app`
+- First user to login with `@chalkola.com` should be auto-assigned `admin` role
