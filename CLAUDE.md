@@ -23,7 +23,7 @@
 |-------|------|--------|
 | 0 | Project Foundation & DB Schema | **COMPLETED** |
 | 1 | Core UI Shell + Auth + Admin | **COMPLETED** |
-| 2 | Research Management (Upload) | NOT STARTED |
+| 2 | Research Management (Upload) | **COMPLETED** |
 | 3 | Research Analysis Engine | NOT STARTED |
 | 4 | Listing Builder - Single Mode | NOT STARTED |
 | 5 | Modular Chats | NOT STARTED |
@@ -33,7 +33,7 @@
 | 9 | Image Builder | NOT STARTED |
 | 10 | A+ Content + Polish | NOT STARTED |
 
-**Current Phase:** 2
+**Current Phase:** 3
 **Last Updated:** February 8, 2026
 **App Version:** 0.1.0
 
@@ -930,6 +930,25 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
   - Google OAuth login ✅ (tested end-to-end with @chalkola.com account)
   - User auto-created in `lb_users` as admin ✅
 
+### Session 5 — February 8, 2026
+- **Scope:** Phase 2 — Research Management (Upload)
+- **What was done:**
+  - Implemented `src/lib/csv-parser.ts` — PapaParse wrapper with BOM stripping, file type auto-detection (keywords/reviews/qna), row counting, 5-row preview
+  - Added constants to `src/lib/constants.ts` — `FILE_TYPE_LABELS`, `FILE_TYPES`, `MAX_FILE_SIZE_BYTES`
+  - Added `formatFileSize()` and `formatNumber()` helpers to `src/lib/utils.ts`
+  - Implemented `src/stores/research-store.ts` — minimal Zustand store for category/country selection
+  - Implemented `src/app/api/research/files/route.ts` — GET (list with filters + joins) + POST (FormData upload to Supabase Storage + DB insert with cleanup on failure)
+  - Created `src/app/api/research/files/[id]/route.ts` — DELETE (storage + DB cleanup)
+  - Implemented `src/app/api/research/status/route.ts` — GET coverage map (categories × countries → file types)
+  - Built `src/components/dashboard/ResearchStatusMatrix.tsx` — category × country grid with colored dots per file type, clickable cells navigate to `/research?category=X&country=Y`
+  - Built `src/components/research/FileUploader.tsx` — react-dropzone + file type selector + CSV preview + upload via FormData POST
+  - Built `src/components/research/FileList.tsx` — table with type badges, delete with ConfirmDialog
+  - Created `src/components/research/ResearchClient.tsx` — client wrapper with category/country dropdowns, manages files state, coordinates FileUploader + FileList
+  - Built `src/app/(dashboard)/research/page.tsx` — server page fetching categories, countries, coverage, pre-filtered files in parallel
+- **Verification results:**
+  - `npm run build` ✅ (28 routes, zero errors)
+  - Railway deploy ✅ (healthcheck passed)
+
 ---
 
 ## Lessons Learned / Gotchas
@@ -940,6 +959,9 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 4. **Nixpacks + standalone mode** — Nixpacks runs `COPY . /app` after build, overwriting `.next/standalone`. Don't use `output: 'standalone'` with Nixpacks. Use `npm run start` instead.
 5. **Middleware cookie propagation** — The middleware must run the Supabase client for ALL routes (including `/auth/callback`) to ensure cookies from `exchangeCodeForSession` are properly propagated. Don't early-return before creating the Supabase client.
 6. **Supabase Redirect URLs** — Multiple apps can share the same Supabase project. Each app needs its callback URL added to Auth → URL Configuration → Redirect URLs. The Site URL is separate and is the default fallback.
+7. **FormData file upload** — Never set `Content-Type` header manually; the browser sets it with the multipart boundary. Server-side: convert File to Buffer via `Buffer.from(await file.arrayBuffer())` for Supabase Storage upload.
+8. **DataDive CSV BOM character** — Keyword CSVs from DataDive start with `\uFEFF` (BOM). Must strip before header detection. Also have empty first column — filter empty strings from headers.
+9. **Q&A vs Rufus Q&A** — Identical CSV format, can't auto-distinguish. Auto-detect defaults to `qna`, user manually selects `rufus_qna` via dropdown.
 
 ---
 
@@ -955,9 +977,13 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 - First user auto-created as admin ✅
 - Production deploy on Railway ✅
 - Health check endpoint ✅
+- Research file upload (CSV drag-and-drop with preview, type auto-detection) ✅
+- Research file list with delete ✅
+- Research coverage status matrix (category × country grid with colored dots) ✅
+- CSV parsing with BOM handling, row count, 5-row preview ✅
+- File storage in Supabase Storage (`lb-research-files` bucket) ✅
 
 ### What's Not Built Yet (stub pages/routes return 501)
-- Research file upload + management (Phase 2)
 - Research analysis engine (Phase 3)
 - Listing builder wizard (Phase 4)
 - Modular chats (Phase 5)
@@ -969,34 +995,35 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 
 ---
 
-## Phase 2 Handoff — What Needs to Be Built
+## Phase 3 Handoff — What Needs to Be Built
 
-**Goal:** Upload CSV research files (keywords, reviews, Q&A, Rufus Q&A), organize by category/country, view research status matrix.
+**Goal:** Trigger Claude AI analysis on uploaded CSV research files, cache results as JSONB in `lb_research_analysis`, display analysis results.
 
-### What Phase 1 Already Built
-- Auth system working (middleware, callback, user auto-creation)
-- Categories CRUD (needed for file organization)
-- Countries API (needed for file organization)
-- Dashboard with stats (will show research file counts)
-- Settings page with admin tabs
+### What Phase 2 Already Built
+- Research file upload with CSV parsing, type detection, preview
+- Research file list with delete
+- Research status matrix (category × country coverage grid)
+- API routes: GET/POST files, DELETE file, GET status
+- Storage in `lb-research-files` bucket
 
-### What Phase 2 Needs to Implement
-- `src/app/(dashboard)/research/page.tsx` — Research file management + status matrix
-- `src/components/research/FileUploader.tsx` — Drag-and-drop CSV upload with react-dropzone
-- `src/components/research/FileList.tsx` — List of uploaded files per category/country
-- `src/components/dashboard/ResearchStatusMatrix.tsx` — Category x Country coverage grid
-- `src/app/api/research/files/route.ts` — GET list + POST upload to Supabase Storage + registry
-- `src/app/api/research/status/route.ts` — GET status matrix data
+### What Phase 3 Needs to Implement
+- `src/lib/claude.ts` — Anthropic API wrapper with analysis prompts (keyword tier analysis, review theme extraction, Q&A gap analysis)
+- `src/app/api/research/analyze/route.ts` — POST trigger analysis (reads CSVs from storage, sends to Claude, caches result in `lb_research_analysis`)
+- `src/app/(dashboard)/research/[categoryId]/[countryId]/page.tsx` — Analysis viewer page
+- `src/components/research/AnalysisViewer.tsx` — Display keyword tiers, review themes, Q&A gaps from cached JSONB
+- `src/components/research/AnalysisProgress.tsx` — Progress indicator during analysis
 
-### Database Tables Used by Phase 2
-- `lb_research_files` — Full CRUD (upload, list, delete)
-- `lb_categories` — Read (for file organization dropdowns)
-- `lb_countries` — Read (for file organization dropdowns)
-
-### Storage
-- Bucket `lb-research-files` already exists (50MB limit, CSV/text MIME types)
+### Database Tables Used by Phase 3
+- `lb_research_analysis` — Full CRUD (create analysis, read cached results, re-analyze)
+- `lb_research_files` — Read (to get file list + storage paths for a category/country)
+- `lb_categories` — Read (for display)
+- `lb_countries` — Read (for display + character limits)
 
 ### Key Patterns
-- File upload: react-dropzone → FormData → API route → Supabase Storage + lb_research_files insert
-- Status matrix: cross-join categories × countries, left join research_files to show coverage
-- CSV parsing: PapaParse for preview/validation before upload
+- Analysis flow: User clicks "Analyze" → API reads CSVs from Supabase Storage → sends to Claude → stores result in `lb_research_analysis` (JSONB)
+- Caching: One analysis per (category_id, country_id, analysis_type) — UNIQUE constraint already exists
+- Re-analysis: Delete existing record, create new one with fresh Claude output
+- Status tracking: pending → processing → completed/failed
+
+### Environment Variables Needed
+- `ANTHROPIC_API_KEY` — must be set in `.env.local` and Railway for Claude API access
