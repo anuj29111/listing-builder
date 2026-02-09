@@ -34,7 +34,7 @@
 | 10 | A+ Content + Polish | NOT STARTED |
 
 **Current Phase:** 4
-**Last Updated:** February 8, 2026
+**Last Updated:** February 9, 2026
 **App Version:** 0.1.0
 
 ### Phase Dependencies & Parallelization Rules
@@ -952,8 +952,8 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
   - Railway deploy ✅ (healthcheck passed, confirmed live on production)
   - Research page verified working on production ✅
 
-### Session 6 — February 8, 2026
-- **Scope:** Phase 3 — Research Analysis Engine
+### Session 6 — February 8-9, 2026
+- **Scope:** Phase 3 — Research Analysis Engine + API key config fix
 - **What was done:**
   - Implemented `src/lib/claude.ts` — Anthropic API wrapper with typed result interfaces (KeywordAnalysisResult, ReviewAnalysisResult, QnAAnalysisResult), analysis prompts tailored to each CSV format, model `claude-sonnet-4-20250514`, MAX_TOKENS=8192
   - Implemented `src/app/api/research/analyze/route.ts` — POST endpoint: validates inputs, downloads CSVs from Supabase Storage, sends to Claude, caches JSONB result in `lb_research_analysis`, handles re-analysis by deleting existing records first
@@ -965,10 +965,11 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
   - Built `src/app/(dashboard)/research/[categoryId]/[countryId]/page.tsx` — Server page with breadcrumb, file summary cards, AnalysisPageClient
   - Modified `src/components/research/ResearchClient.tsx` — added "View Analysis" link when files exist
   - Fixed TypeScript build errors: `[...new Set()]` → `Array.from(new Set())`, typed analysis result casting, removed unused `FILE_TYPE_TO_ANALYSIS` constant
+  - Updated `src/lib/claude.ts` to read API key from `lb_admin_settings` (key: `anthropic_api_key`) first, with env var fallback — admins can set/rotate key from Settings UI without redeploying
 - **Verification results:**
   - `npm run build` ✅ (28 routes, zero errors)
   - Railway deploy ✅ (healthcheck passed, new image digest confirmed)
-- **Note:** `ANTHROPIC_API_KEY` not yet set in `.env.local` or Railway — user to add later
+- **Pending user action:** Set `anthropic_api_key` in Admin Settings UI to enable Claude analysis
 
 ---
 
@@ -988,7 +989,7 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 
 ---
 
-## Current State (as of February 8, 2026)
+## Current State (as of February 9, 2026)
 
 ### What's Working
 - Google OAuth login with @chalkola.com ✅
@@ -1009,6 +1010,7 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 - Analysis viewer page with keyword tiers, review themes, Q&A gaps ✅
 - Analysis status panel with Analyze/Re-analyze buttons ✅
 - Analysis progress tracking with optimistic UI updates ✅
+- Anthropic API key configurable via Admin Settings UI (no Railway env var needed) ✅
 
 ### What's Not Built Yet (stub pages/routes return 501)
 - Listing builder wizard (Phase 4)
@@ -1026,7 +1028,7 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 **Goal:** 4-step wizard to generate a single Amazon listing using cached research analysis + Claude AI.
 
 ### What Phase 3 Already Built
-- `src/lib/claude.ts` — Anthropic API wrapper with keyword, review, Q&A analysis functions
+- `src/lib/claude.ts` — Anthropic API wrapper with keyword, review, Q&A analysis functions; reads API key from `lb_admin_settings` first, env var fallback
 - `POST /api/research/analyze` — triggers Claude analysis, caches JSONB in `lb_research_analysis`
 - `GET /api/research/analysis` — fetches cached analysis results
 - Analysis viewer page at `/research/[categoryId]/[countryId]` with full result display
@@ -1058,4 +1060,5 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 - Character limits enforced per country from `lb_countries`
 
 ### Environment Variables Needed
-- `ANTHROPIC_API_KEY` — must be set in `.env.local` and Railway for Claude API access
+- `anthropic_api_key` — set via Admin Settings UI in the app (or `ANTHROPIC_API_KEY` env var as fallback)
+
