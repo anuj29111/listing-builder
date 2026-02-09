@@ -678,84 +678,7 @@ These are stored per-country in `lb_countries` and can be customized.
 
 ## Phase Details
 
-### Phase 0: Project Foundation & DB Schema
-**What:** Initialize the entire project scaffolding, database, and configuration.
-**Steps:**
-1. `npx create-next-app@14 . --typescript --tailwind --eslint --app --src-dir --import-alias "@/*"`
-2. Install all dependencies from Tech Stack
-3. Configure Tailwind with HSL variables (match keyword-tracker `tailwind.config.js`)
-4. Create full folder structure
-5. Set up Supabase clients (`lib/supabase/client.ts` + `server.ts`)
-6. Create `.env.local` + `.env.example`
-7. Run all 15 migrations via Supabase MCP
-8. Seed `lb_countries` with 10 marketplaces
-9. Create `lb-research-files` storage bucket
-10. Enable RLS on all tables with basic policies
-11. Create TypeScript types (`types/database.ts`)
-12. Create placeholder pages for all routes
-13. Create health check API (`/api/health`)
-14. Create `railway.toml`, `.gitignore`
-15. Git init, commit, create GitHub repo, push
-16. Verify: dev server, build, health check, DB tables, login page
-**Verify:** `npm run dev` works, `npm run build` succeeds, `/api/health` returns OK, all 15 `lb_*` tables exist in Supabase.
-
-### Phase 1: Core UI Shell + Auth + Admin
-**What:** Working app with login, sidebar navigation, dashboard layout, admin settings, and categories CRUD.
-**Depends on:** Phase 0
-**Key files:**
-- `app/(auth)/login/page.tsx` — Google OAuth login (pattern from keyword-tracker)
-- `app/(auth)/auth/callback/route.ts` — OAuth callback
-- `app/(dashboard)/layout.tsx` — Sidebar + header shell
-- `app/(dashboard)/dashboard/page.tsx` — Dashboard with stat cards
-- `app/(dashboard)/settings/page.tsx` — Admin settings (API keys, config)
-- `components/layouts/Sidebar.tsx` — Navigation sidebar
-- `components/layouts/Header.tsx` — Top header with user menu
-- `api/categories/route.ts` — Categories CRUD
-- `api/admin/settings/route.ts` — Admin settings API
-- Middleware for auth protection
-**Verify:** Can login with @chalkola.com, see dashboard, manage categories, update admin settings.
-
-### Phase 2: Research Management (Upload)
-**What:** Upload CSV files, organize by category/country, view research status matrix.
-**Depends on:** Phase 1
-**Key files:**
-- `app/(dashboard)/research/page.tsx` — File upload + status matrix
-- `components/research/FileUploader.tsx` — Drag-and-drop CSV upload
-- `components/research/FileList.tsx` — List of uploaded files per category/country
-- `components/dashboard/ResearchStatusMatrix.tsx` — Category x Country grid
-- `api/research/files/route.ts` — Upload to Supabase Storage + registry
-**Verify:** Can upload CSVs, see them organized by category/country, status matrix shows coverage.
-
-### Phase 3: Research Analysis Engine
-**What:** Trigger Claude analysis on uploaded CSVs, cache results, view analysis.
-**Depends on:** Phase 2
-**Key files:**
-- `lib/claude.ts` — Anthropic API wrapper with analysis prompts
-- `api/research/analyze/route.ts` — Trigger + poll analysis
-- `app/(dashboard)/research/[categoryId]/[countryId]/page.tsx` — Analysis viewer
-- `components/research/AnalysisViewer.tsx` — Display keyword tiers, review themes, Q&A gaps
-- `components/research/AnalysisProgress.tsx` — Progress during analysis
-**Verify:** Trigger analysis on uploaded CSVs, see cached JSONB results, re-analysis works.
-
-### Phase 4: Listing Builder - Single Mode
-**What:** 4-step wizard to generate a single listing using cached analysis.
-**Depends on:** Phase 3
-**Key files:**
-- `app/(dashboard)/listings/new/page.tsx` — Wizard container
-- `components/listings/wizard/Step*.tsx` — 4 wizard steps
-- `components/listings/SectionCard.tsx` — Display section with variations
-- `api/listings/route.ts` — Generate listing via Claude
-- `components/listings/ExportOptions.tsx` — CSV, clipboard export
-**Verify:** Walk through wizard, generate listing, see variations per section, export.
-
-### Phase 5: Modular Chats
-**What:** Per-section chat refinement with cascading context.
-**Depends on:** Phase 4
-**Key files:**
-- `components/listings/ModularChat.tsx` — Chat UI per section
-- `api/listings/[id]/chats/[section]/route.ts` — Chat API
-- Updated SectionCard with chat toggle
-**Verify:** Open chat for title, refine, approved title context flows into bullet generation.
+> Phases 0–5 are **COMPLETED**. See Session Log for implementation details.
 
 ### Phase 6: Speed Mode (Batch)
 **What:** Chat-first batch generation for multiple products.
@@ -849,153 +772,19 @@ restartPolicyMaxRetries = 3
 
 ---
 
-## Reference Patterns (from keyword-tracker)
-
-### Supabase Server Client Pattern
-File: `/Users/anuj/Desktop/Github/keyword-tracker/lib/supabase/server.ts`
-- `createClient()` — uses cookies, anon key
-- `createAdminClient()` — no cookies, service role key
-
-### Supabase Browser Client Pattern
-File: `/Users/anuj/Desktop/Github/keyword-tracker/lib/supabase/client.ts`
-- `createBrowserClient()` from `@supabase/ssr`
-
-### Google OAuth Login Pattern
-File: `/Users/anuj/Desktop/Github/keyword-tracker/app/login/page.tsx`
-- Uses production URL for redirect (not `window.location.origin`)
-- `prompt: 'select_account'` to force account selection
-- @chalkola.com restriction message
-
-### Auth Callback Pattern
-File: `/Users/anuj/Desktop/Github/keyword-tracker/app/auth/callback/route.ts`
-- Exchanges code for session
-- Redirects to production URL + `/dashboard`
-
-### Tailwind Config Pattern
-File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
-- HSL CSS variables for shadcn/ui
-- `darkMode: ['class']`
-- Custom success/warning colors
-- Geist font family
-- Accordion + pulse-slow animations
-
----
-
 ## Session Log
 
-### Session 1 — February 7, 2026
-- **Scope:** Created CLAUDE.md file
-- **What was done:** Designed and wrote the complete CLAUDE.md with all phases, database schema, project structure, conventions, and reference patterns
+### Sessions 1–7 (February 7–9, 2026) — Summary
 
-### Session 2 — February 7, 2026
-- **Scope:** Phase 0 — full project scaffolding + database setup
-- **What was done:**
-  - Initialized Next.js 14.0.4 project, installed all dependencies
-  - Configured Tailwind with HSL CSS variables, globals.css with light/dark themes
-  - Created Supabase clients, TypeScript types, Zustand stores, utilities, constants
-  - Created 12 shadcn/ui components, 4 shared components, layout components
-  - Created 17 stub components, 9 placeholder pages, 17 API route stubs
-  - Ran 15 database migrations, seeded 10 countries, created storage bucket, enabled RLS (60 policies)
-  - Created GitHub repo, pushed, deployed to Railway
-- **Issues fixed:** AlertDialogHeader/AlertDialogFooter → plain divs (not Radix exports)
-
-### Session 3 — February 8, 2026
-- **Scope:** Phase 1 — Core UI Shell + Auth + Admin
-- **What was done:**
-  - Created `src/lib/auth.ts` — shared auth helpers (`getAuthenticatedUser`, `requireAdmin`, `upsertLoginUser`)
-  - Created `src/middleware.ts` — auth middleware with `@supabase/ssr` cookie pattern
-  - Modified callback route — user auto-creation via `upsertLoginUser()`, first user = admin
-  - Modified dashboard layout — queries `lb_users`, passes props to Sidebar/Header, wraps in AuthProvider
-  - Created `src/components/providers/AuthProvider.tsx` — hydrates Zustand auth store
-  - Modified Sidebar (userRole prop, admin badge) and Header (lbUser prop, avatar, admin badge)
-  - Implemented API routes: categories CRUD, countries GET, admin users GET/PATCH, admin settings GET/PUT
-  - Built dashboard page: 4 stat cards, recent listings, quick actions
-  - Built settings page: SettingsClient (Tabs), CategoriesTab (CRUD), UsersTab (role mgmt), AdminSettingsTab (key-value)
-
-### Session 4 — February 8, 2026
-- **Scope:** Fix production deployment issues + OAuth login
-- **What was done:**
-  - Fixed 500 error: removed `src/app/(dashboard)/page.tsx` (redirect-only page caused `page_client-reference-manifest.js` missing error in Next.js 14.0.4)
-  - Tried standalone mode for Railway — failed (Nixpacks `COPY . /app` overwrites build output), reverted
-  - Pinned Node 20 in `package.json` engines field
-  - Added `images.remotePatterns` for Google avatars in `next.config.js`
-  - Fixed OAuth login: hardcoded production URL in login page + callback route (was using `process.env.NEXT_PUBLIC_APP_URL` which isn't available at build time in client components)
-  - Fixed middleware: now runs Supabase `getUser()` for ALL routes (including `/auth/callback`) to ensure cookies are properly propagated during session exchange
-  - Fixed stale Supabase anon key on Railway — the `NEXT_PUBLIC_SUPABASE_ANON_KEY` env var had an old/invalid JWT, causing `exchangeCodeForSession` to fail with "Invalid API key 401"
-  - Added `https://listing-builder-production.up.railway.app/auth/callback` to Supabase Auth → URL Configuration → Redirect URLs
-- **Verification results:**
-  - `npm run build` ✅
-  - Railway deploy ✅
-  - Health check ✅
-  - Google OAuth login ✅ (tested end-to-end with @chalkola.com account)
-  - User auto-created in `lb_users` as admin ✅
-
-### Session 5 — February 8, 2026
-- **Scope:** Phase 2 — Research Management (Upload)
-- **What was done:**
-  - Implemented `src/lib/csv-parser.ts` — PapaParse wrapper with BOM stripping, file type auto-detection (keywords/reviews/qna), row counting, 5-row preview
-  - Added constants to `src/lib/constants.ts` — `FILE_TYPE_LABELS`, `FILE_TYPES`, `MAX_FILE_SIZE_BYTES`
-  - Added `formatFileSize()` and `formatNumber()` helpers to `src/lib/utils.ts`
-  - Implemented `src/stores/research-store.ts` — minimal Zustand store for category/country selection
-  - Implemented `src/app/api/research/files/route.ts` — GET (list with filters + joins) + POST (FormData upload to Supabase Storage + DB insert with cleanup on failure)
-  - Created `src/app/api/research/files/[id]/route.ts` — DELETE (storage + DB cleanup)
-  - Implemented `src/app/api/research/status/route.ts` — GET coverage map (categories × countries → file types)
-  - Built `src/components/dashboard/ResearchStatusMatrix.tsx` — category × country grid with colored dots per file type, clickable cells navigate to `/research?category=X&country=Y`
-  - Built `src/components/research/FileUploader.tsx` — react-dropzone + file type selector + CSV preview + upload via FormData POST
-  - Built `src/components/research/FileList.tsx` — table with type badges, delete with ConfirmDialog
-  - Created `src/components/research/ResearchClient.tsx` — client wrapper with category/country dropdowns, manages files state, coordinates FileUploader + FileList
-  - Built `src/app/(dashboard)/research/page.tsx` — server page fetching categories, countries, coverage, pre-filtered files in parallel
-  - Fixed Railway deploy: git push didn't trigger auto-deploy — used `railway deploy` CLI to force direct upload, confirmed live with new image digest
-  - Updated CLAUDE.md: Phase 2 → COMPLETED, Session 5 log, Phase 3 Handoff, new gotchas
-- **Verification results:**
-  - `npm run build` ✅ (28 routes, zero errors)
-  - Railway deploy ✅ (healthcheck passed, confirmed live on production)
-  - Research page verified working on production ✅
-
-### Session 6 — February 8-9, 2026
-- **Scope:** Phase 3 — Research Analysis Engine + API key config fix
-- **What was done:**
-  - Implemented `src/lib/claude.ts` — Anthropic API wrapper with typed result interfaces (KeywordAnalysisResult, ReviewAnalysisResult, QnAAnalysisResult), analysis prompts tailored to each CSV format, model `claude-sonnet-4-20250514`, MAX_TOKENS=8192
-  - Implemented `src/app/api/research/analyze/route.ts` — POST endpoint: validates inputs, downloads CSVs from Supabase Storage, sends to Claude, caches JSONB result in `lb_research_analysis`, handles re-analysis by deleting existing records first
-  - Created `src/app/api/research/analysis/route.ts` — GET endpoint for cached analysis results filtered by category/country/type
-  - Updated `src/app/api/research/status/route.ts` — added `analysisStatus` map alongside `coverage` in response
-  - Built `src/components/research/AnalysisProgress.tsx` — AnalysisProgress (status icon + badge) + AnalysisStatusPanel (lists 3 analysis types with Analyze/Re-analyze buttons)
-  - Built `src/components/research/AnalysisViewer.tsx` — Tabbed display with KeywordAnalysisView (tiers, stats), ReviewAnalysisView (themes, sentiment), QnAAnalysisView (gaps, insights)
-  - Created `src/components/research/AnalysisPageClient.tsx` — Client wrapper with optimistic UI updates, trigger flow, react-hot-toast notifications
-  - Built `src/app/(dashboard)/research/[categoryId]/[countryId]/page.tsx` — Server page with breadcrumb, file summary cards, AnalysisPageClient
-  - Modified `src/components/research/ResearchClient.tsx` — added "View Analysis" link when files exist
-  - Fixed TypeScript build errors: `[...new Set()]` → `Array.from(new Set())`, typed analysis result casting, removed unused `FILE_TYPE_TO_ANALYSIS` constant
-  - Updated `src/lib/claude.ts` to read API key from `lb_admin_settings` (key: `anthropic_api_key`) first, with env var fallback — admins can set/rotate key from Settings UI without redeploying
-- **Verification results:**
-  - `npm run build` ✅ (28 routes, zero errors)
-  - Railway deploy ✅ (healthcheck passed, new image digest confirmed)
-- **Pending user action:** Set `anthropic_api_key` in Admin Settings UI to enable Claude analysis
-
-### Session 7 — February 9, 2026
-- **Scope:** Phase 4 — Listing Builder - Single Mode (complete)
-- **What was done:**
-  - Replaced `src/stores/listing-store.ts` stub — full Zustand wizard store: 4 step tracking, category/country/product state, generation state, section review state, loadEditListing for edit mode
-  - Extended `src/types/api.ts` — GenerateListingRequest, GenerateListingResponse, ListingWithJoins, UpdateListingSectionsRequest, ExportRequest, ExportResponse
-  - Extended `src/lib/constants.ts` — SECTION_TYPE_LABELS (9 section labels), SECTION_CHAR_LIMIT_MAP (maps section to country char limit field)
-  - Extended `src/lib/claude.ts` — `generateListing()` function + comprehensive prompt: conditionally includes keyword/review/Q&A data, generates 3 variations per section (SEO-focused, benefit-focused, balanced), max_tokens=12288
-  - Replaced `src/app/api/listings/route.ts` — GET (list with joins) + POST (full generation pipeline: auth → fetch category/country → fetch cached analyses → optionally create product type → call Claude → insert listing + 9 sections with 3 variations each)
-  - Replaced `src/app/api/listings/[id]/route.ts` — GET (with joins + ordered sections) + PATCH (update section selections + sync denormalized fields) + DELETE (cascade)
-  - Replaced `src/app/api/export/route.ts` — POST: clipboard (formatted text), CSV (headers + rows), flat_file (Amazon format); logs to lb_export_logs
-  - Replaced `src/app/(dashboard)/listings/new/page.tsx` — server page fetching categories + countries, supports `?edit=LISTING_ID` for edit mode
-  - Created `src/components/listings/wizard/ListingWizard.tsx` — client wrapper with horizontal step indicator, Back/Next nav with per-step validation, "Start Over" reset
-  - Replaced `StepCategoryCountry.tsx` — two selects, analysis availability check via API, status rows with green/yellow icons
-  - Replaced `StepProductDetails.tsx` — product name, ASIN, brand, dynamic key-value attributes, product type name
-  - Replaced `StepGeneration.tsx` — summary card, generate button with loading state, success/error display
-  - Replaced `StepReviewExport.tsx` — sorted section cards, status dropdown, save button (PATCH), ExportOptions
-  - Replaced `SectionCard.tsx` — variation Tabs (3 tabs: SEO/Benefit/Balanced), char count badge (green/yellow/red), approval Switch
-  - Replaced `ExportOptions.tsx` — 3 export buttons (clipboard copy, CSV download, flat file download) with loading states
-  - Replaced `src/app/(dashboard)/listings/page.tsx` — server page with listing query + joins
-  - Created `src/components/listings/ListingsHistoryClient.tsx` — table with product/country/status/created/actions columns, delete confirmation, edit navigation
-- **Files changed:** 18 files (16 modified + 2 new), +2,493 lines
-- **Verification results:**
-  - `npm run build` ✅ (28 routes, zero errors)
-  - Railway deploy ✅ (healthcheck passed, image digest sha256:a743aae...)
-- **Pending user action:** Set `anthropic_api_key` in Admin Settings UI to test end-to-end generation
+| Session | Phase | Key Work |
+|---------|-------|----------|
+| 1 | — | Created CLAUDE.md with full architecture design |
+| 2 | 0 | Scaffolded project, ran 15 DB migrations, seeded countries, deployed to Railway |
+| 3 | 1 | Auth (Google OAuth), sidebar, header, dashboard, settings, categories CRUD |
+| 4 | — | Fixed production deploy: hardcoded URLs, middleware cookie propagation, stale anon key |
+| 5 | 2 | CSV upload, research file management, coverage status matrix |
+| 6 | 3 | Claude analysis engine, keyword/review/Q&A analysis, cached JSONB, API key from admin settings |
+| 7 | 4 | Listing wizard (4 steps), Claude generation (3 variations/section), SectionCard, export |
 
 ### Session 8 — February 9, 2026
 - **Scope:** Phase 5 — Modular Chats (per-section chat refinement with cascading context)
@@ -1076,40 +865,27 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 - Image builder (Phase 9)
 - A+ content (Phase 10)
 
+### Pending User Action
+- Set `anthropic_api_key` in Admin Settings UI (or `ANTHROPIC_API_KEY` env var) to enable Claude AI features (analysis + generation + refinement)
+
 ---
-
-## Phase 4 — COMPLETED
-
-Phase 4 (Listing Builder - Single Mode) was completed in Session 7. See Session Log above for details.
-
-**To test end-to-end:** Set `anthropic_api_key` in Admin Settings UI (or `ANTHROPIC_API_KEY` env var as fallback).
-
-## Phase 5 — COMPLETED
-
-Phase 5 (Modular Chats) was completed in Session 8. See Session Log above for details.
-
-### What was built
-- `src/components/listings/ModularChat.tsx` — Chat UI per section with message list, input, send, auto-scroll, chat history fetch
-- `src/app/api/listings/[id]/chats/[section]/route.ts` — GET (fetch chat history) + POST (send message, call Claude, add variation, persist chat)
-- `src/lib/claude.ts` — Added `refineSection()` function with cascading context prompt
-- Updated `SectionCard.tsx` — "Refine" button, chat toggle, embedded ModularChat, dynamic tab labels (V4, V5, ...)
-- Updated `StepReviewExport.tsx` — Passes listingId and onVariationAdded to SectionCard
-- Updated `listing-store.ts` — Added `addVariation()` action for optimistic UI updates
 
 ## Phase 6 Handoff — Speed Mode (Batch)
 
 **Goal:** Chat-first batch generation for multiple products at once.
 
-**Depends on:** Phase 5
+**Depends on:** Phase 5 (completed)
 
-### What Phase 5 Already Built
-- Full modular chat refinement system
-- Per-section chat with cascading context
-- `refineSection()` Claude function
+### What Exists
+- Full modular chat refinement system with cascading context
+- `generateListing()` and `refineSection()` in `src/lib/claude.ts`
+- `lb_batch_jobs` table already created (Phase 0)
+- Stub page at `src/app/(dashboard)/listings/speed/page.tsx`
 
 ### What Phase 6 Needs to Implement
 - `src/app/(dashboard)/listings/speed/page.tsx` — Speed mode UI
 - `src/app/api/batch/route.ts` — Batch job creation + processing
+- `src/app/api/batch/[id]/route.ts` — Batch job status + updates
 - Batch export functionality
 - Chat-driven product input (enter multiple products via chat interface)
 - Quick approve workflow for batch-generated listings
