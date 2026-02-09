@@ -1,13 +1,32 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { createAdminClient } from '@/lib/supabase/server'
 
 const MODEL = 'claude-sonnet-4-20250514'
 const MAX_TOKENS = 8192
 
-function getClient(): Anthropic {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is not set')
+async function getApiKey(): Promise<string> {
+  // Try lb_admin_settings first (set via Admin Settings UI)
+  try {
+    const adminClient = createAdminClient()
+    const { data } = await adminClient
+      .from('lb_admin_settings')
+      .select('value')
+      .eq('key', 'anthropic_api_key')
+      .single()
+    if (data?.value) return data.value
+  } catch {
+    // DB lookup failed, fall through to env var
   }
+
+  // Fallback to environment variable
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (apiKey) return apiKey
+
+  throw new Error('ANTHROPIC_API_KEY not found. Set it in Admin Settings or as an environment variable.')
+}
+
+async function getClient(): Promise<Anthropic> {
+  const apiKey = await getApiKey()
   return new Anthropic({ apiKey })
 }
 
@@ -219,7 +238,7 @@ export async function analyzeKeywords(
   categoryName: string,
   countryName: string
 ): Promise<{ result: KeywordAnalysisResult; model: string; tokensUsed: number }> {
-  const client = getClient()
+  const client = await getClient()
   const prompt = buildKeywordAnalysisPrompt(csvContent, categoryName, countryName)
 
   const response = await client.messages.create({
@@ -244,7 +263,7 @@ export async function analyzeReviews(
   categoryName: string,
   countryName: string
 ): Promise<{ result: ReviewAnalysisResult; model: string; tokensUsed: number }> {
-  const client = getClient()
+  const client = await getClient()
   const prompt = buildReviewAnalysisPrompt(csvContent, categoryName, countryName)
 
   const response = await client.messages.create({
@@ -270,7 +289,7 @@ export async function analyzeQnA(
   countryName: string,
   isRufus: boolean
 ): Promise<{ result: QnAAnalysisResult; model: string; tokensUsed: number }> {
-  const client = getClient()
+  const client = await getClient()
   const prompt = buildQnAAnalysisPrompt(csvContent, categoryName, countryName, isRufus)
 
   const response = await client.messages.create({
