@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import { Plus, Eye, Trash2, FileText } from 'lucide-react'
+import { Plus, Eye, Trash2, FileText, Zap } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { ListingWithJoins } from '@/types/api'
@@ -51,10 +51,20 @@ export function ListingsHistoryClient({ listings: initialListings }: ListingsHis
             View and manage your generated Amazon listings
           </p>
         </div>
-        <Button onClick={() => router.push('/listings/new')} className="gap-2">
-          <Plus className="h-4 w-4" />
-          New Listing
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => router.push('/listings/speed')}
+            className="gap-2"
+          >
+            <Zap className="h-4 w-4" />
+            Speed Mode
+          </Button>
+          <Button onClick={() => router.push('/listings/new')} className="gap-2">
+            <Plus className="h-4 w-4" />
+            New Listing
+          </Button>
+        </div>
       </div>
 
       {listings.length === 0 ? (

@@ -1,8 +1,25 @@
-export default function SpeedModePage() {
+import { createClient } from '@/lib/supabase/server'
+import { SpeedModeClient } from '@/components/listings/speed/SpeedModeClient'
+
+export default async function SpeedModePage() {
+  const supabase = createClient()
+
+  const [catResult, countryResult] = await Promise.all([
+    supabase
+      .from('lb_categories')
+      .select('*')
+      .order('name'),
+    supabase
+      .from('lb_countries')
+      .select('*')
+      .eq('is_active', true)
+      .order('name'),
+  ])
+
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-4">Speed Mode</h1>
-      <p className="text-muted-foreground">Batch listing generation coming in Phase 6.</p>
-    </div>
+    <SpeedModeClient
+      categories={catResult.data || []}
+      countries={countryResult.data || []}
+    />
   )
 }

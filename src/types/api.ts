@@ -79,3 +79,47 @@ export interface GetChatHistoryResponse {
   chat_id: string | null
   messages: ChatMessage[]
 }
+
+// --- Phase 6: Speed Mode (Batch) ---
+
+export interface BatchProduct {
+  product_name: string
+  asin?: string
+  brand: string
+  attributes: Record<string, string>
+  product_type_name?: string
+}
+
+export interface CreateBatchRequest {
+  name?: string
+  category_id: string
+  country_id: string
+  products: BatchProduct[]
+}
+
+export interface CreateBatchResponse {
+  batch_job: import('./database').LbBatchJob
+  failed_products: Array<{ product_name: string; error: string }>
+}
+
+export interface BatchListingSummary {
+  id: string
+  product_name: string
+  status: string
+  created_at: string
+}
+
+export interface BatchStatusResponse {
+  batch_job: import('./database').LbBatchJob
+  listings: BatchListingSummary[]
+}
+
+export interface BatchExportRequest {
+  export_type: 'csv' | 'flat_file'
+}
+
+export interface BatchExportResponse {
+  formatted: { headers: string[]; rows: string[][] }
+  listing_count: number
+  export_log_ids: string[]
+}
