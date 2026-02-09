@@ -13,7 +13,7 @@
 | **Production URL** | `https://listing-builder-production.up.railway.app` |
 | **GitHub** | `anuj29111/listing-builder` |
 | **Table Prefix** | `lb_` (shared DB with Chalkola ONE, keyword-tracker, etc.) |
-| **Storage Bucket** | `lb-research-files` |
+| **Storage Buckets** | `lb-research-files`, `lb-images` |
 
 ---
 
@@ -27,13 +27,13 @@
 | 3 | Research Analysis Engine | **COMPLETED** |
 | 4 | Listing Builder - Single Mode | **COMPLETED** |
 | 5 | Modular Chats | **COMPLETED** |
-| 6 | Speed Mode (Batch) | NOT STARTED |
+| 6 | Speed Mode (Batch) | **COMPLETED** |
 | 7 | Research Acquisition (Apify/DataDive) | NOT STARTED |
 | 8 | Google Drive Integration | NOT STARTED |
-| 9 | Image Builder | NOT STARTED |
-| 10 | A+ Content + Polish | NOT STARTED |
+| 9 | Image Builder | **COMPLETED** |
+| 10 | A+ Content + Polish | **COMPLETED** |
 
-**Current Phase:** 6 (next)
+**Current Phase:** 7/8 (next — research acquisition or Google Drive)
 **Last Updated:** February 9, 2026
 **App Version:** 0.1.0
 
@@ -806,6 +806,25 @@ restartPolicyMaxRetries = 3
   - `npm run build` ✅ (28 routes, zero errors)
 - **Pending user action:** Set `anthropic_api_key` in Admin Settings UI, then deploy to Railway
 
+### Session 9 — February 9, 2026
+- **Scope:** Phase 9 (Image Builder) + Phase 10 (A+ Content Builder) — implemented in parallel
+- **What was done:**
+  - **Database:** Created `lb-images` storage bucket (public, 10MB, image MIME types) + 4 RLS policies. Created `lb_aplus_modules` table via migration + indexes + 4 RLS policies.
+  - **Types:** Added `LbAPlusModule` to database.ts. Added image types (GenerateImageRequest, ImageWithDetails, ApproveImageRequest, ImageChatRequest/Response) and A+ types (6 template content interfaces, APlusContent union, CRUD types) to api.ts.
+  - **Constants:** Added IMAGE_POSITIONS, IMAGE_ORIENTATIONS, IMAGE_BACKGROUNDS, IMAGE_LIGHTINGS, IMAGE_ANGLES, IMAGE_ARRANGEMENTS, APLUS_TEMPLATE_TYPES/LABELS/DESCRIPTIONS.
+  - **Lib wrappers:** `lib/openai.ts` — DALL-E 3 wrapper (getApiKey from admin settings, generateDalleImage, estimateDalleCost). `lib/gemini.ts` — Gemini wrapper (gemini-2.0-flash-exp model, base64 image response, estimateGeminiCost).
+  - **Stores:** `stores/image-store.ts` + `stores/aplus-store.ts` (Zustand)
+  - **Image API routes:** POST `/api/images/generate` (generate + upload to Supabase Storage), GET `/api/images` (list with filters), GET/PATCH/DELETE `/api/images/[id]` (approve HD/reject/delete), GET/POST `/api/images/[id]/chat` (refinement)
+  - **A+ API routes:** GET/POST `/api/aplus` (list/create), GET/PATCH/DELETE `/api/aplus/[id]`, POST `/api/aplus/[id]/generate` (Claude AI generation)
+  - **Claude integration:** Added `generateAPlusContent()` with template-specific JSON schemas (hero_banner, comparison_chart, feature_grid, technical_specs, usage_scenarios, brand_story)
+  - **Image UI:** `ImageBuilderClient` (orchestrator), `PromptEditor` (prompt + listing link + quick adjustments), `GenerationControls` (provider toggle, orientation, cost estimate), `ImageGallery` (grid + filters), `ImagePreview` (modal with approve/reject/refine)
+  - **A+ UI:** `APlusClient` (orchestrator), `TemplateSelector` (6 template cards), `ModuleCard` (display + status management), `ModuleEditor` (template-specific form editors with AI generate button)
+  - **UI component:** Added `Textarea` (shadcn/ui) to `components/ui/`
+- **Files changed:** 28 files (13 modified + 15 created), 3111 lines added
+- **Build verification:** `npm run build` ✅ (30 routes, zero errors)
+- **Deployed via:** `railway up` (auto-deploy didn't trigger from git push)
+- **Pending user action:** Set `openai_api_key` and `google_ai_api_key` in Admin Settings UI to enable image generation. Set `anthropic_api_key` for A+ content generation.
+
 ---
 
 ## Lessons Learned / Gotchas
@@ -858,35 +877,24 @@ restartPolicyMaxRetries = 3
 - Chat history: persisted in lb_listing_chats, restored on reopen ✅
 - Dynamic variation tabs: V4, V5, etc. added as chat produces new variations ✅
 
-### What's Not Built Yet (stub pages/routes return 501)
-- Speed/batch mode (Phase 6)
+- Speed mode: chat-driven batch listing generation for multiple products ✅
+- Batch job tracking, progress, quick approve, bulk export (CSV + flat file) ✅
+- Image builder: DALL-E 3 + Gemini dual-provider image generation ✅
+- Image 1K preview → HD approval flow with approve/reject/delete ✅
+- Image chat refinement (refine prompt → regenerate) ✅
+- Image storage in Supabase Storage (`lb-images` bucket) ✅
+- Optional listing linking for images ✅
+- Quick image adjustments (background, lighting, angle, arrangement) ✅
+- A+ Content builder: 6 template types with template-specific editors ✅
+- A+ Claude AI content generation with research context ✅
+- A+ module CRUD with status management (draft/review/approved) ✅
+
+### What's Not Built Yet
 - Apify/DataDive integration (Phase 7)
 - Google Drive integration (Phase 8)
-- Image builder (Phase 9)
-- A+ content (Phase 10)
 
 ### Pending User Action
-- Set `anthropic_api_key` in Admin Settings UI (or `ANTHROPIC_API_KEY` env var) to enable Claude AI features (analysis + generation + refinement)
-
----
-
-## Phase 6 Handoff — Speed Mode (Batch)
-
-**Goal:** Chat-first batch generation for multiple products at once.
-
-**Depends on:** Phase 5 (completed)
-
-### What Exists
-- Full modular chat refinement system with cascading context
-- `generateListing()` and `refineSection()` in `src/lib/claude.ts`
-- `lb_batch_jobs` table already created (Phase 0)
-- Stub page at `src/app/(dashboard)/listings/speed/page.tsx`
-
-### What Phase 6 Needs to Implement
-- `src/app/(dashboard)/listings/speed/page.tsx` — Speed mode UI
-- `src/app/api/batch/route.ts` — Batch job creation + processing
-- `src/app/api/batch/[id]/route.ts` — Batch job status + updates
-- Batch export functionality
-- Chat-driven product input (enter multiple products via chat interface)
-- Quick approve workflow for batch-generated listings
+- Set `anthropic_api_key` in Admin Settings UI (or `ANTHROPIC_API_KEY` env var) to enable Claude AI features (analysis + generation + refinement + A+ content)
+- Set `openai_api_key` in Admin Settings UI (or `OPENAI_API_KEY` env var) to enable DALL-E 3 image generation
+- Set `google_ai_api_key` in Admin Settings UI (or `GOOGLE_AI_API_KEY` env var) to enable Gemini image generation
 
