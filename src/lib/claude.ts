@@ -231,6 +231,208 @@ CSV DATA:
 ${csvContent}`
 }
 
+// --- Listing Generation Types ---
+
+export interface ListingGenerationInput {
+  productName: string
+  brand: string
+  asin?: string
+  attributes: Record<string, string>
+  categoryName: string
+  countryName: string
+  language: string
+  charLimits: {
+    title: number
+    bullet: number
+    bulletCount: number
+    description: number
+    searchTerms: number
+  }
+  keywordAnalysis?: KeywordAnalysisResult | null
+  reviewAnalysis?: ReviewAnalysisResult | null
+  qnaAnalysis?: QnAAnalysisResult | null
+}
+
+export interface ListingGenerationResult {
+  title: string[]
+  bullets: string[][]
+  description: string[]
+  searchTerms: string[]
+  subjectMatter: string[][]
+}
+
+// --- Listing Generation Prompt ---
+
+function buildListingGenerationPrompt(input: ListingGenerationInput): string {
+  const {
+    productName, brand, asin, attributes, categoryName, countryName, language,
+    charLimits, keywordAnalysis, reviewAnalysis, qnaAnalysis,
+  } = input
+
+  const attrStr = Object.entries(attributes)
+    .filter(([k, v]) => k && v)
+    .map(([k, v]) => `  - ${k}: ${v}`)
+    .join('\n') || '  (none provided)'
+
+  let keywordSection = 'No keyword data available. Use general best practices for Amazon listings in this category.'
+  if (keywordAnalysis) {
+    const titleKw = keywordAnalysis.titleKeywords?.join(', ') || 'N/A'
+    const bulletKw = keywordAnalysis.bulletKeywords?.join(', ') || 'N/A'
+    const searchKw = keywordAnalysis.searchTermKeywords?.join(', ') || 'N/A'
+    const intents = keywordAnalysis.customerIntentPatterns
+      ?.map((p) => `${p.category} (${p.priority})`)
+      .join(', ') || 'N/A'
+    const features = keywordAnalysis.featureDemand
+      ?.map((f) => `${f.feature} (${f.priority})`)
+      .join(', ') || 'N/A'
+    keywordSection = `Must-include title keywords (by search volume priority): ${titleKw}
+Bullet point keywords to weave in: ${bulletKw}
+Backend search term keywords: ${searchKw}
+Customer intent patterns: ${intents}
+Key feature demand signals: ${features}`
+  }
+
+  let reviewSection = 'No review data available. Focus on general product benefits.'
+  if (reviewAnalysis) {
+    const strengths = reviewAnalysis.strengths
+      ?.slice(0, 8)
+      .map((s) => `${s.strength} (${s.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    const useCases = reviewAnalysis.useCases
+      ?.slice(0, 6)
+      .map((u) => `${u.useCase} (${u.priority})`)
+      .join(', ') || 'N/A'
+    const posLang = reviewAnalysis.positiveLanguage
+      ?.slice(0, 8)
+      .map((w) => w.word)
+      .join(', ') || 'N/A'
+    const weaknesses = reviewAnalysis.weaknesses
+      ?.slice(0, 4)
+      .map((w) => `${w.weakness} (${w.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    const bulletStrat = reviewAnalysis.bulletStrategy
+      ?.map((b) => `Bullet ${b.bulletNumber}: Focus on "${b.focus}" — Evidence: ${b.evidence}`)
+      .join('\n  ') || 'N/A'
+    reviewSection = `Product strengths to highlight: ${strengths}
+Top use cases to emphasize: ${useCases}
+Customer language that resonates: ${posLang}
+Weaknesses to preemptively address: ${weaknesses}
+Bullet strategy from review analysis:
+  ${bulletStrat}`
+  }
+
+  let qnaSection = 'No Q&A data available.'
+  if (qnaAnalysis) {
+    const concerns = qnaAnalysis.customerConcerns
+      ?.slice(0, 6)
+      .map((c) => `${c.concern} — Suggested: ${c.suggestedResponse}`)
+      .join('\n  ') || 'N/A'
+    const gaps = qnaAnalysis.contentGaps
+      ?.map((g) => `${g.gap} (${g.importance})`)
+      .join(', ') || 'N/A'
+    const faqs = qnaAnalysis.faqForDescription
+      ?.slice(0, 4)
+      .map((f) => `Q: ${f.question} / A: ${f.answer}`)
+      .join('\n  ') || 'N/A'
+    qnaSection = `Top customer concerns to address in listing:
+  ${concerns}
+Content gaps to fill: ${gaps}
+FAQ to weave into description:
+  ${faqs}`
+  }
+
+  return `You are an expert Amazon listing copywriter. Generate an optimized product listing for the following product.
+
+=== PRODUCT INFO ===
+Product: ${productName}
+Brand: ${brand}
+ASIN: ${asin || 'Not provided'}
+Category: ${categoryName}
+Marketplace: ${countryName}
+Language: ALL content MUST be written in ${language}
+Attributes:
+${attrStr}
+
+=== CHARACTER LIMITS (STRICT — do not exceed) ===
+Title: ${charLimits.title} characters max
+Each Bullet Point: ${charLimits.bullet} characters max (generate exactly ${charLimits.bulletCount} bullets)
+Description: ${charLimits.description} characters max
+Search Terms: ${charLimits.searchTerms} characters max (backend only, not visible to customers)
+
+=== KEYWORD INTELLIGENCE ===
+${keywordSection}
+
+=== CUSTOMER REVIEW INSIGHTS ===
+${reviewSection}
+
+=== Q&A / CUSTOMER CONCERNS ===
+${qnaSection}
+
+=== OUTPUT FORMAT ===
+Return a JSON object with this EXACT structure:
+{
+  "title": ["variation 1", "variation 2", "variation 3"],
+  "bullets": [
+    ["bullet 1 var 1", "bullet 1 var 2", "bullet 1 var 3"],
+    ["bullet 2 var 1", "bullet 2 var 2", "bullet 2 var 3"],
+    ["bullet 3 var 1", "bullet 3 var 2", "bullet 3 var 3"],
+    ["bullet 4 var 1", "bullet 4 var 2", "bullet 4 var 3"],
+    ["bullet 5 var 1", "bullet 5 var 2", "bullet 5 var 3"]
+  ],
+  "description": ["variation 1", "variation 2", "variation 3"],
+  "searchTerms": ["variation 1", "variation 2", "variation 3"],
+  "subjectMatter": [
+    ["field 1 var 1", "field 1 var 2", "field 1 var 3"],
+    ["field 2 var 1", "field 2 var 2", "field 2 var 3"],
+    ["field 3 var 1", "field 3 var 2", "field 3 var 3"]
+  ]
+}
+
+=== RULES ===
+1. Each variation must be DISTINCT in style/approach, not just rephrased
+2. Variation 1: Keyword-dense, SEO-optimized — pack in as many relevant keywords as possible while remaining readable
+3. Variation 2: Benefit-focused, emotional appeal — speak to the customer's needs and desires
+4. Variation 3: Balanced — keywords + benefits combined naturally
+5. Title MUST start with the brand name "${brand}"
+6. Bullets should start with a CAPITALIZED benefit phrase followed by a dash or colon, then details
+7. Search terms: no brand name, no ASINs, no commas (space-separated), include common misspellings and synonyms
+8. Subject matter: short descriptive phrases for Amazon's subject matter fields (3 fields, each under 50 characters)
+9. STRICT character limits — count characters carefully and stay under the limits above
+10. ALL content in ${language}
+11. Only return valid JSON, no markdown fences or explanation`
+}
+
+// --- Listing Generation Function ---
+
+export async function generateListing(
+  input: ListingGenerationInput
+): Promise<{ result: ListingGenerationResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const prompt = buildListingGenerationPrompt(input)
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 12288,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  // Try to parse, handling potential markdown fences
+  let jsonText = text.trim()
+  if (jsonText.startsWith('```')) {
+    jsonText = jsonText.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '')
+  }
+
+  const result = JSON.parse(jsonText) as ListingGenerationResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model: MODEL, tokensUsed }
+}
+
 // --- Analysis Functions ---
 
 export async function analyzeKeywords(

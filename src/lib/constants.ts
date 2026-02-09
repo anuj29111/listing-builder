@@ -28,6 +28,31 @@ export const SYNC_TYPES = ['google_drive', 'apify', 'datadive'] as const
 
 export const EXPORT_TYPES = ['csv', 'clipboard', 'flat_file'] as const
 
+export const SECTION_TYPE_LABELS: Record<string, string> = {
+  title: 'Title',
+  bullet_1: 'Bullet Point 1',
+  bullet_2: 'Bullet Point 2',
+  bullet_3: 'Bullet Point 3',
+  bullet_4: 'Bullet Point 4',
+  bullet_5: 'Bullet Point 5',
+  description: 'Description',
+  search_terms: 'Search Terms',
+  subject_matter: 'Subject Matter',
+}
+
+// Maps section_type to the corresponding country char limit field
+export const SECTION_CHAR_LIMIT_MAP: Record<string, 'title_limit' | 'bullet_limit' | 'description_limit' | 'search_terms_limit'> = {
+  title: 'title_limit',
+  bullet_1: 'bullet_limit',
+  bullet_2: 'bullet_limit',
+  bullet_3: 'bullet_limit',
+  bullet_4: 'bullet_limit',
+  bullet_5: 'bullet_limit',
+  description: 'description_limit',
+  search_terms: 'search_terms_limit',
+  subject_matter: 'search_terms_limit', // subject matter uses same limit as search terms
+}
+
 export const FILE_TYPE_LABELS: Record<string, string> = {
   keywords: 'Keywords',
   reviews: 'Reviews',

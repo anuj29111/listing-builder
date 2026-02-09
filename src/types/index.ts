@@ -16,7 +16,16 @@ export type {
   LbExportLog,
 } from './database'
 
-export type { APIResponse, PaginatedResponse } from './api'
+export type {
+  APIResponse,
+  PaginatedResponse,
+  GenerateListingRequest,
+  GenerateListingResponse,
+  ListingWithJoins,
+  UpdateListingSectionsRequest,
+  ExportRequest,
+  ExportResponse,
+} from './api'
 
 export type Brand = 'Chalkola' | 'Spedalon' | 'Funcils' | 'Other'
 export type FileType = 'keywords' | 'reviews' | 'qna' | 'rufus_qna'
