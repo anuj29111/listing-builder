@@ -25,7 +25,7 @@
 | 1 | Core UI Shell + Auth + Admin | **COMPLETED** |
 | 2 | Research Management (Upload) | **COMPLETED** |
 | 3 | Research Analysis Engine | **COMPLETED** |
-| 4 | Listing Builder - Single Mode | NOT STARTED |
+| 4 | Listing Builder - Single Mode | **COMPLETED** |
 | 5 | Modular Chats | NOT STARTED |
 | 6 | Speed Mode (Batch) | NOT STARTED |
 | 7 | Research Acquisition (Apify/DataDive) | NOT STARTED |
@@ -33,7 +33,7 @@
 | 9 | Image Builder | NOT STARTED |
 | 10 | A+ Content + Polish | NOT STARTED |
 
-**Current Phase:** 4
+**Current Phase:** 5 (next)
 **Last Updated:** February 9, 2026
 **App Version:** 0.1.0
 
@@ -971,6 +971,32 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
   - Railway deploy ✅ (healthcheck passed, new image digest confirmed)
 - **Pending user action:** Set `anthropic_api_key` in Admin Settings UI to enable Claude analysis
 
+### Session 7 — February 9, 2026
+- **Scope:** Phase 4 — Listing Builder - Single Mode (complete)
+- **What was done:**
+  - Replaced `src/stores/listing-store.ts` stub — full Zustand wizard store: 4 step tracking, category/country/product state, generation state, section review state, loadEditListing for edit mode
+  - Extended `src/types/api.ts` — GenerateListingRequest, GenerateListingResponse, ListingWithJoins, UpdateListingSectionsRequest, ExportRequest, ExportResponse
+  - Extended `src/lib/constants.ts` — SECTION_TYPE_LABELS (9 section labels), SECTION_CHAR_LIMIT_MAP (maps section to country char limit field)
+  - Extended `src/lib/claude.ts` — `generateListing()` function + comprehensive prompt: conditionally includes keyword/review/Q&A data, generates 3 variations per section (SEO-focused, benefit-focused, balanced), max_tokens=12288
+  - Replaced `src/app/api/listings/route.ts` — GET (list with joins) + POST (full generation pipeline: auth → fetch category/country → fetch cached analyses → optionally create product type → call Claude → insert listing + 9 sections with 3 variations each)
+  - Replaced `src/app/api/listings/[id]/route.ts` — GET (with joins + ordered sections) + PATCH (update section selections + sync denormalized fields) + DELETE (cascade)
+  - Replaced `src/app/api/export/route.ts` — POST: clipboard (formatted text), CSV (headers + rows), flat_file (Amazon format); logs to lb_export_logs
+  - Replaced `src/app/(dashboard)/listings/new/page.tsx` — server page fetching categories + countries, supports `?edit=LISTING_ID` for edit mode
+  - Created `src/components/listings/wizard/ListingWizard.tsx` — client wrapper with horizontal step indicator, Back/Next nav with per-step validation, "Start Over" reset
+  - Replaced `StepCategoryCountry.tsx` — two selects, analysis availability check via API, status rows with green/yellow icons
+  - Replaced `StepProductDetails.tsx` — product name, ASIN, brand, dynamic key-value attributes, product type name
+  - Replaced `StepGeneration.tsx` — summary card, generate button with loading state, success/error display
+  - Replaced `StepReviewExport.tsx` — sorted section cards, status dropdown, save button (PATCH), ExportOptions
+  - Replaced `SectionCard.tsx` — variation Tabs (3 tabs: SEO/Benefit/Balanced), char count badge (green/yellow/red), approval Switch
+  - Replaced `ExportOptions.tsx` — 3 export buttons (clipboard copy, CSV download, flat file download) with loading states
+  - Replaced `src/app/(dashboard)/listings/page.tsx` — server page with listing query + joins
+  - Created `src/components/listings/ListingsHistoryClient.tsx` — table with product/country/status/created/actions columns, delete confirmation, edit navigation
+- **Files changed:** 18 files (16 modified + 2 new), +2,493 lines
+- **Verification results:**
+  - `npm run build` ✅ (28 routes, zero errors)
+  - Railway deploy ✅ (healthcheck passed, image digest sha256:a743aae...)
+- **Pending user action:** Set `anthropic_api_key` in Admin Settings UI to test end-to-end generation
+
 ---
 
 ## Lessons Learned / Gotchas
@@ -1011,9 +1037,13 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 - Analysis status panel with Analyze/Re-analyze buttons ✅
 - Analysis progress tracking with optimistic UI updates ✅
 - Anthropic API key configurable via Admin Settings UI (no Railway env var needed) ✅
+- Listing builder: 4-step wizard (category/country → product details → generate → review/export) ✅
+- Claude listing generation with 3 variation styles per section (SEO, benefit, balanced) ✅
+- SectionCard with variation tabs, char count badges, approval switches ✅
+- Export: clipboard copy, CSV download, Amazon flat file ✅
+- Listings history page with table, edit, delete ✅
 
 ### What's Not Built Yet (stub pages/routes return 501)
-- Listing builder wizard (Phase 4)
 - Modular chats (Phase 5)
 - Speed/batch mode (Phase 6)
 - Apify/DataDive integration (Phase 7)
@@ -1023,42 +1053,26 @@ File: `/Users/anuj/Desktop/Github/keyword-tracker/tailwind.config.js`
 
 ---
 
-## Phase 4 Handoff — What Needs to Be Built
+## Phase 4 — COMPLETED
 
-**Goal:** 4-step wizard to generate a single Amazon listing using cached research analysis + Claude AI.
+Phase 4 (Listing Builder - Single Mode) was completed in Session 7. See Session Log above for details.
 
-### What Phase 3 Already Built
-- `src/lib/claude.ts` — Anthropic API wrapper with keyword, review, Q&A analysis functions; reads API key from `lb_admin_settings` first, env var fallback
-- `POST /api/research/analyze` — triggers Claude analysis, caches JSONB in `lb_research_analysis`
-- `GET /api/research/analysis` — fetches cached analysis results
-- Analysis viewer page at `/research/[categoryId]/[countryId]` with full result display
-- AnalysisStatusPanel with trigger buttons, AnalysisViewer with tabbed keyword/review/QnA views
+**To test end-to-end:** Set `anthropic_api_key` in Admin Settings UI (or `ANTHROPIC_API_KEY` env var as fallback).
 
-### What Phase 4 Needs to Implement
-- `src/app/(dashboard)/listings/new/page.tsx` — Wizard container
-- `src/components/listings/wizard/StepCategoryCountry.tsx` — Step 1: Select category + country
-- `src/components/listings/wizard/StepProductDetails.tsx` — Step 2: Enter product details (name, ASIN, attributes)
-- `src/components/listings/wizard/StepGeneration.tsx` — Step 3: Generate listing via Claude (using cached analysis)
-- `src/components/listings/wizard/StepReviewExport.tsx` — Step 4: Review sections, select variations, export
-- `src/components/listings/SectionCard.tsx` — Display section (title/bullet/description) with variation selector
-- `src/components/listings/ExportOptions.tsx` — CSV, clipboard export
-- `src/app/api/listings/route.ts` — GET list, POST generate listing
-- `src/app/api/listings/[id]/route.ts` — GET, PATCH, DELETE listing
-- Extend `src/lib/claude.ts` with listing generation prompts (uses cached analysis as context)
+## Phase 5 Handoff — Modular Chats
 
-### Database Tables Used by Phase 4
-- `lb_listings` — Full CRUD
-- `lb_listing_sections` — Store per-section variations and selection state
-- `lb_product_types` — Product variants within categories
-- `lb_research_analysis` — Read cached analysis for generation context
-- `lb_countries` — Character limits per marketplace
+**Goal:** Per-section chat refinement with cascading context — refine any section via chat with Claude, with approved sections flowing as context into subsequent refinements.
 
-### Key Patterns
-- Generation flow: Select category/country → enter product details → Claude generates listing using cached analysis → user reviews variations per section → export
-- Each section (title, 5 bullets, description, search terms) gets 2-3 variations
-- Uses `lb_research_analysis` JSONB as context for Claude generation prompts
-- Character limits enforced per country from `lb_countries`
+### What Phase 4 Already Built
+- `SectionCard.tsx` with variation tabs, char count, approval switch
+- `StepReviewExport.tsx` showing all 9 sections with selection/approval state
+- `PATCH /api/listings/[id]` for saving section selections
+- Full listing generation with 3 variations per section
 
-### Environment Variables Needed
-- `anthropic_api_key` — set via Admin Settings UI in the app (or `ANTHROPIC_API_KEY` env var as fallback)
+### What Phase 5 Needs to Implement
+- `src/components/listings/ModularChat.tsx` — Chat UI per section (collapsible panel)
+- `src/app/api/listings/[id]/chats/[section]/route.ts` — GET + POST chat messages
+- Updated `SectionCard.tsx` with chat toggle button
+- Chat context: includes current section text + all approved section texts as context
+- Messages stored in `lb_listing_chats` table (JSONB messages array)
 
