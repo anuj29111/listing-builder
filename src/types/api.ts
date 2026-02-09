@@ -1,4 +1,4 @@
-import type { LbListing, LbListingSection, LbProductType } from './database'
+import type { LbListing, LbListingSection, LbProductType, LbImageGeneration, LbAPlusModule } from './database'
 
 export interface APIResponse<T> {
   data: T | null
@@ -122,4 +122,99 @@ export interface BatchExportResponse {
   formatted: { headers: string[]; rows: string[][] }
   listing_count: number
   export_log_ids: string[]
+}
+
+// --- Phase 9: Image Builder ---
+
+export interface GenerateImageRequest {
+  prompt: string
+  provider: 'dalle3' | 'gemini'
+  orientation: 'square' | 'portrait' | 'landscape'
+  listing_id?: string
+  position?: string
+}
+
+export interface GenerateImageResponse {
+  image: LbImageGeneration
+}
+
+export interface ImageWithDetails extends LbImageGeneration {
+  listing?: {
+    id: string
+    title: string | null
+    generation_context: Record<string, unknown>
+  } | null
+}
+
+export interface ApproveImageRequest {
+  action: 'approve' | 'reject'
+}
+
+export interface ImageChatRequest {
+  message: string
+}
+
+export interface ImageChatResponse {
+  chat_id: string
+  refined_prompt: string
+  new_image: LbImageGeneration
+}
+
+// --- Phase 10: A+ Content ---
+
+export type APlusTemplateType = 'hero_banner' | 'comparison_chart' | 'feature_grid' | 'technical_specs' | 'usage_scenarios' | 'brand_story'
+
+export interface HeroBannerContent {
+  headline: string
+  subheadline: string
+  description: string
+  cta_text: string
+}
+
+export interface ComparisonChartContent {
+  columns: Array<{ header: string; features: string[] }>
+}
+
+export interface FeatureGridContent {
+  features: Array<{ title: string; description: string }>
+}
+
+export interface TechnicalSpecsContent {
+  specs: Array<{ label: string; value: string }>
+}
+
+export interface UsageScenariosContent {
+  scenarios: Array<{ title: string; description: string }>
+}
+
+export interface BrandStoryContent {
+  headline: string
+  paragraphs: string[]
+  cta_text: string
+}
+
+export type APlusContent =
+  | HeroBannerContent
+  | ComparisonChartContent
+  | FeatureGridContent
+  | TechnicalSpecsContent
+  | UsageScenariosContent
+  | BrandStoryContent
+
+export interface CreateAPlusModuleRequest {
+  template_type: APlusTemplateType
+  listing_id?: string
+  title?: string
+}
+
+export interface APlusModuleResponse {
+  module: LbAPlusModule
+}
+
+export interface GenerateAPlusContentRequest {
+  product_name: string
+  brand: string
+  category_name: string
+  category_id?: string
+  country_id?: string
 }

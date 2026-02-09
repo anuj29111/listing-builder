@@ -1,8 +1,19 @@
-export default function ImagesPage() {
+import { createClient } from '@/lib/supabase/server'
+import { ImageBuilderClient } from '@/components/images/ImageBuilderClient'
+
+export default async function ImagesPage() {
+  const supabase = createClient()
+
+  // Fetch listings for the dropdown (only id, title, generation_context)
+  const { data: listings } = await supabase
+    .from('lb_listings')
+    .select('id, title, generation_context')
+    .order('created_at', { ascending: false })
+    .limit(50)
+
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-4">Image Builder</h1>
-      <p className="text-muted-foreground">AI image generation coming in Phase 9.</p>
-    </div>
+    <ImageBuilderClient
+      listings={listings || []}
+    />
   )
 }

@@ -610,3 +610,97 @@ export async function analyzeQnA(
 
   return { result, model: MODEL, tokensUsed }
 }
+
+// --- Phase 10: A+ Content Generation ---
+
+export interface APlusGenerateInput {
+  templateType: string
+  productName: string
+  brand: string
+  categoryName: string
+  researchContext: string
+}
+
+const APLUS_TEMPLATES: Record<string, string> = {
+  hero_banner: `{
+  "headline": "compelling headline (max 80 chars)",
+  "subheadline": "supporting subheadline (max 120 chars)",
+  "description": "2-3 sentence description highlighting key value proposition",
+  "cta_text": "short call-to-action text (max 30 chars)"
+}`,
+  comparison_chart: `{
+  "columns": [
+    { "header": "Product variant or competitor name", "features": ["feature 1 value", "feature 2 value", "feature 3 value", "feature 4 value", "feature 5 value"] }
+  ]
+}
+Generate 3-4 columns comparing the product against competitors or comparing product variants. Include 5-6 feature rows.`,
+  feature_grid: `{
+  "features": [
+    { "title": "short feature name (max 40 chars)", "description": "1-2 sentence feature description" }
+  ]
+}
+Generate 4-5 key features that address customer needs.`,
+  technical_specs: `{
+  "specs": [
+    { "label": "specification name", "value": "specification value" }
+  ]
+}
+Generate 8-12 relevant technical specifications.`,
+  usage_scenarios: `{
+  "scenarios": [
+    { "title": "scenario name (max 50 chars)", "description": "1-2 sentence scenario description showing product in use" }
+  ]
+}
+Generate 4-6 real-world usage scenarios.`,
+  brand_story: `{
+  "headline": "brand story headline (max 80 chars)",
+  "paragraphs": ["paragraph 1", "paragraph 2", "paragraph 3"],
+  "cta_text": "call-to-action text (max 30 chars)"
+}
+Write a compelling brand story with 2-3 paragraphs.`,
+}
+
+export async function generateAPlusContent(input: APlusGenerateInput): Promise<{
+  content: Record<string, unknown>
+  tokensUsed: number
+}> {
+  const client = await getClient()
+
+  const templateSchema = APLUS_TEMPLATES[input.templateType] || APLUS_TEMPLATES.feature_grid
+
+  const prompt = `You are an expert Amazon A+ Content writer. Generate compelling A+ content for the following product.
+
+Product: ${input.brand} ${input.productName}
+Category: ${input.categoryName}
+Template Type: ${input.templateType.replace(/_/g, ' ')}
+
+${input.researchContext ? `Research Context (use insights from this data):\n${input.researchContext}\n` : ''}
+
+Generate content that:
+- Is persuasive and customer-focused
+- Highlights unique selling points
+- Addresses common customer questions and concerns
+- Uses clear, benefit-driven language
+- Follows Amazon A+ Content best practices
+
+Return ONLY valid JSON matching this exact schema:
+${templateSchema}
+
+Return ONLY the JSON object, no markdown, no explanation.`
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const content = JSON.parse(text) as Record<string, unknown>
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { content, tokensUsed }
+}

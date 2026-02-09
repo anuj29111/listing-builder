@@ -14,6 +14,7 @@ export type {
   LbAdminSetting,
   LbSyncLog,
   LbExportLog,
+  LbAPlusModule,
 } from './database'
 
 export type {
@@ -25,6 +26,23 @@ export type {
   UpdateListingSectionsRequest,
   ExportRequest,
   ExportResponse,
+  GenerateImageRequest,
+  GenerateImageResponse,
+  ImageWithDetails,
+  ApproveImageRequest,
+  ImageChatRequest,
+  ImageChatResponse,
+  APlusTemplateType,
+  HeroBannerContent,
+  ComparisonChartContent,
+  FeatureGridContent,
+  TechnicalSpecsContent,
+  UsageScenariosContent,
+  BrandStoryContent,
+  APlusContent,
+  CreateAPlusModuleRequest,
+  APlusModuleResponse,
+  GenerateAPlusContentRequest,
 } from './api'
 
 export type Brand = 'Chalkola' | 'Spedalon' | 'Funcils' | 'Other'
@@ -35,3 +53,4 @@ export type SectionType = 'title' | 'bullet_1' | 'bullet_2' | 'bullet_3' | 'bull
 export type ImageProvider = 'dalle3' | 'gemini'
 export type SyncType = 'google_drive' | 'apify' | 'datadive'
 export type ExportType = 'csv' | 'clipboard' | 'flat_file'
+export type APlusStatus = 'draft' | 'review' | 'approved'

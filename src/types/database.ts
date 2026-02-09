@@ -186,3 +186,16 @@ export interface LbExportLog {
   exported_by: string | null
   created_at: string
 }
+
+export interface LbAPlusModule {
+  id: string
+  listing_id: string | null
+  template_type: 'hero_banner' | 'comparison_chart' | 'feature_grid' | 'technical_specs' | 'usage_scenarios' | 'brand_story'
+  title: string | null
+  content: Record<string, unknown>
+  images: unknown[]
+  status: 'draft' | 'review' | 'approved'
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}

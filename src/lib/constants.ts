@@ -69,3 +69,63 @@ export const DEFAULT_CHAR_LIMITS = {
   description: 2000,
   searchTerms: 250,
 }
+
+// --- Phase 9: Image Builder ---
+
+export const IMAGE_POSITIONS = [
+  'main', 'image_1', 'image_2', 'image_3', 'image_4',
+  'image_5', 'image_6', 'image_7', 'aplus_hero', 'aplus_comparison',
+] as const
+
+export const IMAGE_POSITION_LABELS: Record<string, string> = {
+  main: 'Main Image',
+  image_1: 'Image 1 — Q&A Gap',
+  image_2: 'Image 2 — Feature Highlight',
+  image_3: 'Image 3 — Size/Scale',
+  image_4: 'Image 4 — Lifestyle',
+  image_5: 'Image 5 — Bundle/Flat Lay',
+  image_6: 'Image 6 — Comparison',
+  image_7: 'Image 7 — In Action',
+  aplus_hero: 'A+ Hero Banner',
+  aplus_comparison: 'A+ Comparison',
+}
+
+export const IMAGE_ORIENTATIONS = ['square', 'portrait', 'landscape'] as const
+
+export const IMAGE_ORIENTATION_LABELS: Record<string, string> = {
+  square: 'Square (1:1)',
+  portrait: 'Portrait (9:16)',
+  landscape: 'Landscape (16:9)',
+}
+
+export const IMAGE_QUALITIES = ['standard', 'hd'] as const
+
+export const IMAGE_BACKGROUNDS = ['White', 'Transparent', 'Lifestyle', 'Studio', 'Custom'] as const
+export const IMAGE_LIGHTINGS = ['Studio', 'Natural', 'Dramatic', 'Soft', 'Backlit'] as const
+export const IMAGE_ANGLES = ['Front', 'Top-down', '45-degree', 'Side', 'Close-up'] as const
+export const IMAGE_ARRANGEMENTS = ['Single product', 'Group/Bundle', 'In-use', 'Flat lay', 'Comparison'] as const
+
+// --- Phase 10: A+ Content ---
+
+export const APLUS_TEMPLATE_TYPES = [
+  'hero_banner', 'comparison_chart', 'feature_grid',
+  'technical_specs', 'usage_scenarios', 'brand_story',
+] as const
+
+export const APLUS_TEMPLATE_LABELS: Record<string, string> = {
+  hero_banner: 'Hero Banner',
+  comparison_chart: 'Comparison Chart',
+  feature_grid: 'Feature Grid',
+  technical_specs: 'Technical Specs',
+  usage_scenarios: 'Usage Scenarios',
+  brand_story: 'Brand Story',
+}
+
+export const APLUS_TEMPLATE_DESCRIPTIONS: Record<string, string> = {
+  hero_banner: 'Full-width banner with headline, description, and call-to-action',
+  comparison_chart: 'Side-by-side feature comparison across product variants',
+  feature_grid: 'Grid of 3-5 key features with titles and descriptions',
+  technical_specs: 'Detailed technical specifications in a clean table format',
+  usage_scenarios: 'Real-world usage scenarios demonstrating product benefits',
+  brand_story: 'Brand narrative with company values and mission',
+}
