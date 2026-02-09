@@ -77,6 +77,7 @@ interface ListingWizardState {
   selectVariation: (sectionId: string, variationIndex: number) => void
   toggleSectionApproval: (sectionId: string) => void
   setListingStatus: (status: ListingStatus) => void
+  addVariation: (sectionId: string, newText: string, newIndex: number) => void
   setSections: (sections: LbListingSection[]) => void
   loadEditListing: (
     listing: LbListing,
@@ -178,6 +179,16 @@ export const useListingStore = create<ListingWizardState>((set) => ({
     })),
 
   setListingStatus: (status) => set({ listingStatus: status }),
+
+  addVariation: (sectionId, newText, newIndex) =>
+    set((state) => ({
+      sections: state.sections.map((s) => {
+        if (s.id !== sectionId) return s
+        const variations = (s.variations || []) as string[]
+        const newVariations = [...variations, newText]
+        return { ...s, variations: newVariations, selected_variation: newIndex }
+      }),
+    })),
 
   setSections: (sections) => set({ sections }),
 

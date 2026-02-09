@@ -54,3 +54,28 @@ export interface ExportResponse {
   formatted: string | { headers: string[]; rows: string[][] }
   export_log_id: string
 }
+
+// --- Phase 5: Modular Chats ---
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: string
+}
+
+export interface SendChatMessageRequest {
+  message: string
+}
+
+export interface SendChatMessageResponse {
+  chat_id: string
+  assistant_message: ChatMessage
+  new_variation: string
+  new_variation_index: number
+  tokens_used: number
+}
+
+export interface GetChatHistoryResponse {
+  chat_id: string | null
+  messages: ChatMessage[]
+}

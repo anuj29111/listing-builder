@@ -433,6 +433,106 @@ export async function generateListing(
   return { result, model: MODEL, tokensUsed }
 }
 
+// --- Section Refinement (Phase 5: Modular Chats) ---
+
+import type { ChatMessage } from '@/types/api'
+
+export interface SectionRefinementInput {
+  sectionType: string
+  sectionLabel: string
+  currentVariations: string[]
+  selectedVariationIndex: number
+  charLimit: number
+  userMessage: string
+  approvedSections: Array<{ label: string; selectedText: string }>
+  productName: string
+  brand: string
+  categoryName: string
+  countryName: string
+  language: string
+  previousMessages: ChatMessage[]
+}
+
+function buildSectionRefinementPrompt(input: SectionRefinementInput): string {
+  const {
+    sectionLabel, currentVariations, selectedVariationIndex, charLimit,
+    userMessage, approvedSections, productName, brand, categoryName,
+    countryName, language, previousMessages,
+  } = input
+
+  let contextBlock = ''
+  if (approvedSections.length > 0) {
+    contextBlock = `=== APPROVED LISTING CONTEXT (maintain consistency with these) ===
+${approvedSections.map((s) => `${s.label}:\n${s.selectedText}`).join('\n\n')}
+
+`
+  }
+
+  let chatHistory = ''
+  if (previousMessages.length > 0) {
+    chatHistory = `=== PREVIOUS CONVERSATION ===
+${previousMessages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n')}
+
+`
+  }
+
+  const variationsBlock = currentVariations
+    .map((v, i) =>
+      `Variation ${i + 1}${i === selectedVariationIndex ? ' (CURRENTLY SELECTED)' : ''}:\n${v}`
+    )
+    .join('\n\n')
+
+  return `You are an expert Amazon listing copywriter. Refine the "${sectionLabel}" section based on the user's request.
+
+=== PRODUCT INFO ===
+Product: ${productName}
+Brand: ${brand}
+Category: ${categoryName}
+Marketplace: ${countryName}
+Language: ALL content MUST be in ${language}
+
+${contextBlock}${chatHistory}=== CURRENT VARIATIONS ===
+${variationsBlock}
+
+=== CHARACTER LIMIT ===
+${charLimit} characters max — the refined version MUST stay under this limit.
+
+=== USER REQUEST ===
+${userMessage}
+
+=== INSTRUCTIONS ===
+1. Consider the user's request carefully
+2. Reference the currently selected variation as your starting point
+3. Maintain consistency with approved sections shown above
+4. Create a refined version that addresses the user's feedback
+5. Stay strictly under ${charLimit} characters
+6. Keep the same language (${language})
+7. Return ONLY the refined text — no explanation, no JSON, no markdown fences`
+}
+
+export async function refineSection(
+  input: SectionRefinementInput
+): Promise<{ refinedText: string; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const prompt = buildSectionRefinementPrompt(input)
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+    .trim()
+
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { refinedText: text, model: MODEL, tokensUsed }
+}
+
 // --- Analysis Functions ---
 
 export async function analyzeKeywords(

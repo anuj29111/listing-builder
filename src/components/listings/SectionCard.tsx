@@ -1,18 +1,23 @@
 'use client'
 
+import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, MessageSquare, X } from 'lucide-react'
+import { ModularChat } from '@/components/listings/ModularChat'
 import type { LbListingSection } from '@/types/database'
 
 interface SectionCardProps {
   section: LbListingSection
   label: string
   charLimit: number
+  listingId: string
   onSelectVariation: (sectionId: string, variationIndex: number) => void
   onToggleApproval: (sectionId: string) => void
+  onVariationAdded: (sectionId: string, newText: string, newIndex: number) => void
 }
 
 function getCharCountColor(length: number, limit: number): string {
@@ -29,13 +34,23 @@ function getCharBadgeVariant(length: number, limit: number): 'default' | 'second
   return 'secondary'
 }
 
+function getTabLabel(index: number): string {
+  if (index === 0) return 'SEO'
+  if (index === 1) return 'Benefit'
+  if (index === 2) return 'Balanced'
+  return `V${index + 1}`
+}
+
 export function SectionCard({
   section,
   label,
   charLimit,
+  listingId,
   onSelectVariation,
   onToggleApproval,
+  onVariationAdded,
 }: SectionCardProps) {
+  const [isChatOpen, setIsChatOpen] = useState(false)
   const variations = (section.variations || []) as string[]
   const selectedIndex = section.selected_variation || 0
   const currentText = variations[selectedIndex] || ''
@@ -67,6 +82,25 @@ export function SectionCard({
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant={isChatOpen ? 'secondary' : 'outline'}
+            size="sm"
+            onClick={() => setIsChatOpen(!isChatOpen)}
+            className="gap-1 h-7 text-xs"
+          >
+            {isChatOpen ? (
+              <>
+                <X className="h-3 w-3" />
+                Close
+              </>
+            ) : (
+              <>
+                <MessageSquare className="h-3 w-3" />
+                Refine
+              </>
+            )}
+          </Button>
+
           {section.is_approved && (
             <CheckCircle2 className="h-4 w-4 text-green-500" />
           )}
@@ -89,7 +123,7 @@ export function SectionCard({
         <TabsList>
           {variations.map((_, i) => (
             <TabsTrigger key={i} value={String(i)}>
-              {i === 0 ? 'SEO Focused' : i === 1 ? 'Benefit Focused' : 'Balanced'}
+              {getTabLabel(i)}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -104,6 +138,19 @@ export function SectionCard({
           </TabsContent>
         ))}
       </Tabs>
+
+      {/* Modular Chat */}
+      {isChatOpen && (
+        <div className="border-t pt-3">
+          <ModularChat
+            listingId={listingId}
+            sectionId={section.id}
+            sectionType={section.section_type}
+            sectionLabel={label}
+            onNewVariation={onVariationAdded}
+          />
+        </div>
+      )}
     </div>
   )
 }

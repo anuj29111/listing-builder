@@ -21,8 +21,16 @@ export function StepReviewExport() {
   const selectVariation = useListingStore((s) => s.selectVariation)
   const toggleSectionApproval = useListingStore((s) => s.toggleSectionApproval)
   const setListingStatus = useListingStore((s) => s.setListingStatus)
+  const addVariation = useListingStore((s) => s.addVariation)
 
   const [isSaving, setIsSaving] = useState(false)
+
+  const handleVariationAdded = useCallback(
+    (sectionId: string, newText: string, newIndex: number) => {
+      addVariation(sectionId, newText, newIndex)
+    },
+    [addVariation]
+  )
 
   // Sort sections by SECTION_TYPES order
   const sortedSections = [...sections].sort((a, b) => {
@@ -147,8 +155,10 @@ export function StepReviewExport() {
             section={section}
             label={SECTION_TYPE_LABELS[section.section_type] || section.section_type}
             charLimit={getCharLimit(section.section_type)}
+            listingId={listingId!}
             onSelectVariation={selectVariation}
             onToggleApproval={toggleSectionApproval}
+            onVariationAdded={handleVariationAdded}
           />
         ))}
       </div>
