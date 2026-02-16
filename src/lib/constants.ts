@@ -22,7 +22,19 @@ export const SECTION_TYPES = [
   'subject_matter',
 ] as const
 
-export const IMAGE_PROVIDERS = ['dalle3', 'gemini'] as const
+export const IMAGE_PROVIDERS = ['dalle3', 'gemini', 'higgsfield'] as const
+
+export const HIGGSFIELD_MODELS = [
+  { id: 'higgsfield-ai/soul/standard', label: 'Soul Standard' },
+  { id: 'reve/text-to-image', label: 'Reve' },
+  { id: 'bytedance/seedream/v4/text-to-image', label: 'SeedReam v4' },
+] as const
+
+export const IMAGE_PROVIDER_LABELS: Record<string, string> = {
+  dalle3: 'DALL-E 3 (OpenAI)',
+  gemini: 'Gemini (Google)',
+  higgsfield: 'Higgsfield AI',
+}
 
 export const SYNC_TYPES = ['google_drive', 'apify', 'datadive'] as const
 
@@ -143,29 +155,29 @@ export interface ClaudeModelConfig {
 
 export const CLAUDE_MODELS: ClaudeModelConfig[] = [
   {
-    id: 'claude-haiku-3-5-20241022',
-    name: 'Claude 3.5 Haiku',
-    description: 'Fastest and cheapest. Good for simple refinements.',
-    inputPer1M: 0.80,
-    outputPer1M: 4.00,
+    id: 'claude-haiku-4-5-20251001',
+    name: 'Claude Haiku 4.5',
+    description: 'Fastest model. Great for simple refinements and quick tasks.',
+    inputPer1M: 1.00,
+    outputPer1M: 5.00,
     tier: 'budget',
   },
   {
-    id: 'claude-sonnet-4-20250514',
-    name: 'Claude Sonnet 4',
+    id: 'claude-sonnet-4-5-20250929',
+    name: 'Claude Sonnet 4.5',
     description: 'Best balance of speed, quality, and cost.',
     inputPer1M: 3.00,
     outputPer1M: 15.00,
     tier: 'recommended',
   },
   {
-    id: 'claude-opus-4-20250514',
-    name: 'Claude Opus 4',
-    description: 'Highest quality. Best for complex listings.',
-    inputPer1M: 15.00,
-    outputPer1M: 75.00,
+    id: 'claude-opus-4-6',
+    name: 'Claude Opus 4.6',
+    description: 'Most intelligent. Best for complex listings and critical content.',
+    inputPer1M: 5.00,
+    outputPer1M: 25.00,
     tier: 'premium',
   },
 ]
 
-export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-20250514'
+export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-5-20250929'
