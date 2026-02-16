@@ -4,6 +4,64 @@ import { DEFAULT_CLAUDE_MODEL } from '@/lib/constants'
 
 const MAX_TOKENS = 8192
 
+// ~150K tokens budget for prompt content (leaving room for system prompt + output tokens)
+// Claude's context is 200K tokens; 1 token ≈ 4 chars
+const MAX_PROMPT_CHARS = 600_000
+
+/**
+ * Truncate CSV content to fit within token limits.
+ * Uses even sampling across the dataset to maintain representativeness.
+ */
+function truncateCSVContent(csvContent: string, maxChars: number = MAX_PROMPT_CHARS): {
+  content: string
+  truncated: boolean
+  originalRows: number
+  keptRows: number
+} {
+  if (csvContent.length <= maxChars) {
+    const rowCount = csvContent.split('\n').filter((l) => l.trim()).length - 1
+    return { content: csvContent, truncated: false, originalRows: rowCount, keptRows: rowCount }
+  }
+
+  const lines = csvContent.split('\n')
+  const header = lines[0]
+  const dataLines = lines.slice(1).filter((l) => l.trim())
+  const originalRows = dataLines.length
+
+  if (dataLines.length === 0) {
+    return { content: header, truncated: false, originalRows: 0, keptRows: 0 }
+  }
+
+  // Calculate average line length to estimate how many rows we can fit
+  const sampleSize = Math.min(100, dataLines.length)
+  const sampleChars = dataLines.slice(0, sampleSize).join('\n').length
+  const avgLineLength = sampleChars / sampleSize
+
+  const availableChars = maxChars - header.length - 200 // 200 chars buffer for truncation note
+  const maxDataLines = Math.max(1, Math.floor(availableChars / avgLineLength))
+
+  // Sample evenly across the dataset (not just first N rows)
+  // This ensures we get data from all time periods, rating ranges, etc.
+  let sampledLines: string[]
+  if (maxDataLines >= dataLines.length) {
+    sampledLines = dataLines
+  } else {
+    const step = dataLines.length / maxDataLines
+    sampledLines = []
+    for (let i = 0; i < maxDataLines; i++) {
+      const idx = Math.min(Math.floor(i * step), dataLines.length - 1)
+      sampledLines.push(dataLines[idx])
+    }
+  }
+
+  return {
+    content: [header, ...sampledLines].join('\n'),
+    truncated: true,
+    originalRows,
+    keptRows: sampledLines.length,
+  }
+}
+
 async function getApiKey(): Promise<string> {
   // Try lb_admin_settings first (set via Admin Settings UI)
   try {
@@ -163,8 +221,13 @@ export type AnalysisResult =
 // --- Prompts ---
 
 function buildKeywordAnalysisPrompt(csvContent: string, categoryName: string, countryName: string): string {
-  return `You are an expert Amazon listing optimization analyst. Analyze the following keyword research CSV data for the product category "${categoryName}" in the "${countryName}" marketplace.
+  const { content, truncated, originalRows, keptRows } = truncateCSVContent(csvContent)
+  const truncationNote = truncated
+    ? `\n\nIMPORTANT: This is a representative sample of ${keptRows.toLocaleString()} out of ${originalRows.toLocaleString()} total rows, evenly sampled across the dataset. Scale your counts/totals proportionally when summarizing (e.g., totalKeywords should reflect the full ${originalRows.toLocaleString()}).\n`
+    : ''
 
+  return `You are an expert Amazon listing optimization analyst. Analyze the following keyword research CSV data for the product category "${categoryName}" in the "${countryName}" marketplace.
+${truncationNote}
 The CSV has these columns: Search Terms, Type, SV (search volume), Relev. (relevancy score 0-1), and ASIN rank columns.
 - "SV" = monthly search volume
 - "Relev." = relevancy score (higher = more relevant to the product). Values like "Residue" mean low/unclear relevancy.
@@ -191,12 +254,17 @@ Treat "Residue" relevancy as 0.3 for calculation purposes.
 Only return valid JSON, no markdown fences or explanation.
 
 CSV DATA:
-${csvContent}`
+${content}`
 }
 
 function buildReviewAnalysisPrompt(csvContent: string, categoryName: string, countryName: string): string {
-  return `You are an expert Amazon listing optimization analyst. Analyze the following product review CSV data for the product category "${categoryName}" in the "${countryName}" marketplace.
+  const { content, truncated, originalRows, keptRows } = truncateCSVContent(csvContent)
+  const truncationNote = truncated
+    ? `\n\nIMPORTANT: This is a representative sample of ${keptRows.toLocaleString()} out of ${originalRows.toLocaleString()} total reviews, evenly sampled across the dataset. Scale your counts proportionally (e.g., totalReviews = ${originalRows.toLocaleString()}, scale frequencies by ${(originalRows / keptRows).toFixed(1)}x).\n`
+    : ''
 
+  return `You are an expert Amazon listing optimization analyst. Analyze the following product review CSV data for the product category "${categoryName}" in the "${countryName}" marketplace.
+${truncationNote}
 The CSV has columns: Date, Author, Verified, Helpful, Title, Body, Rating, Images, Videos, URL, Variation, Style.
 
 Analyze ALL reviews and return a JSON object with this exact structure:
@@ -219,7 +287,7 @@ Analyze ALL reviews and return a JSON object with this exact structure:
 Only return valid JSON, no markdown fences or explanation.
 
 CSV DATA:
-${csvContent}`
+${content}`
 }
 
 function buildQnAAnalysisPrompt(csvContent: string, categoryName: string, countryName: string, isRufus: boolean): string {

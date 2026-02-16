@@ -4,16 +4,29 @@
 
 | Key | Value |
 |-----|-------|
-| **Framework** | Next.js 14 + TypeScript (App Router, `src/` directory) |
-| **Styling** | Tailwind CSS + shadcn/ui HSL variables |
-| **State** | Zustand |
-| **Database** | Supabase PostgreSQL (shared project `yawaopfqkkvdqtsagmng`) |
+| **Framework** | Next.js 14.0.4 + TypeScript (App Router, `src/` directory) |
+| **Styling** | Tailwind CSS + shadcn/ui (HSL variables, `darkMode: ['class']`) |
+| **State** | Zustand (`use<Name>Store`) |
+| **Database** | Supabase PostgreSQL (project `yawaopfqkkvdqtsagmng`, shared DB) |
 | **Auth** | Google OAuth via Supabase Auth (`@chalkola.com` only) |
 | **Deployment** | Railway (auto-deploy from GitHub `main`) |
 | **Production URL** | `https://listing-builder-production.up.railway.app` |
 | **GitHub** | `anuj29111/listing-builder` |
-| **Table Prefix** | `lb_` (shared DB with Chalkola ONE, keyword-tracker, etc.) |
+| **Table Prefix** | `lb_` (16 tables, 60 RLS policies) |
 | **Storage Buckets** | `lb-research-files`, `lb-images` |
+| **Brands** | Chalkola, Spedalon, Funcils |
+
+---
+
+## Project Overview
+
+Internal tool for 10-15 people managing Amazon FBA brands across 8-10 international marketplaces.
+
+**Core architecture:** Research analyzed once per category/country by Claude AI, cached as JSONB, reused for all products in that category.
+
+**Data flow:** CSV upload → Supabase Storage → Claude Analysis → Cached JSONB → Listing Generation → Modular Chat Refinement → Export
+
+**Generates:** Title, 5 bullet points, description, search terms, subject matter — per product, per marketplace.
 
 ---
 
@@ -21,552 +34,31 @@
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 0 | Project Foundation & DB Schema | **COMPLETED** |
-| 1 | Core UI Shell + Auth + Admin | **COMPLETED** |
-| 2 | Research Management (Upload) | **COMPLETED** |
-| 3 | Research Analysis Engine | **COMPLETED** |
-| 4 | Listing Builder - Single Mode | **COMPLETED** |
-| 5 | Modular Chats | **COMPLETED** |
-| 6 | Speed Mode (Batch) | **COMPLETED** |
+| 0-6 | Foundation through Speed Mode | **ALL COMPLETED** |
 | 7 | Research Acquisition (Apify/DataDive) | NOT STARTED |
 | 8 | Google Drive Integration | NOT STARTED |
 | 9 | Image Builder | **COMPLETED** |
 | 10 | A+ Content + Polish | **COMPLETED** |
 
-**Current Phase:** 7/8 (next — research acquisition or Google Drive)
-**Last Updated:** February 9, 2026
-**App Version:** 0.1.0
-
-### Phase Dependencies & Parallelization Rules
-
-**IMPORTANT: Phases 0 → 1 → 2 → 3 → 4 MUST run sequentially. Do NOT attempt to skip or parallelize these.**
-
-If a user asks to start a phase before its dependency is complete, REFUSE and explain which phase must finish first.
+**Next:** Phase 7 or 8 (both depend only on Phase 2, can run in parallel).
 
 ```
-Phase 0 (foundation, DB, folders)         ← MUST BE FIRST
-  └── Phase 1 (auth, sidebar, admin)      ← needs Phase 0
-        └── Phase 2 (research upload)     ← needs Phase 1
-              ├── Phase 3 (analysis)      ← needs Phase 2
-              │     └── Phase 4 (listing builder) ← needs Phase 3
-              │           ├── Phase 5 (modular chats)   ← CAN PARALLEL after Phase 4
-              │           │     └── Phase 6 (batch mode) ← needs Phase 5
-              │           ├── Phase 9 (image builder)    ← CAN PARALLEL after Phase 4
-              │           └── Phase 10 (A+ content)      ← CAN PARALLEL after Phase 4
-              ├── Phase 7 (Apify/DataDive)  ← CAN PARALLEL after Phase 2
-              └── Phase 8 (Google Drive)    ← CAN PARALLEL after Phase 2
-```
-
-**Sequential (no choice):** 0 → 1 → 2 → 3 → 4
-**After Phase 4 completes, these can run in parallel sessions:**
-- Session A: Phase 5 → Phase 6
-- Session B: Phase 9 (images)
-- Session C: Phase 10 (A+ content)
-**After Phase 2 completes, these can also run in parallel:**
-- Phase 7 (Apify/DataDive) — independent of Phase 3/4
-- Phase 8 (Google Drive) — independent of Phase 3/4
-
----
-
-## Project Overview
-
-Internal tool for 10-15 people managing Amazon FBA brands (**Chalkola**, **Spedalon**, **Funcils**) across 8-10 international marketplaces.
-
-**Core Architecture: Category-Level Intelligence Caching**
-Research is analyzed once per category/country combination by Claude AI, then reused for all products in that category. Eliminates 90%+ of redundant research work.
-
-**Data Flow:**
-```
-Research Files (CSV upload) → Supabase Storage → Claude Analysis → Cached JSONB → Listing Generation → Modular Chat Refinement → Export
-```
-
-**What it generates:** Title, 5 bullet points, description, search terms, subject matter — per product, per marketplace.
-
----
-
-## Tech Stack
-
-### Core
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `next` | `14.0.4` | Framework (App Router) |
-| `react` / `react-dom` | `^18.2.0` | UI |
-| `typescript` | `^5.3.0` | Type safety |
-| `tailwindcss` | `^3.4.0` | Styling |
-| `@supabase/supabase-js` | `^2.39.0` | Database client |
-| `@supabase/ssr` | `^0.1.0` | Server-side Supabase |
-| `zustand` | `^5.0.0` | State management |
-
-### UI
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `lucide-react` | `^0.303.0` | Icons |
-| `recharts` | `^2.10.3` | Charts |
-| `class-variance-authority` | `^0.7.0` | Component variants |
-| `clsx` | `^2.1.0` | Class merging |
-| `tailwind-merge` | `^2.2.0` | Tailwind class merge |
-| `react-hot-toast` | `^2.4.0` | Notifications |
-| `react-dropzone` | `^14.2.3` | File upload |
-
-### AI & APIs
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `@anthropic-ai/sdk` | `^0.24.0` | Claude AI (analysis + generation) |
-| `openai` | `^4.24.0` | DALL-E 3 images (Phase 9) |
-| `@google/generative-ai` | `^0.21.0` | Gemini images (Phase 9) |
-| `googleapis` | `^144.0.0` | Google Drive sync (Phase 8) |
-
-### Utilities
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `papaparse` | `^5.4.0` | CSV parsing |
-| `date-fns` | `^3.0.0` | Date formatting |
-| `zod` | `^3.22.0` | Schema validation |
-
-### Radix UI Primitives (add as needed)
-`@radix-ui/react-dialog`, `@radix-ui/react-select`, `@radix-ui/react-dropdown-menu`, `@radix-ui/react-tabs`, `@radix-ui/react-tooltip`, `@radix-ui/react-switch`, `@radix-ui/react-label`, `@radix-ui/react-separator`, `@radix-ui/react-progress`, `@radix-ui/react-alert-dialog`, `@radix-ui/react-slot`, `@radix-ui/react-toast`
-
----
-
-## Project Structure
-
-```
-src/
-├── app/
-│   ├── (auth)/
-│   │   ├── login/page.tsx                 # Google OAuth login page
-│   │   └── auth/callback/route.ts         # OAuth callback handler
-│   ├── (dashboard)/
-│   │   ├── layout.tsx                     # Sidebar + header shell
-│   │   ├── dashboard/page.tsx             # Stats + research matrix
-│   │   ├── research/
-│   │   │   ├── page.tsx                   # Research file management + status matrix
-│   │   │   └── [categoryId]/
-│   │   │       └── [countryId]/page.tsx   # Analysis viewer
-│   │   ├── listings/
-│   │   │   ├── page.tsx                   # Listing history
-│   │   │   ├── new/page.tsx               # Single mode wizard
-│   │   │   └── speed/page.tsx             # Batch/speed mode
-│   │   ├── images/page.tsx                # Image builder (Phase 9)
-│   │   ├── aplus/page.tsx                 # A+ content (Phase 10)
-│   │   └── settings/page.tsx              # Admin settings
-│   ├── api/
-│   │   ├── health/route.ts               # Health check
-│   │   ├── categories/
-│   │   │   ├── route.ts                   # GET list, POST create
-│   │   │   └── [id]/route.ts             # GET, PATCH, DELETE
-│   │   ├── countries/route.ts             # GET list
-│   │   ├── research/
-│   │   │   ├── files/route.ts             # GET, POST upload
-│   │   │   ├── analyze/route.ts           # POST trigger analysis
-│   │   │   └── status/route.ts            # GET status matrix
-│   │   ├── listings/
-│   │   │   ├── route.ts                   # GET, POST
-│   │   │   ├── [id]/route.ts             # GET, PATCH, DELETE
-│   │   │   └── [id]/chats/
-│   │   │       └── [section]/route.ts     # GET, POST chat messages
-│   │   ├── images/
-│   │   │   ├── generate/route.ts          # POST generate image
-│   │   │   └── [id]/route.ts             # GET, PATCH approve/reject
-│   │   ├── batch/
-│   │   │   ├── route.ts                   # GET, POST batch job
-│   │   │   └── [id]/route.ts             # GET status, PATCH
-│   │   ├── admin/
-│   │   │   ├── settings/route.ts          # GET, PUT settings
-│   │   │   └── users/route.ts             # GET, PATCH users
-│   │   └── export/route.ts               # POST export listing
-│   ├── globals.css                        # Tailwind + HSL variables
-│   ├── layout.tsx                         # Root layout (fonts, metadata)
-│   └── page.tsx                           # Root → redirect to /login or /dashboard
-├── components/
-│   ├── ui/                                # Reusable primitives (Button, Input, Select, Badge, Dialog, etc.)
-│   ├── layouts/
-│   │   ├── Sidebar.tsx
-│   │   └── Header.tsx
-│   ├── dashboard/
-│   │   ├── StatsCards.tsx
-│   │   ├── ResearchStatusMatrix.tsx
-│   │   ├── RecentListings.tsx
-│   │   └── QuickActions.tsx
-│   ├── research/
-│   │   ├── FileUploader.tsx
-│   │   ├── FileList.tsx
-│   │   ├── AnalysisViewer.tsx
-│   │   └── AnalysisProgress.tsx
-│   ├── listings/
-│   │   ├── wizard/
-│   │   │   ├── StepCategoryCountry.tsx
-│   │   │   ├── StepProductDetails.tsx
-│   │   │   ├── StepGeneration.tsx
-│   │   │   └── StepReviewExport.tsx
-│   │   ├── SectionCard.tsx
-│   │   ├── ModularChat.tsx
-│   │   └── ExportOptions.tsx
-│   ├── settings/
-│   │   ├── SettingsClient.tsx             # Tabs container (Categories, Users, Admin)
-│   │   ├── CategoriesTab.tsx              # CRUD table + Dialog form
-│   │   ├── UsersTab.tsx                   # User mgmt + role change
-│   │   └── AdminSettingsTab.tsx           # Key-value settings
-│   ├── providers/
-│   │   └── AuthProvider.tsx               # Hydrates Zustand auth store
-│   ├── images/
-│   │   ├── PromptEditor.tsx
-│   │   └── ImageGallery.tsx
-│   └── shared/
-│       ├── LoadingSpinner.tsx
-│       ├── EmptyState.tsx
-│       ├── ConfirmDialog.tsx
-│       └── StatusBadge.tsx
-├── lib/
-│   ├── supabase/
-│   │   ├── client.ts                      # Browser client (createBrowserClient)
-│   │   └── server.ts                      # Server client + admin client
-│   ├── auth.ts                            # Auth helpers (getAuthenticatedUser, upsertLoginUser)
-│   ├── claude.ts                          # Anthropic API wrapper
-│   ├── openai.ts                          # DALL-E wrapper
-│   ├── gemini.ts                          # Google Gemini wrapper
-│   ├── google-drive.ts                    # Google Drive API wrapper
-│   ├── csv-parser.ts                      # PapaParse wrapper with format detection
-│   ├── utils.ts                           # cn(), formatDate, etc.
-│   └── constants.ts                       # Character limits, section types, brands
-├── stores/
-│   ├── auth-store.ts                      # User session state
-│   ├── research-store.ts                  # Research files + analysis cache
-│   ├── listing-store.ts                   # Listing wizard state
-│   └── ui-store.ts                        # Sidebar, modals, etc.
-└── types/
-    ├── database.ts                        # Row types for all lb_* tables
-    ├── api.ts                             # API request/response types
-    └── index.ts                           # Shared enums, unions
+Dependency tree (all completed phases omitted):
+Phase 2 (research upload) ─┬─ Phase 7 (Apify/DataDive)
+                           └─ Phase 8 (Google Drive)
 ```
 
 ---
 
-## Database Schema
+## Key Conventions
 
-### Overview (16 tables)
+**Naming:** Tables `lb_snake_case` | Components `PascalCase.tsx` | Files `kebab-case.ts` | Types `PascalCase` interfaces
 
-| Table | Purpose | Phase |
-|-------|---------|-------|
-| `lb_users` | Users with role (admin/user), synced from Supabase Auth | 0 |
-| `lb_categories` | Product categories (Chalk Markers, Vacuum Bags, etc.) | 0 |
-| `lb_countries` | Marketplaces with character limits and language | 0 |
-| `lb_research_files` | Registry of uploaded CSV files in Supabase Storage | 0 |
-| `lb_research_analysis` | Cached Claude AI analysis (JSONB) per category/country | 0 |
-| `lb_product_types` | Product variations within a category | 0 |
-| `lb_listings` | Generated listing content with status tracking | 0 |
-| `lb_listing_sections` | Per-section variations and selection state | 0 |
-| `lb_listing_chats` | Chat history per listing section | 0 |
-| `lb_image_generations` | AI-generated images with approval flow | 0 |
-| `lb_image_chats` | Chat refinement for images | 0 |
-| `lb_batch_jobs` | Batch generation job tracking | 0 |
-| `lb_admin_settings` | API keys, config values | 0 |
-| `lb_sync_logs` | Google Drive / external sync logs | 0 |
-| `lb_export_logs` | Listing export audit trail | 0 |
-| `lb_aplus_modules` | A+ content templates and content | 10 |
+**Components:** Server Components by default, `'use client'` only when needed. API routes for all mutations. Direct Supabase reads OK for client-side data.
 
-### Full SQL (Migration Order)
+**Supabase:** `@supabase/ssr` with `client.ts` (browser) + `server.ts` (server + admin). Always wrap `auth.uid()` in `(SELECT auth.uid())` for RLS performance.
 
-**Migration 1: lb_users**
-```sql
-CREATE TABLE lb_users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  auth_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
-  email TEXT UNIQUE NOT NULL,
-  full_name TEXT,
-  role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
-  avatar_url TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX idx_lb_users_auth_id ON lb_users(auth_id);
-CREATE INDEX idx_lb_users_email ON lb_users(email);
-```
-
-**Migration 2: lb_categories**
-```sql
-CREATE TABLE lb_categories (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  slug TEXT UNIQUE NOT NULL,
-  description TEXT,
-  brand TEXT NOT NULL CHECK (brand IN ('Chalkola', 'Spedalon', 'Funcils', 'Other')),
-  created_by UUID REFERENCES lb_users(id),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX idx_lb_categories_brand ON lb_categories(brand);
-```
-
-**Migration 3: lb_countries**
-```sql
-CREATE TABLE lb_countries (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  code TEXT UNIQUE NOT NULL,
-  language TEXT NOT NULL,
-  amazon_domain TEXT NOT NULL,
-  flag_emoji TEXT,
-  currency TEXT,
-  title_limit INTEGER DEFAULT 200,
-  bullet_limit INTEGER DEFAULT 500,
-  bullet_count INTEGER DEFAULT 5,
-  description_limit INTEGER DEFAULT 2000,
-  search_terms_limit INTEGER DEFAULT 250,
-  is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-**Migration 4: lb_research_files**
-```sql
-CREATE TABLE lb_research_files (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  category_id UUID NOT NULL REFERENCES lb_categories(id) ON DELETE CASCADE,
-  country_id UUID NOT NULL REFERENCES lb_countries(id) ON DELETE CASCADE,
-  file_type TEXT NOT NULL CHECK (file_type IN ('keywords', 'reviews', 'qna', 'rufus_qna')),
-  file_name TEXT NOT NULL,
-  storage_path TEXT NOT NULL,
-  source TEXT NOT NULL DEFAULT 'manual_upload' CHECK (source IN ('manual_upload', 'google_drive', 'apify', 'datadive')),
-  file_size_bytes BIGINT,
-  row_count INTEGER,
-  uploaded_by UUID REFERENCES lb_users(id),
-  google_drive_id TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX idx_lb_research_files_category ON lb_research_files(category_id);
-CREATE INDEX idx_lb_research_files_country ON lb_research_files(country_id);
-CREATE INDEX idx_lb_research_files_type ON lb_research_files(file_type);
-```
-
-**Migration 5: lb_research_analysis**
-```sql
-CREATE TABLE lb_research_analysis (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  category_id UUID NOT NULL REFERENCES lb_categories(id) ON DELETE CASCADE,
-  country_id UUID NOT NULL REFERENCES lb_countries(id) ON DELETE CASCADE,
-  analysis_type TEXT NOT NULL CHECK (analysis_type IN ('keyword_analysis', 'review_analysis', 'qna_analysis')),
-  source_file_ids UUID[] NOT NULL,
-  analysis_result JSONB NOT NULL DEFAULT '{}',
-  model_used TEXT,
-  tokens_used INTEGER,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
-  error_message TEXT,
-  analyzed_by UUID REFERENCES lb_users(id),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(category_id, country_id, analysis_type)
-);
-CREATE INDEX idx_lb_research_analysis_category ON lb_research_analysis(category_id);
-CREATE INDEX idx_lb_research_analysis_country ON lb_research_analysis(country_id);
-CREATE INDEX idx_lb_research_analysis_status ON lb_research_analysis(status);
-```
-
-**Migration 6: lb_product_types**
-```sql
-CREATE TABLE lb_product_types (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  category_id UUID NOT NULL REFERENCES lb_categories(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  asin TEXT,
-  attributes JSONB DEFAULT '{}',
-  created_by UUID REFERENCES lb_users(id),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX idx_lb_product_types_category ON lb_product_types(category_id);
-```
-
-**Migration 7: lb_batch_jobs** (before lb_listings due to FK)
-```sql
-CREATE TABLE lb_batch_jobs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT,
-  category_id UUID NOT NULL REFERENCES lb_categories(id),
-  country_id UUID NOT NULL REFERENCES lb_countries(id),
-  product_type_ids UUID[],
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
-  total_listings INTEGER DEFAULT 0,
-  completed_listings INTEGER DEFAULT 0,
-  created_by UUID REFERENCES lb_users(id),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-**Migration 8: lb_listings**
-```sql
-CREATE TABLE lb_listings (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  product_type_id UUID REFERENCES lb_product_types(id),
-  country_id UUID NOT NULL REFERENCES lb_countries(id),
-  title TEXT,
-  bullet_points JSONB DEFAULT '[]',
-  description TEXT,
-  search_terms TEXT,
-  subject_matter JSONB DEFAULT '[]',
-  backend_keywords TEXT,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'review', 'approved', 'exported')),
-  generation_context JSONB DEFAULT '{}',
-  model_used TEXT,
-  tokens_used INTEGER,
-  created_by UUID REFERENCES lb_users(id),
-  approved_by UUID REFERENCES lb_users(id),
-  batch_job_id UUID REFERENCES lb_batch_jobs(id),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX idx_lb_listings_product_type ON lb_listings(product_type_id);
-CREATE INDEX idx_lb_listings_country ON lb_listings(country_id);
-CREATE INDEX idx_lb_listings_status ON lb_listings(status);
-CREATE INDEX idx_lb_listings_created_by ON lb_listings(created_by);
-```
-
-**Migration 9: lb_listing_sections**
-```sql
-CREATE TABLE lb_listing_sections (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  listing_id UUID NOT NULL REFERENCES lb_listings(id) ON DELETE CASCADE,
-  section_type TEXT NOT NULL CHECK (section_type IN (
-    'title', 'bullet_1', 'bullet_2', 'bullet_3', 'bullet_4', 'bullet_5',
-    'description', 'search_terms', 'subject_matter'
-  )),
-  variations JSONB DEFAULT '[]',
-  selected_variation INTEGER DEFAULT 0,
-  is_approved BOOLEAN DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX idx_lb_listing_sections_listing ON lb_listing_sections(listing_id);
-```
-
-**Migration 10: lb_listing_chats**
-```sql
-CREATE TABLE lb_listing_chats (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  listing_id UUID NOT NULL REFERENCES lb_listings(id) ON DELETE CASCADE,
-  section_type TEXT NOT NULL,
-  messages JSONB DEFAULT '[]',
-  model_used TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX idx_lb_listing_chats_listing ON lb_listing_chats(listing_id);
-```
-
-**Migration 11: lb_image_generations**
-```sql
-CREATE TABLE lb_image_generations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  listing_id UUID REFERENCES lb_listings(id) ON DELETE SET NULL,
-  prompt TEXT NOT NULL,
-  provider TEXT NOT NULL CHECK (provider IN ('dalle3', 'gemini')),
-  preview_url TEXT,
-  full_url TEXT,
-  status TEXT NOT NULL DEFAULT 'preview' CHECK (status IN ('preview', 'approved', 'rejected')),
-  cost_cents INTEGER DEFAULT 0,
-  created_by UUID REFERENCES lb_users(id),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX idx_lb_image_generations_listing ON lb_image_generations(listing_id);
-```
-
-**Migration 12: lb_image_chats**
-```sql
-CREATE TABLE lb_image_chats (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  image_generation_id UUID NOT NULL REFERENCES lb_image_generations(id) ON DELETE CASCADE,
-  messages JSONB DEFAULT '[]',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-**Migration 13: lb_admin_settings**
-```sql
-CREATE TABLE lb_admin_settings (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  key TEXT UNIQUE NOT NULL,
-  value TEXT NOT NULL,
-  description TEXT,
-  updated_by UUID REFERENCES lb_users(id),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-**Migration 14: lb_sync_logs**
-```sql
-CREATE TABLE lb_sync_logs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  sync_type TEXT NOT NULL CHECK (sync_type IN ('google_drive', 'apify', 'datadive')),
-  status TEXT NOT NULL DEFAULT 'started' CHECK (status IN ('started', 'completed', 'failed')),
-  details JSONB DEFAULT '{}',
-  files_synced INTEGER DEFAULT 0,
-  error_message TEXT,
-  triggered_by UUID REFERENCES lb_users(id),
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-**Migration 15: lb_export_logs**
-```sql
-CREATE TABLE lb_export_logs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  listing_id UUID REFERENCES lb_listings(id),
-  export_type TEXT NOT NULL CHECK (export_type IN ('csv', 'clipboard', 'flat_file')),
-  exported_by UUID REFERENCES lb_users(id),
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-### Seed Data: lb_countries
-```sql
-INSERT INTO lb_countries (name, code, language, amazon_domain, flag_emoji, currency, title_limit, bullet_limit, bullet_count, description_limit, search_terms_limit, is_active) VALUES
-('United States', 'US', 'English', 'amazon.com', '🇺🇸', 'USD', 200, 500, 5, 2000, 250, true),
-('United Kingdom', 'UK', 'English', 'amazon.co.uk', '🇬🇧', 'GBP', 200, 500, 5, 2000, 250, true),
-('Germany', 'DE', 'German', 'amazon.de', '🇩🇪', 'EUR', 200, 500, 5, 2000, 250, true),
-('France', 'FR', 'French', 'amazon.fr', '🇫🇷', 'EUR', 200, 500, 5, 2000, 250, true),
-('Canada', 'CA', 'English', 'amazon.ca', '🇨🇦', 'CAD', 200, 500, 5, 2000, 250, true),
-('Italy', 'IT', 'Italian', 'amazon.it', '🇮🇹', 'EUR', 200, 500, 5, 2000, 250, false),
-('Spain', 'ES', 'Spanish', 'amazon.es', '🇪🇸', 'EUR', 200, 500, 5, 2000, 250, false),
-('Mexico', 'MX', 'Spanish', 'amazon.com.mx', '🇲🇽', 'MXN', 200, 500, 5, 2000, 250, false),
-('Australia', 'AU', 'English', 'amazon.com.au', '🇦🇺', 'AUD', 200, 500, 5, 2000, 250, true),
-('UAE', 'AE', 'English', 'amazon.ae', '🇦🇪', 'AED', 200, 500, 5, 2000, 250, true);
-```
-
-### RLS Policy Pattern
-All tables use this pattern:
-```sql
-ALTER TABLE lb_<table> ENABLE ROW LEVEL SECURITY;
-
--- Read: all authenticated users
-CREATE POLICY "lb_<table>_select" ON lb_<table>
-  FOR SELECT TO authenticated
-  USING (true);
-
--- Write: all authenticated users (or admin-only for lb_admin_settings)
-CREATE POLICY "lb_<table>_insert" ON lb_<table>
-  FOR INSERT TO authenticated
-  WITH CHECK (true);
-
-CREATE POLICY "lb_<table>_update" ON lb_<table>
-  FOR UPDATE TO authenticated
-  USING (true);
-
-CREATE POLICY "lb_<table>_delete" ON lb_<table>
-  FOR DELETE TO authenticated
-  USING (true);
-```
-
-For `lb_admin_settings` — restrict to admin role:
-```sql
-CREATE POLICY "lb_admin_settings_select" ON lb_admin_settings
-  FOR SELECT TO authenticated
-  USING ((SELECT auth.uid()) IN (SELECT auth_id FROM lb_users WHERE role = 'admin'));
-```
+**TypeScript:** Strict mode, no `any`, all responses typed via `types/database.ts`.
 
 ---
 
@@ -574,327 +66,78 @@ CREATE POLICY "lb_admin_settings_select" ON lb_admin_settings
 
 ```bash
 # .env.local
-
-# Supabase (SAME project as Chalkola ONE, keyword-tracker)
 NEXT_PUBLIC_SUPABASE_URL=https://yawaopfqkkvdqtsagmng.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<get from Supabase dashboard>
-SUPABASE_SERVICE_ROLE_KEY=<get from Supabase dashboard>
-
-# AI APIs (add when needed per phase)
-ANTHROPIC_API_KEY=           # Phase 3
-OPENAI_API_KEY=              # Phase 9
-GOOGLE_AI_API_KEY=           # Phase 9
-
-# Google Drive (Phase 8)
-GOOGLE_SERVICE_ACCOUNT_EMAIL=
-GOOGLE_PRIVATE_KEY=
-GOOGLE_DRIVE_ROOT_FOLDER_ID=
-
-# App
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<from Supabase dashboard>
+SUPABASE_SERVICE_ROLE_KEY=<from Supabase dashboard>
+ANTHROPIC_API_KEY=              # Or set via Admin Settings UI
+OPENAI_API_KEY=                 # DALL-E 3 (Phase 9)
+GOOGLE_AI_API_KEY=              # Gemini (Phase 9)
+GOOGLE_SERVICE_ACCOUNT_EMAIL=   # Phase 8
+GOOGLE_PRIVATE_KEY=             # Phase 8
+GOOGLE_DRIVE_ROOT_FOLDER_ID=    # Phase 8
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 NODE_ENV=development
 ```
 
----
-
-## Key Conventions
-
-### Naming
-- **Tables:** `lb_snake_case` (e.g., `lb_research_files`)
-- **Components:** PascalCase (e.g., `SectionCard.tsx`)
-- **Non-component files:** kebab-case (e.g., `csv-parser.ts`)
-- **API routes:** kebab-case folders (e.g., `/api/research/files/route.ts`)
-- **Types:** PascalCase interfaces (e.g., `ResearchFile`, `ListingSection`)
-- **Zustand stores:** `use<Name>Store` (e.g., `useListingStore`)
-- **Brands:** Always capitalized: `Chalkola`, `Spedalon`, `Funcils`
-
-### Component Patterns
-- Server Components by default, `'use client'` only when needed (interactivity, hooks, browser APIs)
-- API routes for all mutations (never mutate from client directly)
-- Direct Supabase client reads OK for real-time/client-side data
-- Collocate page-specific components in the page folder when small
-
-### Supabase Patterns (from keyword-tracker)
-- Use `@supabase/ssr` with separate `client.ts` (browser) and `server.ts` (server + admin)
-- Server routes: `createClient()` from `server.ts`
-- Admin operations: `createAdminClient()` with service_role key
-- RLS: Always wrap `auth.uid()` in `(SELECT auth.uid())` for performance
-- Index all columns used in RLS policies and foreign keys
-
-### TypeScript
-- Strict mode enabled
-- No `any` types — use `unknown` and narrow
-- All Supabase responses typed via `types/database.ts`
-
-### CSS / Tailwind
-- HSL CSS variables for theming (shadcn/ui pattern from keyword-tracker)
-- `darkMode: ['class']` in tailwind config
-- Mobile-responsive with sidebar collapse on small screens
+**Railway env vars (set):** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_APP_URL`, `NODE_ENV`
 
 ---
 
-## Research File Formats
-
-### Keywords CSV (DataDive export)
-```
-Columns: Search Terms, Type, SV (search volume), Relev. (relevancy score), Sugg. bid & range, [ASIN rank columns...]
-Rows: ~600 per file
-Example: "chalk markers", "edit", 281733, 0.684, "", 5, 1, 14, ...
-```
-
-### Reviews CSV (Apify scrape)
-```
-Columns: Date, Author, Verified, Helpful, Title, Body, Rating, Images, Videos, URL, Variation, Style
-Rows: ~3000+ per file
-```
-
-### Q&A CSV (Amazon scrape)
-```
-Format: Question/Answer pairs, one pair per row
-Rows: ~30-100 per file
-```
-
-### Rufus Q&A CSV (Amazon Rufus AI)
-```
-Same format as Q&A CSV but from Amazon's Rufus AI responses
-Rows: ~30-100 per file
-```
-
----
-
-## Amazon Character Limits
-
-| Element | Default Limit | Notes |
-|---------|--------------|-------|
-| Title | 200 chars | Some categories allow 250 |
-| Each Bullet | 500 chars | Usually 5 bullets per listing |
-| Description | 2000 chars | HTML allowed in some markets |
-| Search Terms | 250 chars | Backend only, not visible |
-| Subject Matter | 250 chars | Per field, up to 5 fields |
-
-These are stored per-country in `lb_countries` and can be customized.
-
----
-
-## Phase Details
-
-> Phases 0–5 are **COMPLETED**. See Session Log for implementation details.
-
-### Phase 6: Speed Mode (Batch)
-**What:** Chat-first batch generation for multiple products.
-**Depends on:** Phase 5
-**Key files:**
-- `app/(dashboard)/listings/speed/page.tsx` — Speed mode UI
-- `api/batch/route.ts` — Batch job creation + processing
-- Batch export functionality
-**Verify:** Enter multiple products via chat, batch generate, quick approve, bulk export.
-
-### Phase 7: Research Acquisition (Apify/DataDive)
-**What:** Automated scraping integrations for reviews, keywords, Q&A.
-**Depends on:** Phase 2
-**Key files:**
-- `lib/apify.ts` — Apify API wrapper
-- `api/research/scrape/route.ts` — Trigger scraping jobs
-- Scraping status tracking UI
-**Verify:** Enter ASINs, trigger review scrape, results auto-populate research files.
-
-### Phase 8: Google Drive Integration
-**What:** Sync research files from Google Drive automatically.
-**Depends on:** Phase 2
-**Key files:**
-- `lib/google-drive.ts` — Google Drive API wrapper
-- `api/sync/google-drive/route.ts` — Sync trigger + polling
-- Sync status UI
-**Verify:** Connect Drive folder, sync detects new files, auto-registers in system.
-
-### Phase 9: Image Builder
-**What:** AI image generation with DALL-E 3 + Gemini, preview/approve flow.
-**Depends on:** Phase 4
-**Key files:**
-- `lib/openai.ts` — DALL-E 3 wrapper
-- `lib/gemini.ts` — Gemini wrapper
-- `app/(dashboard)/images/page.tsx` — Image builder UI
-- `api/images/generate/route.ts` — Generate images
-- 1K preview → 4K on approval
-**Verify:** Generate product images, preview at 1K, approve to get 4K, refine via chat.
-
-### Phase 10: A+ Content + Polish
-**What:** A+ content module templates, analytics dashboard, performance optimization.
-**Depends on:** Phase 4
-**Key files:**
-- `app/(dashboard)/aplus/page.tsx` — A+ content builder
-- Hero banner, comparison chart, feature highlight templates
-- Dashboard analytics with Recharts
-**Verify:** Generate A+ content from templates, export, dashboard shows usage stats.
-
----
-
-## Development Commands
+## Development & Deployment
 
 ```bash
-npm run dev          # Start dev server (port 3000)
-npm run build        # Production build (ALWAYS test before pushing)
-npm run start        # Start production server
-npm run lint         # ESLint check
+npm run dev          # Dev server (port 3000)
+npm run build        # Production build — ALWAYS test before pushing
+npm run start        # Production server
+npm run lint         # ESLint
 ```
 
----
-
-## Deployment
-
-**Platform:** Railway (auto-deploys from GitHub `main` branch)
-**Build:** Nixpacks (auto-detected Next.js)
+**Deploy:** commit → push to `main` → Railway auto-deploys (Nixpacks).
+**If auto-deploy fails:** use `railway up` CLI to force deploy.
 **Health check:** `GET /api/health`
 
-```toml
-# railway.toml
-[build]
-builder = "nixpacks"
+---
 
-[deploy]
-startCommand = "npm run start"
-healthcheckPath = "/api/health"
-healthcheckTimeout = 100
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 3
-```
+## Gotchas
 
-**After code changes:** commit → push to main → Railway auto-deploys.
-**Production URL:** `https://listing-builder-production.up.railway.app`
-**Railway Project:** `listing-builder` (linked via Railway CLI)
-
-**Railway Environment Variables (set):**
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `NEXT_PUBLIC_APP_URL=https://listing-builder-production.up.railway.app`
-- `NODE_ENV=production`
+1. **`NEXT_PUBLIC_*` vars** — Inlined at build time. Always hardcode production URLs in login/callback routes.
+2. **Supabase key rotation** — If 401 errors, verify with `get_publishable_keys` MCP tool and update Railway env vars.
+3. **Route groups** — Don't create redirect-only `page.tsx` inside route groups (missing manifest error).
+4. **Nixpacks** — Don't use `output: 'standalone'` — Nixpacks overwrites `.next/standalone`.
+5. **Middleware** — Must run Supabase client for ALL routes (including `/auth/callback`) for cookie propagation.
+6. **FormData uploads** — Never set `Content-Type` header manually; browser adds multipart boundary.
+7. **DataDive CSV BOM** — Strip `\uFEFF` before header detection. Filter empty strings from headers.
+8. **Railway auto-deploy** — Can silently fail. Verify with `list-deployments` timestamps; use `railway up` as fallback.
+9. **TypeScript Set** — Use `Array.from(new Set())` not `[...new Set()]`. Use `new Set<string>(TUPLE)` to widen type.
+10. **Supabase Redirect URLs** — Each app sharing the project needs its callback URL added to Auth config.
 
 ---
 
-## Session Log
+## Database
 
-### Sessions 1–7 (February 7–9, 2026) — Summary
+16 tables prefixed `lb_`. Full DDL in `docs/SCHEMA.md`.
 
-| Session | Phase | Key Work |
-|---------|-------|----------|
-| 1 | — | Created CLAUDE.md with full architecture design |
-| 2 | 0 | Scaffolded project, ran 15 DB migrations, seeded countries, deployed to Railway |
-| 3 | 1 | Auth (Google OAuth), sidebar, header, dashboard, settings, categories CRUD |
-| 4 | — | Fixed production deploy: hardcoded URLs, middleware cookie propagation, stale anon key |
-| 5 | 2 | CSV upload, research file management, coverage status matrix |
-| 6 | 3 | Claude analysis engine, keyword/review/Q&A analysis, cached JSONB, API key from admin settings |
-| 7 | 4 | Listing wizard (4 steps), Claude generation (3 variations/section), SectionCard, export |
+**Key tables:** `lb_users`, `lb_categories`, `lb_countries`, `lb_research_files`, `lb_research_analysis`, `lb_product_types`, `lb_listings`, `lb_listing_sections`, `lb_listing_chats`, `lb_image_generations`, `lb_image_chats`, `lb_batch_jobs`, `lb_admin_settings`, `lb_sync_logs`, `lb_export_logs`, `lb_aplus_modules`
 
-### Session 8 — February 9, 2026
-- **Scope:** Phase 5 — Modular Chats (per-section chat refinement with cascading context)
-- **What was done:**
-  - Extended `src/types/api.ts` — ChatMessage, SendChatMessageRequest/Response, GetChatHistoryResponse
-  - Extended `src/lib/claude.ts` — Added `SectionRefinementInput` interface, `buildSectionRefinementPrompt()` with cascading context, `refineSection()` function (max_tokens: 4096)
-  - Replaced `src/app/api/listings/[id]/chats/[section]/route.ts` — GET (fetch chat history from lb_listing_chats) + POST (full pipeline: auth → fetch listing with joins → build cascading context from approved earlier sections → fetch chat history → call Claude refineSection → append new variation to section → upsert chat record)
-  - Replaced `src/components/listings/ModularChat.tsx` — Full chat UI: message list with user/assistant bubbles, auto-scroll, input with Enter to send, loading states, optimistic user message with rollback on error, chat history fetch on mount
-  - Modified `src/components/listings/SectionCard.tsx` — Added "Refine" toggle button (MessageSquare icon), isChatOpen state, embedded ModularChat below tabs, dynamic tab labels (SEO/Benefit/Balanced/V4/V5...), new props: listingId, onVariationAdded
-  - Modified `src/components/listings/wizard/StepReviewExport.tsx` — Passes listingId and handleVariationAdded to SectionCard
-  - Modified `src/stores/listing-store.ts` — Added `addVariation(sectionId, newText, newIndex)` action for optimistic UI
-- **Files changed:** 7 files (4 modified + 2 replaced stubs + 1 type addition)
-- **Key design decisions:**
-  - Chat renders inline (collapsible below variation tabs), not modal/drawer
-  - Each Claude refinement adds a NEW variation (V4, V5...) rather than replacing existing ones
-  - Cascading context includes only approved sections that come before current section in SECTION_TYPES order
-  - Chat messages persisted as JSONB array in lb_listing_chats (append-only)
-- **Verification results:**
-  - `npm run build` ✅ (28 routes, zero errors)
-- **Pending user action:** Set `anthropic_api_key` in Admin Settings UI, then deploy to Railway
+**RLS pattern:** All authenticated users can CRUD (except `lb_admin_settings` = admin only). All policies use `(SELECT auth.uid())` wrapper.
 
-### Session 9 — February 9, 2026
-- **Scope:** Phase 9 (Image Builder) + Phase 10 (A+ Content Builder) — implemented in parallel
-- **What was done:**
-  - **Database:** Created `lb-images` storage bucket (public, 10MB, image MIME types) + 4 RLS policies. Created `lb_aplus_modules` table via migration + indexes + 4 RLS policies.
-  - **Types:** Added `LbAPlusModule` to database.ts. Added image types (GenerateImageRequest, ImageWithDetails, ApproveImageRequest, ImageChatRequest/Response) and A+ types (6 template content interfaces, APlusContent union, CRUD types) to api.ts.
-  - **Constants:** Added IMAGE_POSITIONS, IMAGE_ORIENTATIONS, IMAGE_BACKGROUNDS, IMAGE_LIGHTINGS, IMAGE_ANGLES, IMAGE_ARRANGEMENTS, APLUS_TEMPLATE_TYPES/LABELS/DESCRIPTIONS.
-  - **Lib wrappers:** `lib/openai.ts` — DALL-E 3 wrapper (getApiKey from admin settings, generateDalleImage, estimateDalleCost). `lib/gemini.ts` — Gemini wrapper (gemini-2.0-flash-exp model, base64 image response, estimateGeminiCost).
-  - **Stores:** `stores/image-store.ts` + `stores/aplus-store.ts` (Zustand)
-  - **Image API routes:** POST `/api/images/generate` (generate + upload to Supabase Storage), GET `/api/images` (list with filters), GET/PATCH/DELETE `/api/images/[id]` (approve HD/reject/delete), GET/POST `/api/images/[id]/chat` (refinement)
-  - **A+ API routes:** GET/POST `/api/aplus` (list/create), GET/PATCH/DELETE `/api/aplus/[id]`, POST `/api/aplus/[id]/generate` (Claude AI generation)
-  - **Claude integration:** Added `generateAPlusContent()` with template-specific JSON schemas (hero_banner, comparison_chart, feature_grid, technical_specs, usage_scenarios, brand_story)
-  - **Image UI:** `ImageBuilderClient` (orchestrator), `PromptEditor` (prompt + listing link + quick adjustments), `GenerationControls` (provider toggle, orientation, cost estimate), `ImageGallery` (grid + filters), `ImagePreview` (modal with approve/reject/refine)
-  - **A+ UI:** `APlusClient` (orchestrator), `TemplateSelector` (6 template cards), `ModuleCard` (display + status management), `ModuleEditor` (template-specific form editors with AI generate button)
-  - **UI component:** Added `Textarea` (shadcn/ui) to `components/ui/`
-- **Files changed:** 28 files (13 modified + 15 created), 3111 lines added
-- **Build verification:** `npm run build` ✅ (30 routes, zero errors)
-- **Deployed via:** `railway up` (auto-deploy didn't trigger from git push)
-- **Pending user action:** Set `openai_api_key` and `google_ai_api_key` in Admin Settings UI to enable image generation. Set `anthropic_api_key` for A+ content generation.
+**10 countries seeded** in `lb_countries` (US, UK, DE, FR, CA, IT, ES, MX, AU, AE). Character limits stored per-country.
 
 ---
 
-## Lessons Learned / Gotchas
+## Reference Docs (not loaded by default)
 
-1. **`NEXT_PUBLIC_*` env vars in client components** — Inlined at build time, not read at runtime. If Railway builds before the env var is set, the value is `undefined`. **Always hardcode production URLs** in login/callback routes (matching keyword-tracker pattern).
-2. **Supabase API keys on Railway** — If Supabase rotates keys, Railway env vars become stale. The error is `Invalid API key 401`. Always verify with `get_publishable_keys` MCP tool.
-3. **Next.js 14.0.4 route groups** — A redirect-only `page.tsx` inside a route group `(dashboard)` causes missing `page_client-reference-manifest.js`. Don't create pages that only redirect.
-4. **Nixpacks + standalone mode** — Nixpacks runs `COPY . /app` after build, overwriting `.next/standalone`. Don't use `output: 'standalone'` with Nixpacks. Use `npm run start` instead.
-5. **Middleware cookie propagation** — The middleware must run the Supabase client for ALL routes (including `/auth/callback`) to ensure cookies from `exchangeCodeForSession` are properly propagated. Don't early-return before creating the Supabase client.
-6. **Supabase Redirect URLs** — Multiple apps can share the same Supabase project. Each app needs its callback URL added to Auth → URL Configuration → Redirect URLs. The Site URL is separate and is the default fallback.
-7. **FormData file upload** — Never set `Content-Type` header manually; the browser sets it with the multipart boundary. Server-side: convert File to Buffer via `Buffer.from(await file.arrayBuffer())` for Supabase Storage upload.
-8. **DataDive CSV BOM character** — Keyword CSVs from DataDive start with `\uFEFF` (BOM). Must strip before header detection. Also have empty first column — filter empty strings from headers.
-9. **Q&A vs Rufus Q&A** — Identical CSV format, can't auto-distinguish. Auto-detect defaults to `qna`, user manually selects `rufus_qna` via dropdown.
-10. **Railway auto-deploy can silently fail** — Git pushes to `main` don't always trigger Railway auto-deploy (webhook issues). If production shows stale code after push, use `railway up` CLI to force a direct upload from local. Always verify deploy happened by checking `list-deployments` timestamps.
-11. **TypeScript Set spread syntax** — `[...new Set()]` fails with `--downlevelIteration` error in Next.js 14.0.4 tsconfig. Use `Array.from(new Set())` instead.
-12. **TypeScript Set from readonly tuple** — `new Set(SECTION_TYPES)` creates `Set<"title" | "bullet_1" | ...>`, so `.has(stringVar)` fails. Use `new Set<string>(SECTION_TYPES)` to widen the type.
+| File | Contents |
+|------|----------|
+| `docs/SCHEMA.md` | Full SQL DDL for all 16 tables, seed data, RLS patterns |
+| `docs/SESSION-LOG.md` | Historical session notes (Sessions 1-9) |
+| `docs/RESEARCH-FORMATS.md` | CSV format specs for keywords, reviews, Q&A |
+| `docs/PHASE-DETAILS.md` | Specs for remaining phases (7, 8) |
 
 ---
 
-## Current State (as of February 9, 2026)
+## Pending User Actions
 
-### What's Working
-- Google OAuth login with @chalkola.com ✅
-- Dashboard with stat cards ✅
-- Settings page: Categories CRUD, User management, Admin settings ✅
-- Sidebar navigation with admin badge ✅
-- Header with user avatar and name ✅
-- Auth middleware protecting all dashboard routes ✅
-- First user auto-created as admin ✅
-- Production deploy on Railway ✅
-- Health check endpoint ✅
-- Research file upload (CSV drag-and-drop with preview, type auto-detection) ✅
-- Research file list with delete ✅
-- Research coverage status matrix (category × country grid with colored dots) ✅
-- CSV parsing with BOM handling, row count, 5-row preview ✅
-- File storage in Supabase Storage (`lb-research-files` bucket) ✅
-- Research analysis engine: Claude AI analysis trigger + cached JSONB results ✅
-- Analysis viewer page with keyword tiers, review themes, Q&A gaps ✅
-- Analysis status panel with Analyze/Re-analyze buttons ✅
-- Analysis progress tracking with optimistic UI updates ✅
-- Anthropic API key configurable via Admin Settings UI (no Railway env var needed) ✅
-- Listing builder: 4-step wizard (category/country → product details → generate → review/export) ✅
-- Claude listing generation with 3 variation styles per section (SEO, benefit, balanced) ✅
-- SectionCard with variation tabs, char count badges, approval switches ✅
-- Export: clipboard copy, CSV download, Amazon flat file ✅
-- Listings history page with table, edit, delete ✅
-- Modular chats: per-section "Refine" button with inline chat panel ✅
-- Chat refinement: Claude generates new variation based on user request + cascading context ✅
-- Cascading context: approved earlier sections flow into refinement prompts ✅
-- Chat history: persisted in lb_listing_chats, restored on reopen ✅
-- Dynamic variation tabs: V4, V5, etc. added as chat produces new variations ✅
-
-- Speed mode: chat-driven batch listing generation for multiple products ✅
-- Batch job tracking, progress, quick approve, bulk export (CSV + flat file) ✅
-- Image builder: DALL-E 3 + Gemini dual-provider image generation ✅
-- Image 1K preview → HD approval flow with approve/reject/delete ✅
-- Image chat refinement (refine prompt → regenerate) ✅
-- Image storage in Supabase Storage (`lb-images` bucket) ✅
-- Optional listing linking for images ✅
-- Quick image adjustments (background, lighting, angle, arrangement) ✅
-- A+ Content builder: 6 template types with template-specific editors ✅
-- A+ Claude AI content generation with research context ✅
-- A+ module CRUD with status management (draft/review/approved) ✅
-
-### What's Not Built Yet
-- Apify/DataDive integration (Phase 7)
-- Google Drive integration (Phase 8)
-
-### Pending User Action
-- Set `anthropic_api_key` in Admin Settings UI (or `ANTHROPIC_API_KEY` env var) to enable Claude AI features (analysis + generation + refinement + A+ content)
-- Set `openai_api_key` in Admin Settings UI (or `OPENAI_API_KEY` env var) to enable DALL-E 3 image generation
-- Set `google_ai_api_key` in Admin Settings UI (or `GOOGLE_AI_API_KEY` env var) to enable Gemini image generation
-
+- Set `anthropic_api_key` in Admin Settings UI to enable Claude AI features
+- Set `openai_api_key` in Admin Settings UI for DALL-E 3 image generation
+- Set `google_ai_api_key` in Admin Settings UI for Gemini image generation

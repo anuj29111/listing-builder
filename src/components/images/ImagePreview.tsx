@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { CheckCircle2, XCircle, Download, Trash2, X, Send, Loader2, MessageSquare } from 'lucide-react'
 import type { LbImageGeneration } from '@/types/database'
+import { IMAGE_PROVIDER_LABELS } from '@/lib/constants'
 import toast from 'react-hot-toast'
 
 interface ImagePreviewProps {
@@ -63,7 +64,7 @@ export function ImagePreview({ image, onClose, onApprove, onReject, onDelete, on
         <div className="flex items-center justify-between p-4 border-b">
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-xs">{image.status}</Badge>
-            <span className="text-xs text-muted-foreground uppercase">{image.provider}</span>
+            <span className="text-xs text-muted-foreground">{IMAGE_PROVIDER_LABELS[image.provider] || image.provider}</span>
             <span className="text-xs text-muted-foreground">{image.cost_cents}c</span>
           </div>
           <Button variant="ghost" size="sm" onClick={onClose}>

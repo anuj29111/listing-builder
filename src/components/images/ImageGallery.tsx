@@ -12,6 +12,7 @@ import {
 import { useImageStore } from '@/stores/image-store'
 import { CheckCircle2, XCircle, Trash2, Eye, Loader2, ImageIcon } from 'lucide-react'
 import type { LbImageGeneration } from '@/types/database'
+import { IMAGE_PROVIDER_LABELS } from '@/lib/constants'
 
 interface ImageGalleryProps {
   images: LbImageGeneration[]
@@ -103,7 +104,7 @@ export function ImageGallery({ images, isLoading, onSelect, onApprove, onReject,
                   <Badge variant="outline" className={`text-[10px] ${statusColors[image.status]}`}>
                     {image.status}
                   </Badge>
-                  <span className="text-[10px] text-muted-foreground uppercase">{image.provider}</span>
+                  <span className="text-[10px] text-muted-foreground">{IMAGE_PROVIDER_LABELS[image.provider] || image.provider}</span>
                 </div>
                 <p className="text-[10px] text-muted-foreground line-clamp-1">{image.prompt.slice(0, 60)}</p>
 

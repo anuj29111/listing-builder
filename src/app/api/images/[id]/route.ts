@@ -83,6 +83,7 @@ export async function PATCH(
 
     // Approve: re-generate at HD quality and store as full_url
     let fullUrl: string | null = null
+    let additionalCost = 0
 
     try {
       if (image.provider === 'dalle3') {
@@ -109,7 +110,8 @@ export async function PATCH(
             .getPublicUrl(fileName)
           fullUrl = publicUrl.publicUrl
         }
-      } else {
+        additionalCost = 8
+      } else if (image.provider === 'gemini') {
         const result = await generateGeminiImage({
           prompt: image.prompt,
           aspectRatio: orientationToAspect('square'),
@@ -132,13 +134,16 @@ export async function PATCH(
             .getPublicUrl(fileName)
           fullUrl = publicUrl.publicUrl
         }
+        additionalCost = 2
+      } else {
+        // Higgsfield: no separate HD mode — use preview as full
+        fullUrl = image.preview_url
+        additionalCost = 0
       }
     } catch (hdError) {
       console.error('HD generation failed, approving with preview only:', hdError)
       // Still approve even if HD fails — user has the preview
     }
-
-    const additionalCost = image.provider === 'dalle3' ? 8 : 2
 
     const { data, error } = await adminClient
       .from('lb_image_generations')

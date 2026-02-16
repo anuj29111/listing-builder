@@ -128,7 +128,8 @@ export interface BatchExportResponse {
 
 export interface GenerateImageRequest {
   prompt: string
-  provider: 'dalle3' | 'gemini'
+  provider: 'dalle3' | 'gemini' | 'higgsfield'
+  model_id?: string
   orientation: 'square' | 'portrait' | 'landscape'
   listing_id?: string
   position?: string

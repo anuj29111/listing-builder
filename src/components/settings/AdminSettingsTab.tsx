@@ -9,6 +9,7 @@ import { Settings, Plus, Save } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbAdminSetting } from '@/types'
 import { AIModelConfig } from '@/components/settings/AIModelConfig'
+import { ImageProviderSettings } from '@/components/settings/ImageProviderSettings'
 
 interface AdminSettingsTabProps {
   initialSettings: LbAdminSetting[]
@@ -126,6 +127,8 @@ export function AdminSettingsTab({ initialSettings }: AdminSettingsTabProps) {
   return (
     <div className="space-y-6">
       <AIModelConfig currentModel={modelSetting?.value || ''} />
+
+      <ImageProviderSettings />
 
       <div className="rounded-lg border bg-card">
         <div className="flex items-center justify-between p-4 border-b">

@@ -140,7 +140,7 @@ export interface LbImageGeneration {
   id: string
   listing_id: string | null
   prompt: string
-  provider: 'dalle3' | 'gemini'
+  provider: 'dalle3' | 'gemini' | 'higgsfield'
   preview_url: string | null
   full_url: string | null
   status: 'preview' | 'approved' | 'rejected'
