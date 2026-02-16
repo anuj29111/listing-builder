@@ -52,8 +52,12 @@ export function AnalysisProgress({ analysisType, status, errorMessage }: Analysi
             Failed
           </Badge>
           {errorMessage && (
-            <span className="text-xs text-muted-foreground truncate max-w-[200px]">
-              {errorMessage}
+            <span className="text-xs text-muted-foreground truncate max-w-[300px]" title={errorMessage}>
+              {errorMessage.includes('prompt is too long')
+                ? 'File too large — will be auto-sampled on retry'
+                : errorMessage.length > 60
+                  ? errorMessage.slice(0, 60) + '...'
+                  : errorMessage}
             </span>
           )}
         </div>
@@ -81,16 +85,29 @@ interface AnalysisStatusPanelProps {
   onTrigger: (analysisType: string) => void
 }
 
-const ANALYSIS_SUBTITLES: Record<string, (fileTypes: string[]) => string | null> = {
-  keyword_analysis: () => null,
-  review_analysis: () => null,
-  qna_analysis: (fileTypes) => {
+// Maps analysis type → which pre-analyzed file type to check for
+const ANALYSIS_TO_PRE_ANALYZED: Record<string, string> = {
+  keyword_analysis: 'keywords_analysis',
+  review_analysis: 'reviews_analysis',
+  qna_analysis: 'qna_analysis',
+}
+
+function getAnalysisSubtitle(analysisType: string, fileTypes: string[]): string | null {
+  // Check for pre-analyzed file
+  const preAnalyzedType = ANALYSIS_TO_PRE_ANALYZED[analysisType]
+  if (preAnalyzedType && fileTypes.includes(preAnalyzedType)) {
+    return 'Will use: uploaded analysis file (low/no AI cost)'
+  }
+
+  // Special case for QnA with multiple sources
+  if (analysisType === 'qna_analysis') {
     const hasQna = fileTypes.includes('qna')
     const hasRufus = fileTypes.includes('rufus_qna')
     if (hasQna && hasRufus) return 'Combines: Q&A + Rufus Q&A files'
     if (hasRufus) return 'Source: Rufus Q&A'
-    return null
-  },
+  }
+
+  return null
 }
 
 const FILE_TYPE_TO_ANALYSIS: Record<string, string> = {
@@ -135,7 +152,8 @@ export function AnalysisStatusPanel({
           const canRun = hasSources && !isRunning && existing?.status !== 'processing'
           const isComplete = existing?.status === 'completed'
 
-          const subtitle = ANALYSIS_SUBTITLES[at]?.(availableFileTypes)
+          const subtitle = getAnalysisSubtitle(at, availableFileTypes)
+          const hasPreAnalyzedFile = !!ANALYSIS_TO_PRE_ANALYZED[at] && availableFileTypes.includes(ANALYSIS_TO_PRE_ANALYZED[at])
 
           return (
             <div key={at} className="flex items-center justify-between">
@@ -164,8 +182,8 @@ export function AnalysisStatusPanel({
                     {existing?.status === 'processing'
                       ? 'Running...'
                       : isComplete
-                        ? 'Re-analyze'
-                        : 'Analyze'}
+                        ? (hasPreAnalyzedFile ? 'Re-import' : 'Re-analyze')
+                        : (hasPreAnalyzedFile ? 'Import' : 'Analyze')}
                   </button>
                 ) : (
                   <span className="text-xs text-muted-foreground">
