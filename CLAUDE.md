@@ -113,6 +113,8 @@ npm run lint         # ESLint
 11. **Claude JSON responses** — Newer models return ```json fences despite instructions. Always `stripMarkdownFences()` before `JSON.parse()`.
 12. **Supabase Storage MIME types** — `lb-research-files` bucket allows: csv, excel, txt, markdown, json, octet-stream. Update if adding new file formats.
 13. **Large CSV analysis** — Reviews CSV can exceed 200K token limit. `truncateCSVContent()` in claude.ts handles this with even sampling.
+14. **Analysis source column** — `lb_research_analysis` has `source` column (`primary`/`csv`/`file`/`merged`). UNIQUE on `(category_id, country_id, analysis_type, source)`. All consumers must pick best source: merged > csv > file > primary.
+15. **Stale processing detection** — Analysis stuck >5min in `processing` shows "Stuck — Retry" button. API route deletes+re-inserts on retry.
 
 ---
 
