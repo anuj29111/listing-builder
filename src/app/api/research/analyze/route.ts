@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
-import { analyzeKeywords, analyzeReviews, analyzeQnA, convertAnalysisFile, mergeAnalysisWithCSV } from '@/lib/claude'
-import type { AnalysisType, FileType } from '@/types'
+import { analyzeKeywords, analyzeReviews, analyzeQnA, convertAnalysisFile, mergeAnalysisResults } from '@/lib/claude'
+import type { AnalysisType, AnalysisSource, FileType } from '@/types'
 
 // Maps analysis_type → raw CSV file types
 const RAW_FILE_TYPES: Record<AnalysisType, FileType[]> = {
@@ -25,10 +25,11 @@ export async function POST(request: Request) {
     const adminClient = createAdminClient()
 
     const body = await request.json()
-    const { category_id, country_id, analysis_type } = body as {
+    const { category_id, country_id, analysis_type, source } = body as {
       category_id: string
       country_id: string
       analysis_type: AnalysisType
+      source?: AnalysisSource
     }
 
     if (!category_id || !country_id || !analysis_type) {
@@ -43,6 +44,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid analysis_type' }, { status: 400 })
     }
 
+    const validSources: AnalysisSource[] = ['primary', 'csv', 'file', 'merged']
+    const effectiveSource: AnalysisSource = source && validSources.includes(source) ? source : 'primary'
+
     // Fetch category + country info
     const [catResult, countryResult] = await Promise.all([
       supabase.from('lb_categories').select('id, name, slug').eq('id', category_id).single(),
@@ -56,7 +60,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Country not found' }, { status: 404 })
     }
 
-    // Check for pre-analyzed file FIRST (cheaper path)
+    // ── MERGED path: reads from existing DB records, no file downloads ──
+    if (effectiveSource === 'merged') {
+      return await handleMerge(adminClient, supabase, {
+        category_id, country_id, analysis_type, lbUserId: lbUser.id,
+        categoryName: catResult.data.name, countryName: countryResult.data.name,
+      })
+    }
+
+    // ── CSV or FILE or PRIMARY path: download files from storage ──
+
+    // Check for pre-analyzed file
     const analysisFileType = ANALYSIS_FILE_TYPES[analysis_type]
     const { data: analysisFiles } = await supabase
       .from('lb_research_files')
@@ -67,7 +81,7 @@ export async function POST(request: Request) {
       .order('created_at', { ascending: false })
       .limit(1)
 
-    // Fall back to raw CSV files
+    // Check for raw CSV files
     const rawFileTypes = RAW_FILE_TYPES[analysis_type]
     const { data: rawFiles, error: filesError } = await supabase
       .from('lb_research_files')
@@ -81,29 +95,53 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: filesError.message }, { status: 500 })
     }
 
-    const hasAnalysisFile = analysisFiles && analysisFiles.length > 0
-    const hasRawFiles = rawFiles && rawFiles.length > 0
+    const hasAnalysisFile = !!(analysisFiles && analysisFiles.length > 0)
+    const hasRawFiles = !!(rawFiles && rawFiles.length > 0)
 
-    if (!hasAnalysisFile && !hasRawFiles) {
-      return NextResponse.json(
-        { error: `No files found for ${analysis_type}. Upload raw data CSV or an analysis file.` },
-        { status: 400 }
-      )
+    // Determine what to process based on source
+    let useAnalysisFile = false
+    let useRawFiles = false
+
+    if (effectiveSource === 'csv') {
+      if (!hasRawFiles) {
+        return NextResponse.json({ error: 'No raw CSV files found to analyze.' }, { status: 400 })
+      }
+      useRawFiles = true
+    } else if (effectiveSource === 'file') {
+      if (!hasAnalysisFile) {
+        return NextResponse.json({ error: 'No analysis file found to import.' }, { status: 400 })
+      }
+      useAnalysisFile = true
+    } else {
+      // 'primary' — auto-detect: use whatever is available (prefer analysis file if only one)
+      if (!hasAnalysisFile && !hasRawFiles) {
+        return NextResponse.json(
+          { error: `No files found for ${analysis_type}. Upload raw data CSV or an analysis file.` },
+          { status: 400 }
+        )
+      }
+      useAnalysisFile = hasAnalysisFile && !hasRawFiles
+      useRawFiles = hasRawFiles && !hasAnalysisFile
+      // If both exist and source='primary', default to CSV analysis
+      if (hasAnalysisFile && hasRawFiles) {
+        useRawFiles = true
+      }
     }
 
-    // Determine which files to use — prefer pre-analyzed over raw
-    const allSourceFiles = [
-      ...(hasAnalysisFile ? analysisFiles : []),
-      ...(hasRawFiles ? rawFiles : []),
+    // Collect source file IDs for the record
+    const sourceFileIds = [
+      ...(useAnalysisFile && hasAnalysisFile ? analysisFiles.map((f) => f.id) : []),
+      ...(useRawFiles && hasRawFiles ? rawFiles.map((f) => f.id) : []),
     ]
 
-    // Upsert a pending analysis record (delete existing if re-analyzing)
+    // Delete existing record for this source, then create new processing record
     await adminClient
       .from('lb_research_analysis')
       .delete()
       .eq('category_id', category_id)
       .eq('country_id', country_id)
       .eq('analysis_type', analysis_type)
+      .eq('source', effectiveSource)
 
     const { data: analysisRow, error: insertError } = await adminClient
       .from('lb_research_analysis')
@@ -111,7 +149,8 @@ export async function POST(request: Request) {
         category_id,
         country_id,
         analysis_type,
-        source_file_ids: allSourceFiles.map((f) => f.id),
+        source: effectiveSource,
+        source_file_ids: sourceFileIds,
         status: 'processing',
         analyzed_by: lbUser.id,
       })
@@ -128,8 +167,8 @@ export async function POST(request: Request) {
     try {
       let analysisOutput: { result: Record<string, unknown>; model: string; tokensUsed: number }
 
-      // Helper: download analysis file content
-      const downloadAnalysisFile = async () => {
+      if (useAnalysisFile) {
+        // Import pre-analyzed file
         const analysisFile = analysisFiles![0]
         const { data: fileData, error: downloadError } = await supabase.storage
           .from('lb-research-files')
@@ -137,11 +176,22 @@ export async function POST(request: Request) {
         if (downloadError || !fileData) {
           throw new Error(`Failed to download ${analysisFile.file_name}: ${downloadError?.message}`)
         }
-        return fileData.text()
-      }
+        const content = await fileData.text()
 
-      // Helper: download raw CSV files content
-      const downloadRawFiles = async () => {
+        // Try direct JSON import first (zero cost)
+        try {
+          const parsed = JSON.parse(content)
+          if (parsed && typeof parsed === 'object' && ('summary' in parsed)) {
+            analysisOutput = { result: parsed as Record<string, unknown>, model: 'direct-json-import', tokensUsed: 0 }
+          } else {
+            throw new Error('JSON missing expected structure')
+          }
+        } catch {
+          const output = await convertAnalysisFile(content, analysis_type)
+          analysisOutput = { ...output, result: output.result as unknown as Record<string, unknown> }
+        }
+      } else {
+        // Analyze raw CSV files
         const seenTypes = new Set<string>()
         const filesToProcess: Array<{ id: string; fileType: string; content: string }> = []
         for (const file of rawFiles!) {
@@ -153,45 +203,9 @@ export async function POST(request: Request) {
           if (downloadError || !fileData) {
             throw new Error(`Failed to download ${file.file_name}: ${downloadError?.message}`)
           }
-          const content = await fileData.text()
-          filesToProcess.push({ id: file.id, fileType: file.file_type, content })
+          filesToProcess.push({ id: file.id, fileType: file.file_type, content: await fileData.text() })
         }
-        return filesToProcess
-      }
 
-      if (hasAnalysisFile && hasRawFiles) {
-        // PATH 1: Both pre-analyzed AND raw CSV → merge them
-        const [analysisContent, rawFilesList] = await Promise.all([
-          downloadAnalysisFile(),
-          downloadRawFiles(),
-        ])
-        const rawCombined = rawFilesList.map((f) => f.content).join('\n\n')
-        const output = await mergeAnalysisWithCSV(analysisContent, rawCombined, analysis_type, catResult.data.name, countryResult.data.name)
-        analysisOutput = { ...output, result: output.result as unknown as Record<string, unknown> }
-      } else if (hasAnalysisFile) {
-        // PATH 2: Pre-analyzed file only → use it (cheap or free)
-        const content = await downloadAnalysisFile()
-
-        // Try to parse as JSON directly (zero AI cost)
-        try {
-          const parsed = JSON.parse(content)
-          if (parsed && typeof parsed === 'object' && ('summary' in parsed)) {
-            analysisOutput = {
-              result: parsed as Record<string, unknown>,
-              model: 'direct-json-import',
-              tokensUsed: 0,
-            }
-          } else {
-            throw new Error('JSON missing expected structure')
-          }
-        } catch {
-          // Not valid JSON or missing structure → use lightweight AI conversion
-          const output = await convertAnalysisFile(content, analysis_type)
-          analysisOutput = { ...output, result: output.result as unknown as Record<string, unknown> }
-        }
-      } else {
-        // PATH 3: Raw CSV files only → full AI analysis (expensive)
-        const filesToProcess = await downloadRawFiles()
         const combinedContent = filesToProcess.map((f) => f.content).join('\n\n')
 
         if (analysis_type === 'keyword_analysis') {
@@ -228,16 +242,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ data: updated })
     } catch (analysisError) {
       const errorMessage = analysisError instanceof Error ? analysisError.message : 'Analysis failed'
-
       await adminClient
         .from('lb_research_analysis')
-        .update({
-          status: 'failed',
-          error_message: errorMessage,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ status: 'failed', error_message: errorMessage, updated_at: new Date().toISOString() })
         .eq('id', analysisRow.id)
-
       return NextResponse.json({ error: errorMessage }, { status: 500 })
     }
   } catch (e) {
@@ -246,5 +254,107 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: message }, { status: 401 })
     }
     return NextResponse.json({ error: message }, { status: 500 })
+  }
+}
+
+// ── Merge handler: combines two existing completed analyses from DB ──
+async function handleMerge(
+  adminClient: ReturnType<typeof createAdminClient>,
+  supabase: ReturnType<typeof createClient>,
+  opts: {
+    category_id: string
+    country_id: string
+    analysis_type: AnalysisType
+    lbUserId: string
+    categoryName: string
+    countryName: string
+  }
+) {
+  const { category_id, country_id, analysis_type, lbUserId, categoryName, countryName } = opts
+
+  // Fetch the csv and file source records
+  const { data: sourceRecords, error: fetchError } = await supabase
+    .from('lb_research_analysis')
+    .select('id, source, analysis_result, status')
+    .eq('category_id', category_id)
+    .eq('country_id', country_id)
+    .eq('analysis_type', analysis_type)
+    .in('source', ['csv', 'file'])
+
+  if (fetchError) {
+    return NextResponse.json({ error: fetchError.message }, { status: 500 })
+  }
+
+  const csvRecord = sourceRecords?.find((r) => r.source === 'csv' && r.status === 'completed')
+  const fileRecord = sourceRecords?.find((r) => r.source === 'file' && r.status === 'completed')
+
+  if (!csvRecord || !fileRecord) {
+    return NextResponse.json(
+      { error: 'Both CSV analysis and imported file must be completed before merging.' },
+      { status: 400 }
+    )
+  }
+
+  // Delete existing merged record if any, then create processing record
+  await adminClient
+    .from('lb_research_analysis')
+    .delete()
+    .eq('category_id', category_id)
+    .eq('country_id', country_id)
+    .eq('analysis_type', analysis_type)
+    .eq('source', 'merged')
+
+  const { data: mergeRow, error: insertError } = await adminClient
+    .from('lb_research_analysis')
+    .insert({
+      category_id,
+      country_id,
+      analysis_type,
+      source: 'merged',
+      source_file_ids: [],
+      status: 'processing',
+      analyzed_by: lbUserId,
+    })
+    .select()
+    .single()
+
+  if (insertError || !mergeRow) {
+    return NextResponse.json(
+      { error: `Failed to create merge record: ${insertError?.message}` },
+      { status: 500 }
+    )
+  }
+
+  try {
+    const csvResult = csvRecord.analysis_result as Record<string, unknown>
+    const fileResult = fileRecord.analysis_result as Record<string, unknown>
+
+    const output = await mergeAnalysisResults(csvResult, fileResult, analysis_type, categoryName, countryName)
+
+    const { data: updated, error: updateError } = await adminClient
+      .from('lb_research_analysis')
+      .update({
+        analysis_result: output.result,
+        model_used: output.model,
+        tokens_used: output.tokensUsed,
+        status: 'completed',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', mergeRow.id)
+      .select()
+      .single()
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ data: updated })
+  } catch (mergeError) {
+    const errorMessage = mergeError instanceof Error ? mergeError.message : 'Merge failed'
+    await adminClient
+      .from('lb_research_analysis')
+      .update({ status: 'failed', error_message: errorMessage, updated_at: new Date().toISOString() })
+      .eq('id', mergeRow.id)
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
   }
 }

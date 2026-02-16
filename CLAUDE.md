@@ -141,8 +141,7 @@ npm run lint         # ESLint
 
 ## Pending Tasks
 
-- **BUG: QnA analysis stuck as "running"** — Selecting Chalk Markers category shows QnA analysis in "running" state permanently. Likely a stale `processing` record in `lb_research_analysis` that never completed/failed. Need: reset mechanism + timeout handling.
-- **FEATURE: Merge raw CSV + analysis file** — When both a keyword CSV and keywords_analysis .md file exist, system currently uses only the analysis file (ignores CSV). Should combine both sources into a final merged analysis instead of overwriting.
+None currently.
 
 ## Pending User Actions
 

@@ -12,6 +12,7 @@ interface AnalysisViewerProps {
   analyses: Array<{
     id: string
     analysis_type: string
+    source?: string
     analysis_result: Record<string, unknown>
     status: string
     model_used: string | null
@@ -529,6 +530,42 @@ function QnAAnalysisView({ data }: { data: QnAAnalysisResult }) {
   )
 }
 
+// --- Source Labels ---
+
+const SOURCE_LABELS: Record<string, string> = {
+  primary: 'Analysis',
+  csv: 'CSV Analysis',
+  file: 'Imported',
+  merged: 'Merged',
+}
+
+// Render a single analysis result based on type
+function AnalysisContent({ analysisType, result }: { analysisType: string; result: Record<string, unknown> }) {
+  if (analysisType === 'keyword_analysis') {
+    return <KeywordAnalysisView data={result as unknown as KeywordAnalysisResult} />
+  }
+  if (analysisType === 'review_analysis') {
+    return <ReviewAnalysisView data={result as unknown as ReviewAnalysisResult} />
+  }
+  if (analysisType === 'qna_analysis') {
+    return <QnAAnalysisView data={result as unknown as QnAAnalysisResult} />
+  }
+  return null
+}
+
+// Metadata footer for each analysis
+function AnalysisMeta({ record }: { record: AnalysisViewerProps['analyses'][number] }) {
+  return (
+    <div className="mb-3 flex items-center gap-3 text-xs text-muted-foreground">
+      <span>Model: {record.model_used || 'unknown'}</span>
+      {record.tokens_used != null && record.tokens_used > 0 && (
+        <span>Tokens: {record.tokens_used.toLocaleString()}</span>
+      )}
+      <span>Analyzed: {new Date(record.updated_at).toLocaleDateString()}</span>
+    </div>
+  )
+}
+
 // --- Main Viewer ---
 
 export function AnalysisViewer({ analyses }: AnalysisViewerProps) {
@@ -542,43 +579,92 @@ export function AnalysisViewer({ analyses }: AnalysisViewerProps) {
     )
   }
 
-  const ANALYSIS_LABELS: Record<string, string> = {
+  const TYPE_LABELS: Record<string, string> = {
     keyword_analysis: 'Keywords',
     review_analysis: 'Reviews',
     qna_analysis: 'Q&A',
   }
 
-  const defaultTab = completedAnalyses[0].analysis_type
+  // Group by analysis_type, preserving order
+  const orderedTypes = ['keyword_analysis', 'review_analysis', 'qna_analysis']
+  const byType = new Map<string, typeof completedAnalyses>()
+  for (const a of completedAnalyses) {
+    if (!byType.has(a.analysis_type)) byType.set(a.analysis_type, [])
+    byType.get(a.analysis_type)!.push(a)
+  }
+
+  // Only show tabs for types that have at least one completed analysis
+  const availableTypes = orderedTypes.filter((t) => byType.has(t))
+  if (availableTypes.length === 0) {
+    return (
+      <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
+        No completed analyses yet. Run analysis on uploaded research files to see results here.
+      </div>
+    )
+  }
+
+  const defaultTab = availableTypes[0]
 
   return (
     <Tabs defaultValue={defaultTab} className="w-full">
       <TabsList>
-        {completedAnalyses.map((a) => (
-          <TabsTrigger key={a.analysis_type} value={a.analysis_type}>
-            {ANALYSIS_LABELS[a.analysis_type] || a.analysis_type}
+        {availableTypes.map((at) => (
+          <TabsTrigger key={at} value={at}>
+            {TYPE_LABELS[at] || at}
           </TabsTrigger>
         ))}
       </TabsList>
 
-      {completedAnalyses.map((a) => (
-        <TabsContent key={a.analysis_type} value={a.analysis_type}>
-          <div className="mb-3 flex items-center gap-3 text-xs text-muted-foreground">
-            <span>Model: {a.model_used || 'unknown'}</span>
-            {a.tokens_used && <span>Tokens: {a.tokens_used.toLocaleString()}</span>}
-            <span>Analyzed: {new Date(a.updated_at).toLocaleDateString()}</span>
-          </div>
+      {availableTypes.map((at) => {
+        const records = byType.get(at) || []
+        const hasMultipleSources = records.length > 1
 
-          {a.analysis_type === 'keyword_analysis' && (
-            <KeywordAnalysisView data={a.analysis_result as unknown as KeywordAnalysisResult} />
-          )}
-          {a.analysis_type === 'review_analysis' && (
-            <ReviewAnalysisView data={a.analysis_result as unknown as ReviewAnalysisResult} />
-          )}
-          {a.analysis_type === 'qna_analysis' && (
-            <QnAAnalysisView data={a.analysis_result as unknown as QnAAnalysisResult} />
-          )}
-        </TabsContent>
-      ))}
+        // Sort: merged first (if exists), then csv, then file, then primary
+        const sourceOrder = ['merged', 'csv', 'file', 'primary']
+        const sorted = [...records].sort((a, b) => {
+          const ai = sourceOrder.indexOf(a.source || 'primary')
+          const bi = sourceOrder.indexOf(b.source || 'primary')
+          return ai - bi
+        })
+
+        // Default to merged if available, otherwise first
+        const defaultSource = sorted.find((r) => (r.source || 'primary') === 'merged')?.source
+          || sorted[0]?.source || 'primary'
+
+        return (
+          <TabsContent key={at} value={at}>
+            {hasMultipleSources ? (
+              <Tabs defaultValue={defaultSource} className="w-full">
+                <TabsList className="mb-3">
+                  {sorted.map((record) => {
+                    const src = record.source || 'primary'
+                    return (
+                      <TabsTrigger key={src} value={src} className="text-xs">
+                        {src === 'merged' ? '✨ ' : ''}{SOURCE_LABELS[src] || src}
+                      </TabsTrigger>
+                    )
+                  })}
+                </TabsList>
+
+                {sorted.map((record) => {
+                  const src = record.source || 'primary'
+                  return (
+                    <TabsContent key={src} value={src}>
+                      <AnalysisMeta record={record} />
+                      <AnalysisContent analysisType={at} result={record.analysis_result} />
+                    </TabsContent>
+                  )
+                })}
+              </Tabs>
+            ) : (
+              <>
+                <AnalysisMeta record={sorted[0]} />
+                <AnalysisContent analysisType={at} result={sorted[0].analysis_result} />
+              </>
+            )}
+          </TabsContent>
+        )
+      })}
     </Tabs>
   )
 }

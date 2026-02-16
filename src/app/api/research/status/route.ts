@@ -43,11 +43,16 @@ export async function GET() {
     }
 
     // Build analysis status map: "categoryId:countryId" => { keyword_analysis: "completed", ... }
+    // With multiple sources per type, pick the best status: completed > processing > failed > pending
+    const statusPriority: Record<string, number> = { completed: 0, processing: 1, failed: 2, pending: 3 }
     const analysisStatus: Record<string, Record<string, string>> = {}
     for (const a of analysisResult.data || []) {
       const key = `${a.category_id}:${a.country_id}`
       if (!analysisStatus[key]) analysisStatus[key] = {}
-      analysisStatus[key][a.analysis_type] = a.status
+      const existing = analysisStatus[key][a.analysis_type]
+      if (!existing || (statusPriority[a.status] ?? 4) < (statusPriority[existing] ?? 4)) {
+        analysisStatus[key][a.analysis_type] = a.status
+      }
     }
 
     return NextResponse.json({

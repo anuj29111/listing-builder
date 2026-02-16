@@ -41,13 +41,22 @@ export async function POST(
     if (category_id && country_id) {
       const { data: analyses } = await supabase
         .from('lb_research_analysis')
-        .select('analysis_type, analysis_result')
+        .select('analysis_type, analysis_result, source')
         .eq('category_id', category_id)
         .eq('country_id', country_id)
         .eq('status', 'completed')
 
       if (analyses && analyses.length > 0) {
-        const summaries = analyses.map((a) => {
+        // Pick best per type: merged > csv > file > primary
+        const sourcePriority = ['merged', 'csv', 'file', 'primary']
+        const bestByType = new Map<string, typeof analyses[number]>()
+        for (const a of analyses) {
+          const existing = bestByType.get(a.analysis_type)
+          if (!existing || sourcePriority.indexOf(a.source || 'primary') < sourcePriority.indexOf(existing.source || 'primary')) {
+            bestByType.set(a.analysis_type, a)
+          }
+        }
+        const summaries = Array.from(bestByType.values()).map((a) => {
           const result = a.analysis_result as Record<string, unknown>
           return `${a.analysis_type}: ${JSON.stringify(result).slice(0, 1000)}`
         })

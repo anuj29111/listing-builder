@@ -102,7 +102,7 @@ export async function POST(request: Request) {
       supabase.from('lb_countries').select('*').eq('id', country_id).single(),
       supabase
         .from('lb_research_analysis')
-        .select('analysis_type, analysis_result')
+        .select('analysis_type, analysis_result, source')
         .eq('category_id', category_id)
         .eq('country_id', country_id)
         .eq('status', 'completed'),
@@ -119,10 +119,21 @@ export async function POST(request: Request) {
     const country = countryResult.data
     const analyses = analysesResult.data || []
 
-    // Parse cached analysis results (shared for all products in batch)
-    const keywordRow = analyses.find((a) => a.analysis_type === 'keyword_analysis')
-    const reviewRow = analyses.find((a) => a.analysis_type === 'review_analysis')
-    const qnaRow = analyses.find((a) => a.analysis_type === 'qna_analysis')
+    // Pick best analysis per type: prefer merged > csv > file > primary
+    const sourcePriority = ['merged', 'csv', 'file', 'primary']
+    const pickBest = (type: string) => {
+      const matches = analyses.filter((a) => a.analysis_type === type)
+      if (matches.length === 0) return undefined
+      return matches.sort((a, b) => {
+        const ai = sourcePriority.indexOf(a.source || 'primary')
+        const bi = sourcePriority.indexOf(b.source || 'primary')
+        return ai - bi
+      })[0]
+    }
+
+    const keywordRow = pickBest('keyword_analysis')
+    const reviewRow = pickBest('review_analysis')
+    const qnaRow = pickBest('qna_analysis')
 
     const keywordAnalysis = keywordRow
       ? (keywordRow.analysis_result as unknown as KeywordAnalysisResult)

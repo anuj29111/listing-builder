@@ -803,12 +803,12 @@ Return ONLY valid JSON, no markdown fences or explanation.`
 }
 
 /**
- * Merge a pre-analyzed file with raw CSV data into a single comprehensive analysis.
- * Uses AI to combine both sources — more expensive than import-only but gives better results.
+ * Merge two completed analysis results (JSON-to-JSON) into a single comprehensive analysis.
+ * Much cheaper than re-analyzing raw files — just merging two structured JSON objects via AI.
  */
-export async function mergeAnalysisWithCSV(
-  analysisContent: string,
-  csvContent: string,
+export async function mergeAnalysisResults(
+  csvAnalysis: Record<string, unknown>,
+  fileAnalysis: Record<string, unknown>,
   analysisType: string,
   categoryName: string,
   countryName: string
@@ -817,23 +817,24 @@ export async function mergeAnalysisWithCSV(
   const model = await getModel()
   const schema = ANALYSIS_JSON_SCHEMAS[analysisType] || ANALYSIS_JSON_SCHEMAS.keyword_analysis
 
-  // Truncate CSV if very large (keep analysis file intact since it's already summarized)
-  const { content: truncatedCSV } = truncateCSVContent(csvContent, MAX_PROMPT_CHARS - analysisContent.length - 5000)
+  const csvJson = JSON.stringify(csvAnalysis, null, 2)
+  const fileJson = JSON.stringify(fileAnalysis, null, 2)
 
-  const prompt = `You have TWO sources of data for ${categoryName} (${countryName}) that must be merged into a single comprehensive analysis.
+  const prompt = `You have TWO completed analyses for ${categoryName} (${countryName}) that must be merged into a single comprehensive result.
 
-SOURCE 1 — PRE-ANALYZED SUMMARY (from a previous analysis):
-${analysisContent}
+SOURCE 1 — CSV ANALYSIS (from raw data, AI-generated):
+${csvJson}
 
-SOURCE 2 — RAW CSV DATA (original data with additional details):
-${truncatedCSV}
+SOURCE 2 — IMPORTED ANALYSIS (from pre-analyzed file):
+${fileJson}
 
-INSTRUCTIONS:
-1. The pre-analyzed summary (Source 1) already contains curated insights — use it as the primary foundation
-2. The raw CSV data (Source 2) may contain additional data points, keywords, or details not captured in the summary
-3. MERGE both sources: keep everything from the summary, then enrich it with any NEW information from the CSV that isn't already covered
-4. For numerical fields (counts, volumes, frequencies), prefer the raw CSV data as it's more precise
-5. For curated fields (priorities, strategic recommendations), prefer the pre-analyzed summary
+MERGE INSTRUCTIONS:
+1. Combine both sources into one comprehensive analysis
+2. For arrays (keywords, strengths, concerns, etc.): merge and deduplicate — keep items from BOTH sources
+3. For numerical summaries (totals, counts): use the HIGHER/more comprehensive value
+4. For strategic fields (priorities, recommendations): keep the strongest/most actionable from either source
+5. For keyword lists (titleKeywords, bulletKeywords, searchTermKeywords): union both lists, deduplicate, keep the most relevant
+6. Remove exact duplicates but keep items that are similar but distinct
 
 TARGET JSON STRUCTURE:
 ${schema}
