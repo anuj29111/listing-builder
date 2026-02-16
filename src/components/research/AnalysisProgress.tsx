@@ -81,11 +81,26 @@ interface AnalysisStatusPanelProps {
   onTrigger: (analysisType: string) => void
 }
 
+const ANALYSIS_SUBTITLES: Record<string, (fileTypes: string[]) => string | null> = {
+  keyword_analysis: () => null,
+  review_analysis: () => null,
+  qna_analysis: (fileTypes) => {
+    const hasQna = fileTypes.includes('qna')
+    const hasRufus = fileTypes.includes('rufus_qna')
+    if (hasQna && hasRufus) return 'Combines: Q&A + Rufus Q&A files'
+    if (hasRufus) return 'Source: Rufus Q&A'
+    return null
+  },
+}
+
 const FILE_TYPE_TO_ANALYSIS: Record<string, string> = {
   keywords: 'keyword_analysis',
   reviews: 'review_analysis',
   qna: 'qna_analysis',
   rufus_qna: 'qna_analysis',
+  keywords_analysis: 'keyword_analysis',
+  reviews_analysis: 'review_analysis',
+  qna_analysis: 'qna_analysis',
 }
 
 export function AnalysisStatusPanel({
@@ -120,13 +135,20 @@ export function AnalysisStatusPanel({
           const canRun = hasSources && !isRunning && existing?.status !== 'processing'
           const isComplete = existing?.status === 'completed'
 
+          const subtitle = ANALYSIS_SUBTITLES[at]?.(availableFileTypes)
+
           return (
             <div key={at} className="flex items-center justify-between">
-              <AnalysisProgress
-                analysisType={at}
-                status={existing?.status ?? null}
-                errorMessage={existing?.error_message}
-              />
+              <div>
+                <AnalysisProgress
+                  analysisType={at}
+                  status={existing?.status ?? null}
+                  errorMessage={existing?.error_message}
+                />
+                {subtitle && (
+                  <p className="text-[11px] text-muted-foreground ml-6 mt-0.5">{subtitle}</p>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 {isComplete && existing?.tokens_used && (
                   <span className="text-xs text-muted-foreground">

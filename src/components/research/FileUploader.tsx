@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -19,6 +19,9 @@ import { Upload, FileText, X, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCategory, LbCountry } from '@/types'
 
+// Analysis file types that don't need CSV parsing
+const ANALYSIS_FILE_TYPES = new Set(['keywords_analysis', 'reviews_analysis', 'qna_analysis'])
+
 interface FileUploaderProps {
   categories: LbCategory[]
   countries: LbCountry[]
@@ -35,8 +38,23 @@ export function FileUploader({
   const [fileType, setFileType] = useState<string>('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [parseResult, setParseResult] = useState<CSVParseResult | null>(null)
+  const [textPreview, setTextPreview] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [parsing, setParsing] = useState(false)
+
+  const isAnalysisType = ANALYSIS_FILE_TYPES.has(fileType)
+
+  // Dynamic accept types based on selected file type
+  const acceptTypes = useMemo((): Record<string, string[]> => {
+    if (isAnalysisType) {
+      return {
+        'text/markdown': ['.md'],
+        'application/json': ['.json'],
+        'text/plain': ['.txt'],
+      }
+    }
+    return { 'text/csv': ['.csv'], 'text/plain': ['.txt'] }
+  }, [isAnalysisType])
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -49,8 +67,23 @@ export function FileUploader({
       }
 
       setSelectedFile(file)
-      setParsing(true)
+      setParseResult(null)
+      setTextPreview(null)
 
+      // For analysis files, show text preview instead of CSV parsing
+      if (isAnalysisType) {
+        try {
+          const text = await file.text()
+          // Show first 500 chars as preview
+          setTextPreview(text.length > 500 ? text.slice(0, 500) + '...' : text)
+        } catch {
+          toast.error('Failed to read file')
+        }
+        return
+      }
+
+      // For CSV files, parse normally
+      setParsing(true)
       try {
         const result = await parseCSV(file)
         setParseResult(result)
@@ -69,12 +102,12 @@ export function FileUploader({
         setParsing(false)
       }
     },
-    [fileType]
+    [fileType, isAnalysisType]
   )
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'text/csv': ['.csv'], 'text/plain': ['.txt'] },
+    accept: acceptTypes,
     maxFiles: 1,
     maxSize: MAX_FILE_SIZE_BYTES,
     disabled: uploading,
@@ -83,6 +116,17 @@ export function FileUploader({
   function clearFile() {
     setSelectedFile(null)
     setParseResult(null)
+    setTextPreview(null)
+  }
+
+  // Clear file when switching between CSV and analysis file types
+  function handleFileTypeChange(newType: string) {
+    const wasAnalysis = ANALYSIS_FILE_TYPES.has(fileType)
+    const isNowAnalysis = ANALYSIS_FILE_TYPES.has(newType)
+    if (wasAnalysis !== isNowAnalysis && selectedFile) {
+      clearFile()
+    }
+    setFileType(newType)
   }
 
   async function handleUpload() {
@@ -131,12 +175,20 @@ export function FileUploader({
     !uploading &&
     !parsing
 
+  const dropzoneLabel = isAnalysisType
+    ? 'Drag & drop an MD, JSON, or TXT file'
+    : 'Drag & drop a CSV file, or click to browse'
+
+  const dropzoneHint = isAnalysisType
+    ? 'MD, JSON, or TXT files up to 50MB'
+    : 'CSV or TXT files up to 50MB'
+
   return (
     <div className="rounded-lg border bg-card">
       <div className="p-4 border-b">
         <h3 className="font-semibold">Upload Research File</h3>
         <p className="text-sm text-muted-foreground mt-1">
-          Upload a CSV research file for the selected category and marketplace.
+          Upload raw data (CSV) or pre-analyzed files (MD/JSON).
         </p>
       </div>
 
@@ -144,7 +196,7 @@ export function FileUploader({
         {/* File Type Select */}
         <div className="space-y-2">
           <Label>File Type</Label>
-          <Select value={fileType} onValueChange={setFileType}>
+          <Select value={fileType} onValueChange={handleFileTypeChange}>
             <SelectTrigger>
               <SelectValue placeholder="Select file type" />
             </SelectTrigger>
@@ -156,6 +208,11 @@ export function FileUploader({
               ))}
             </SelectContent>
           </Select>
+          {isAnalysisType && (
+            <p className="text-xs text-blue-600">
+              Analysis files skip AI processing — upload your own analysis to save API costs.
+            </p>
+          )}
         </div>
 
         {/* Dropzone */}
@@ -172,16 +229,12 @@ export function FileUploader({
             <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-3" />
             {isDragActive ? (
               <p className="text-sm text-primary font-medium">
-                Drop the CSV file here
+                Drop the file here
               </p>
             ) : (
               <div>
-                <p className="text-sm font-medium">
-                  Drag & drop a CSV file, or click to browse
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  CSV or TXT files up to 50MB
-                </p>
+                <p className="text-sm font-medium">{dropzoneLabel}</p>
+                <p className="text-xs text-muted-foreground mt-1">{dropzoneHint}</p>
               </div>
             )}
           </div>
@@ -199,6 +252,7 @@ export function FileUploader({
                       ` \u00b7 ${formatNumber(parseResult.rowCount)} rows`}
                     {parseResult?.detectedType &&
                       ` \u00b7 Detected: ${FILE_TYPE_LABELS[parseResult.detectedType]}`}
+                    {isAnalysisType && ' \u00b7 Analysis file'}
                   </p>
                 </div>
               </div>
@@ -212,7 +266,7 @@ export function FileUploader({
               </Button>
             </div>
 
-            {/* Parse Errors */}
+            {/* Parse Errors (CSV only) */}
             {parseResult && parseResult.errors.length > 0 && (
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                 <div className="flex items-center gap-2 mb-1">
@@ -229,7 +283,19 @@ export function FileUploader({
               </div>
             )}
 
-            {/* Preview Table */}
+            {/* Text Preview (Analysis files) */}
+            {textPreview && (
+              <div className="border rounded-lg overflow-hidden">
+                <div className="bg-muted/50 px-3 py-2 border-b">
+                  <span className="text-xs font-medium">File Preview</span>
+                </div>
+                <pre className="p-3 text-xs text-muted-foreground whitespace-pre-wrap max-h-[200px] overflow-y-auto">
+                  {textPreview}
+                </pre>
+              </div>
+            )}
+
+            {/* Preview Table (CSV only) */}
             {parseResult && parseResult.preview.length > 0 && (
               <div className="border rounded-lg overflow-hidden">
                 <div className="bg-muted/50 px-3 py-2 border-b">

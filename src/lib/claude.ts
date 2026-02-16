@@ -291,9 +291,14 @@ ${content}`
 }
 
 function buildQnAAnalysisPrompt(csvContent: string, categoryName: string, countryName: string, isRufus: boolean): string {
+  const { content, truncated, originalRows, keptRows } = truncateCSVContent(csvContent)
   const source = isRufus ? 'Amazon Rufus AI' : 'Amazon customer'
-  return `You are an expert Amazon listing optimization analyst. Analyze the following ${source} Q&A data for the product category "${categoryName}" in the "${countryName}" marketplace.
+  const truncationNote = truncated
+    ? `\n\nIMPORTANT: This is a representative sample of ${keptRows.toLocaleString()} out of ${originalRows.toLocaleString()} total Q&A pairs, evenly sampled. Scale counts proportionally.\n`
+    : ''
 
+  return `You are an expert Amazon listing optimization analyst. Analyze the following ${source} Q&A data for the product category "${categoryName}" in the "${countryName}" marketplace.
+${truncationNote}
 The data is formatted as Q&A pairs (Q1:, A1:, Q2:, A2:, etc.).
 
 Analyze all questions and answers, then return a JSON object with this exact structure:
@@ -311,7 +316,7 @@ Analyze all questions and answers, then return a JSON object with this exact str
 Only return valid JSON, no markdown fences or explanation.
 
 CSV DATA:
-${csvContent}`
+${content}`
 }
 
 // --- Listing Generation Types ---
@@ -694,6 +699,84 @@ export async function analyzeQnA(
     .join('')
 
   const result = JSON.parse(text) as QnAAnalysisResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
+// --- Pre-Analyzed File Conversion ---
+
+const ANALYSIS_JSON_SCHEMAS: Record<string, string> = {
+  keyword_analysis: `{
+  "summary": { "totalKeywords": number, "totalSearchVolume": number, "dataQuality": "string" },
+  "highRelevancy": [{ "keyword": "", "searchVolume": 0, "relevancy": 0.0, "strategicValue": 0 }],
+  "mediumRelevancy": [same shape],
+  "customerIntentPatterns": [{ "category": "", "keywordCount": 0, "totalSearchVolume": 0, "priority": "HIGH/MEDIUM/LOW" }],
+  "surfaceDemand": [{ "surfaceType": "", "keywordCount": 0, "totalSearchVolume": 0 }],
+  "featureDemand": [{ "feature": "", "keywordCount": 0, "totalSearchVolume": 0, "priority": "CRITICAL/HIGH/MEDIUM/LOW" }],
+  "titleKeywords": ["keyword1", "keyword2"],
+  "bulletKeywords": ["keyword1", "keyword2"],
+  "searchTermKeywords": ["keyword1", "keyword2"]
+}`,
+  review_analysis: `{
+  "summary": { "totalReviews": number, "averageRating": float, "positivePercent": number, "negativePercent": number },
+  "ratingDistribution": [{ "stars": 5, "count": 0, "percentage": 0.0 }],
+  "useCases": [{ "useCase": "", "frequency": 0, "priority": "CRITICAL/HIGH/MEDIUM/LOW" }],
+  "strengths": [{ "strength": "", "mentions": 0, "impact": "string" }],
+  "weaknesses": [{ "weakness": "", "mentions": 0, "impact": "string" }],
+  "positiveLanguage": [{ "word": "", "frequency": 0 }],
+  "negativeLanguage": [{ "word": "", "frequency": 0 }],
+  "bulletStrategy": [{ "bulletNumber": 1, "focus": "", "evidence": "", "priority": "HIGH/MEDIUM" }]
+}`,
+  qna_analysis: `{
+  "summary": { "totalQuestions": number, "topConcerns": ["concern 1", "concern 2", "concern 3"] },
+  "themes": [{ "theme": "", "questionCount": 0, "priority": "HIGH/MEDIUM/LOW", "sampleQuestions": ["q1", "q2"] }],
+  "customerConcerns": [{ "concern": "", "frequency": 0, "addressInListing": true/false, "suggestedResponse": "" }],
+  "contentGaps": [{ "gap": "", "importance": "HIGH/MEDIUM/LOW", "recommendation": "" }],
+  "faqForDescription": [{ "question": "", "answer": "" }]
+}`,
+}
+
+/**
+ * Convert a pre-analyzed text/markdown file into the structured JSON format.
+ * This is a lightweight AI call (~2K tokens) compared to full analysis (~200K tokens).
+ */
+export async function convertAnalysisFile(
+  content: string,
+  analysisType: string
+): Promise<{ result: Record<string, unknown>; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const schema = ANALYSIS_JSON_SCHEMAS[analysisType] || ANALYSIS_JSON_SCHEMAS.keyword_analysis
+
+  // Truncate content if very large (analysis files shouldn't be huge, but just in case)
+  const maxContentChars = 100_000
+  const truncatedContent = content.length > maxContentChars
+    ? content.slice(0, maxContentChars) + '\n\n[... truncated]'
+    : content
+
+  const prompt = `Convert the following analysis document into the exact JSON structure below. Extract all relevant data from the document and map it to the correct fields. If a field's data is not present in the document, use reasonable defaults (0 for numbers, empty arrays for lists).
+
+TARGET JSON STRUCTURE:
+${schema}
+
+ANALYSIS DOCUMENT:
+${truncatedContent}
+
+Return ONLY valid JSON, no markdown fences or explanation.`
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const result = JSON.parse(text) as Record<string, unknown>
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
   return { result, model, tokensUsed }

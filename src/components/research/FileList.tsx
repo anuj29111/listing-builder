@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyState } from '@/components/shared/EmptyState'
-import { FILE_TYPE_LABELS } from '@/lib/constants'
+import { FILE_TYPE_SHORT_LABELS } from '@/lib/constants'
 import { formatDate, formatFileSize, formatNumber } from '@/lib/utils'
 import { FileText, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -32,6 +32,9 @@ const fileTypeBadgeColors: Record<string, string> = {
   reviews: 'bg-blue-100 text-blue-800',
   qna: 'bg-orange-100 text-orange-800',
   rufus_qna: 'bg-purple-100 text-purple-800',
+  keywords_analysis: 'bg-green-100 text-green-800 ring-1 ring-green-300',
+  reviews_analysis: 'bg-blue-100 text-blue-800 ring-1 ring-blue-300',
+  qna_analysis: 'bg-orange-100 text-orange-800 ring-1 ring-orange-300',
 }
 
 export function FileList({
@@ -112,7 +115,7 @@ export function FileList({
                       'bg-gray-100 text-gray-800'
                     }`}
                   >
-                    {FILE_TYPE_LABELS[file.file_type] || file.file_type}
+                    {FILE_TYPE_SHORT_LABELS[file.file_type] || file.file_type}
                   </span>
                 </td>
                 {showCategoryCountry && (

@@ -4,7 +4,7 @@ export const APP_VERSION = '0.0.0'
 
 export const BRANDS = ['Chalkola', 'Spedalon', 'Funcils', 'Other'] as const
 
-export const FILE_TYPES = ['keywords', 'reviews', 'qna', 'rufus_qna'] as const
+export const FILE_TYPES = ['keywords', 'reviews', 'qna', 'rufus_qna', 'keywords_analysis', 'reviews_analysis', 'qna_analysis'] as const
 
 export const ANALYSIS_TYPES = ['keyword_analysis', 'review_analysis', 'qna_analysis'] as const
 
@@ -66,10 +66,24 @@ export const SECTION_CHAR_LIMIT_MAP: Record<string, 'title_limit' | 'bullet_limi
 }
 
 export const FILE_TYPE_LABELS: Record<string, string> = {
+  keywords: 'Keywords — Raw Data (CSV)',
+  reviews: 'Reviews — Raw Data (CSV)',
+  qna: 'Q&A — Raw Data (CSV)',
+  rufus_qna: 'Rufus Q&A — Raw Data (CSV)',
+  keywords_analysis: 'Keywords — Analysis File (MD/JSON)',
+  reviews_analysis: 'Reviews — Analysis File (MD/JSON)',
+  qna_analysis: 'Q&A — Analysis File (MD/JSON)',
+}
+
+// Short labels for file list badges (keeps the table clean)
+export const FILE_TYPE_SHORT_LABELS: Record<string, string> = {
   keywords: 'Keywords',
   reviews: 'Reviews',
   qna: 'Q&A',
   rufus_qna: 'Rufus Q&A',
+  keywords_analysis: 'Keywords Analysis',
+  reviews_analysis: 'Reviews Analysis',
+  qna_analysis: 'Q&A Analysis',
 }
 
 export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024 // 50MB

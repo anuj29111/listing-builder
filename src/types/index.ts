@@ -46,7 +46,7 @@ export type {
 } from './api'
 
 export type Brand = 'Chalkola' | 'Spedalon' | 'Funcils' | 'Other'
-export type FileType = 'keywords' | 'reviews' | 'qna' | 'rufus_qna'
+export type FileType = 'keywords' | 'reviews' | 'qna' | 'rufus_qna' | 'keywords_analysis' | 'reviews_analysis' | 'qna_analysis'
 export type AnalysisType = 'keyword_analysis' | 'review_analysis' | 'qna_analysis'
 export type ListingStatus = 'draft' | 'review' | 'approved' | 'exported'
 export type SectionType = 'title' | 'bullet_1' | 'bullet_2' | 'bullet_3' | 'bullet_4' | 'bullet_5' | 'description' | 'search_terms' | 'subject_matter'

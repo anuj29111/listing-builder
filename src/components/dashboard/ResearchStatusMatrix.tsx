@@ -1,7 +1,10 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { FILE_TYPE_LABELS } from '@/lib/constants'
+import { FILE_TYPE_SHORT_LABELS } from '@/lib/constants'
+
+// Only show raw data file types in the coverage matrix (not analysis files)
+const MATRIX_FILE_TYPES = ['keywords', 'reviews', 'qna', 'rufus_qna'] as const
 
 interface StatusMatrixProps {
   categories: Array<{
@@ -58,12 +61,12 @@ export function ResearchStatusMatrix({
       <div className="p-4 border-b">
         <h3 className="font-semibold">Research Coverage</h3>
         <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-          {Object.entries(FILE_TYPE_LABELS).map(([key, label]) => (
+          {MATRIX_FILE_TYPES.map((key) => (
             <div key={key} className="flex items-center gap-1.5">
               <span
                 className={`inline-block h-2.5 w-2.5 rounded-full ${fileTypeColors[key]}`}
               />
-              {label}
+              {FILE_TYPE_SHORT_LABELS[key]}
             </div>
           ))}
         </div>
@@ -127,7 +130,7 @@ export function ResearchStatusMatrix({
                                   ? fileTypeColors[ft]
                                   : 'bg-muted'
                               }`}
-                              title={FILE_TYPE_LABELS[ft]}
+                              title={FILE_TYPE_SHORT_LABELS[ft]}
                             />
                           ))}
                         </div>

@@ -1,8 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import Link from 'next/link'
-import { ArrowRight } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -13,6 +11,10 @@ import {
 } from '@/components/ui/select'
 import { FileUploader } from '@/components/research/FileUploader'
 import { FileList } from '@/components/research/FileList'
+import { AnalysisStatusPanel } from '@/components/research/AnalysisProgress'
+import { AnalysisViewer } from '@/components/research/AnalysisViewer'
+import { Info } from 'lucide-react'
+import toast from 'react-hot-toast'
 import type { LbCategory, LbCountry } from '@/types'
 
 interface ResearchFileWithJoins {
@@ -25,6 +27,17 @@ interface ResearchFileWithJoins {
   category?: { name: string; slug: string; brand: string } | null
   country?: { name: string; code: string; flag_emoji: string | null } | null
   uploader?: { full_name: string | null } | null
+}
+
+interface AnalysisRecord {
+  id: string
+  analysis_type: string
+  analysis_result: Record<string, unknown>
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  error_message: string | null
+  model_used: string | null
+  tokens_used: number | null
+  updated_at: string
 }
 
 interface ResearchClientProps {
@@ -48,6 +61,10 @@ export function ResearchClient({
   const [countryId, setCountryId] = useState<string | null>(defaultCountryId)
   const [files, setFiles] = useState<ResearchFileWithJoins[]>(initialFiles)
   const [loading, setLoading] = useState(false)
+
+  // Analysis state
+  const [analyses, setAnalyses] = useState<AnalysisRecord[]>([])
+  const [isRunning, setIsRunning] = useState(false)
 
   const fetchFiles = useCallback(async () => {
     if (!categoryId || !countryId) {
@@ -74,14 +91,37 @@ export function ResearchClient({
     }
   }, [categoryId, countryId])
 
-  // Fetch files when category or country changes (skip on initial load since server provided them)
+  const fetchAnalyses = useCallback(async () => {
+    if (!categoryId || !countryId) {
+      setAnalyses([])
+      return
+    }
+
+    try {
+      const res = await fetch(
+        `/api/research/analysis?category_id=${categoryId}&country_id=${countryId}`
+      )
+      const json = await res.json()
+      if (res.ok) {
+        setAnalyses(json.data || [])
+      }
+    } catch {
+      // Silent fail
+    }
+  }, [categoryId, countryId])
+
+  // Fetch files and analyses when category or country changes
   useEffect(() => {
     const isInitial =
       categoryId === defaultCategoryId && countryId === defaultCountryId
     if (!isInitial) {
       fetchFiles()
+      fetchAnalyses()
+    } else if (categoryId && countryId) {
+      // Fetch analyses on initial load too (files come from server but analyses don't)
+      fetchAnalyses()
     }
-  }, [categoryId, countryId, fetchFiles, defaultCategoryId, defaultCountryId])
+  }, [categoryId, countryId, fetchFiles, fetchAnalyses, defaultCategoryId, defaultCountryId])
 
   function handleUploadComplete(newFile: unknown) {
     setFiles((prev) => [newFile as ResearchFileWithJoins, ...prev])
@@ -91,8 +131,81 @@ export function ResearchClient({
     setFiles((prev) => prev.filter((f) => f.id !== id))
   }
 
+  const handleTriggerAnalysis = useCallback(
+    async (analysisType: string) => {
+      if (!categoryId || !countryId) return
+      setIsRunning(true)
+
+      // Optimistically update status to processing
+      setAnalyses((prev) => {
+        const existing = prev.find((a) => a.analysis_type === analysisType)
+        if (existing) {
+          return prev.map((a) =>
+            a.analysis_type === analysisType ? { ...a, status: 'processing' as const, error_message: null } : a
+          )
+        }
+        return [
+          ...prev,
+          {
+            id: 'temp',
+            analysis_type: analysisType,
+            analysis_result: {},
+            status: 'processing' as const,
+            error_message: null,
+            model_used: null,
+            tokens_used: null,
+            updated_at: new Date().toISOString(),
+          },
+        ]
+      })
+
+      try {
+        const res = await fetch('/api/research/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            category_id: categoryId,
+            country_id: countryId,
+            analysis_type: analysisType,
+          }),
+        })
+
+        const json = await res.json()
+
+        if (!res.ok) {
+          throw new Error(json.error || 'Analysis failed')
+        }
+
+        const completed = json.data as AnalysisRecord
+        setAnalyses((prev) =>
+          prev.map((a) => (a.analysis_type === analysisType ? completed : a))
+        )
+
+        toast.success('Analysis completed successfully')
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Analysis failed'
+
+        setAnalyses((prev) =>
+          prev.map((a) =>
+            a.analysis_type === analysisType
+              ? { ...a, status: 'failed' as const, error_message: errorMessage }
+              : a
+          )
+        )
+
+        toast.error(errorMessage)
+      } finally {
+        setIsRunning(false)
+      }
+    },
+    [categoryId, countryId]
+  )
+
   const selectedCategory = categories.find((c) => c.id === categoryId)
   const selectedCountry = countries.find((c) => c.id === countryId)
+
+  // Derive available file types from current files
+  const availableFileTypes = Array.from(new Set(files.map((f) => f.file_type)))
 
   return (
     <div className="space-y-6">
@@ -139,61 +252,86 @@ export function ResearchClient({
         </div>
 
         {selectedCategory && selectedCountry && (
-          <div className="flex items-center justify-between mt-3">
-            <p className="text-sm text-muted-foreground">
-              Showing research files for{' '}
-              <span className="font-medium">{selectedCategory.name}</span> in{' '}
-              <span className="font-medium">
-                {selectedCountry.flag_emoji} {selectedCountry.name}
-              </span>
-            </p>
-            {files.length > 0 && (
-              <Link
-                href={`/research/${categoryId}/${countryId}`}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-              >
-                View Analysis
-                <ArrowRight className="h-3 w-3" />
-              </Link>
-            )}
-          </div>
+          <p className="text-sm text-muted-foreground mt-3">
+            Showing research for{' '}
+            <span className="font-medium">{selectedCategory.name}</span> in{' '}
+            <span className="font-medium">
+              {selectedCountry.flag_emoji} {selectedCountry.name}
+            </span>
+          </p>
         )}
       </div>
 
-      {/* Upload + File List */}
       {categoryId && countryId ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-1">
-            <FileUploader
-              categories={categories}
-              countries={countries}
-              selectedCategoryId={categoryId}
-              selectedCountryId={countryId}
-              onUploadComplete={handleUploadComplete}
-            />
-          </div>
-          <div className="lg:col-span-2">
-            <div className="rounded-lg border bg-card">
-              <div className="p-4 border-b">
-                <h3 className="font-semibold">
-                  Uploaded Files
-                  {files.length > 0 && (
-                    <span className="text-muted-foreground font-normal ml-2">
-                      ({files.length})
-                    </span>
-                  )}
-                </h3>
+        <>
+          {/* Step 1: Upload Files */}
+          <div>
+            <h2 className="text-lg font-semibold mb-1">Step 1: Upload Research Files</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Upload your keyword, review, and Q&A CSV files. You can also upload pre-analyzed files (MD/JSON) to skip the AI analysis step.
+            </p>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-1">
+                <FileUploader
+                  categories={categories}
+                  countries={countries}
+                  selectedCategoryId={categoryId}
+                  selectedCountryId={countryId}
+                  onUploadComplete={handleUploadComplete}
+                />
               </div>
-              {loading ? (
-                <div className="p-8 text-center text-sm text-muted-foreground">
-                  Loading files...
+              <div className="lg:col-span-2">
+                <div className="rounded-lg border bg-card">
+                  <div className="p-4 border-b">
+                    <h3 className="font-semibold">
+                      Uploaded Files
+                      {files.length > 0 && (
+                        <span className="text-muted-foreground font-normal ml-2">
+                          ({files.length})
+                        </span>
+                      )}
+                    </h3>
+                  </div>
+                  {loading ? (
+                    <div className="p-8 text-center text-sm text-muted-foreground">
+                      Loading files...
+                    </div>
+                  ) : (
+                    <FileList files={files} onDelete={handleDelete} />
+                  )}
                 </div>
-              ) : (
-                <FileList files={files} onDelete={handleDelete} />
-              )}
+              </div>
             </div>
           </div>
-        </div>
+
+          {/* Step 2: Run Analysis */}
+          <div>
+            <h2 className="text-lg font-semibold mb-1">Step 2: Run AI Analysis</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Once your files are uploaded, click &ldquo;Analyze&rdquo; for each type to generate insights. These will be used when creating listings.
+            </p>
+
+            {files.length === 0 ? (
+              <div className="rounded-lg border bg-card p-6 text-center">
+                <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                  <Info className="h-4 w-4" />
+                  <span className="text-sm">Upload research files above to enable analysis.</span>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <AnalysisStatusPanel
+                  analyses={analyses}
+                  availableFileTypes={availableFileTypes}
+                  isRunning={isRunning}
+                  onTrigger={handleTriggerAnalysis}
+                />
+
+                <AnalysisViewer analyses={analyses} />
+              </div>
+            )}
+          </div>
+        </>
       ) : (
         <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
           Select a category and marketplace above to view and upload research
