@@ -4,6 +4,26 @@ import { DEFAULT_CLAUDE_MODEL } from '@/lib/constants'
 
 const MAX_TOKENS = 8192
 
+/**
+ * Strip markdown code fences from Claude's response.
+ * Some models return ```json ... ``` despite being told not to.
+ */
+function stripMarkdownFences(text: string): string {
+  let cleaned = text.trim()
+  // Remove ```json or ``` at start
+  if (cleaned.startsWith('```')) {
+    const firstNewline = cleaned.indexOf('\n')
+    if (firstNewline !== -1) {
+      cleaned = cleaned.slice(firstNewline + 1)
+    }
+  }
+  // Remove trailing ```
+  if (cleaned.endsWith('```')) {
+    cleaned = cleaned.slice(0, -3)
+  }
+  return cleaned.trim()
+}
+
 // ~150K tokens budget for prompt content (leaving room for system prompt + output tokens)
 // Claude's context is 200K tokens; 1 token ≈ 4 chars
 const MAX_PROMPT_CHARS = 600_000
@@ -645,7 +665,7 @@ export async function analyzeKeywords(
     .map((b) => b.text)
     .join('')
 
-  const result = JSON.parse(text) as KeywordAnalysisResult
+  const result = JSON.parse(stripMarkdownFences(text)) as KeywordAnalysisResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
   return { result, model, tokensUsed }
@@ -671,7 +691,7 @@ export async function analyzeReviews(
     .map((b) => b.text)
     .join('')
 
-  const result = JSON.parse(text) as ReviewAnalysisResult
+  const result = JSON.parse(stripMarkdownFences(text)) as ReviewAnalysisResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
   return { result, model, tokensUsed }
@@ -698,7 +718,7 @@ export async function analyzeQnA(
     .map((b) => b.text)
     .join('')
 
-  const result = JSON.parse(text) as QnAAnalysisResult
+  const result = JSON.parse(stripMarkdownFences(text)) as QnAAnalysisResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
   return { result, model, tokensUsed }
@@ -776,7 +796,7 @@ Return ONLY valid JSON, no markdown fences or explanation.`
     .map((b) => b.text)
     .join('')
 
-  const result = JSON.parse(text) as Record<string, unknown>
+  const result = JSON.parse(stripMarkdownFences(text)) as Record<string, unknown>
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
   return { result, model, tokensUsed }
@@ -872,7 +892,7 @@ Return ONLY the JSON object, no markdown, no explanation.`
     .map((b) => b.text)
     .join('')
 
-  const content = JSON.parse(text) as Record<string, unknown>
+  const content = JSON.parse(stripMarkdownFences(text)) as Record<string, unknown>
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
   return { content, model, tokensUsed }
