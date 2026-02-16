@@ -129,3 +129,43 @@ export const APLUS_TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   usage_scenarios: 'Real-world usage scenarios demonstrating product benefits',
   brand_story: 'Brand narrative with company values and mission',
 }
+
+// --- AI Model Configuration ---
+
+export interface ClaudeModelConfig {
+  id: string
+  name: string
+  description: string
+  inputPer1M: number   // USD per 1M input tokens
+  outputPer1M: number  // USD per 1M output tokens
+  tier: 'budget' | 'recommended' | 'premium'
+}
+
+export const CLAUDE_MODELS: ClaudeModelConfig[] = [
+  {
+    id: 'claude-haiku-3-5-20241022',
+    name: 'Claude 3.5 Haiku',
+    description: 'Fastest and cheapest. Good for simple refinements.',
+    inputPer1M: 0.80,
+    outputPer1M: 4.00,
+    tier: 'budget',
+  },
+  {
+    id: 'claude-sonnet-4-20250514',
+    name: 'Claude Sonnet 4',
+    description: 'Best balance of speed, quality, and cost.',
+    inputPer1M: 3.00,
+    outputPer1M: 15.00,
+    tier: 'recommended',
+  },
+  {
+    id: 'claude-opus-4-20250514',
+    name: 'Claude Opus 4',
+    description: 'Highest quality. Best for complex listings.',
+    inputPer1M: 15.00,
+    outputPer1M: 75.00,
+    tier: 'premium',
+  },
+]
+
+export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-20250514'

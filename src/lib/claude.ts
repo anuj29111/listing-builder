@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createAdminClient } from '@/lib/supabase/server'
+import { DEFAULT_CLAUDE_MODEL } from '@/lib/constants'
 
-const MODEL = 'claude-sonnet-4-20250514'
 const MAX_TOKENS = 8192
 
 async function getApiKey(): Promise<string> {
@@ -28,6 +28,21 @@ async function getApiKey(): Promise<string> {
 async function getClient(): Promise<Anthropic> {
   const apiKey = await getApiKey()
   return new Anthropic({ apiKey })
+}
+
+async function getModel(): Promise<string> {
+  try {
+    const adminClient = createAdminClient()
+    const { data } = await adminClient
+      .from('lb_admin_settings')
+      .select('value')
+      .eq('key', 'claude_model')
+      .single()
+    if (data?.value) return data.value
+  } catch {
+    // DB lookup failed, fall through to default
+  }
+  return DEFAULT_CLAUDE_MODEL
 }
 
 // --- Analysis Result Types ---
@@ -408,10 +423,11 @@ export async function generateListing(
   input: ListingGenerationInput
 ): Promise<{ result: ListingGenerationResult; model: string; tokensUsed: number }> {
   const client = await getClient()
+  const model = await getModel()
   const prompt = buildListingGenerationPrompt(input)
 
   const response = await client.messages.create({
-    model: MODEL,
+    model,
     max_tokens: 12288,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -430,7 +446,7 @@ export async function generateListing(
   const result = JSON.parse(jsonText) as ListingGenerationResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model: MODEL, tokensUsed }
+  return { result, model, tokensUsed }
 }
 
 // --- Section Refinement (Phase 5: Modular Chats) ---
@@ -514,10 +530,11 @@ export async function refineSection(
   input: SectionRefinementInput
 ): Promise<{ refinedText: string; model: string; tokensUsed: number }> {
   const client = await getClient()
+  const model = await getModel()
   const prompt = buildSectionRefinementPrompt(input)
 
   const response = await client.messages.create({
-    model: MODEL,
+    model,
     max_tokens: 4096,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -530,7 +547,7 @@ export async function refineSection(
 
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { refinedText: text, model: MODEL, tokensUsed }
+  return { refinedText: text, model, tokensUsed }
 }
 
 // --- Analysis Functions ---
@@ -541,10 +558,11 @@ export async function analyzeKeywords(
   countryName: string
 ): Promise<{ result: KeywordAnalysisResult; model: string; tokensUsed: number }> {
   const client = await getClient()
+  const model = await getModel()
   const prompt = buildKeywordAnalysisPrompt(csvContent, categoryName, countryName)
 
   const response = await client.messages.create({
-    model: MODEL,
+    model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -557,7 +575,7 @@ export async function analyzeKeywords(
   const result = JSON.parse(text) as KeywordAnalysisResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model: MODEL, tokensUsed }
+  return { result, model, tokensUsed }
 }
 
 export async function analyzeReviews(
@@ -566,10 +584,11 @@ export async function analyzeReviews(
   countryName: string
 ): Promise<{ result: ReviewAnalysisResult; model: string; tokensUsed: number }> {
   const client = await getClient()
+  const model = await getModel()
   const prompt = buildReviewAnalysisPrompt(csvContent, categoryName, countryName)
 
   const response = await client.messages.create({
-    model: MODEL,
+    model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -582,7 +601,7 @@ export async function analyzeReviews(
   const result = JSON.parse(text) as ReviewAnalysisResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model: MODEL, tokensUsed }
+  return { result, model, tokensUsed }
 }
 
 export async function analyzeQnA(
@@ -592,10 +611,11 @@ export async function analyzeQnA(
   isRufus: boolean
 ): Promise<{ result: QnAAnalysisResult; model: string; tokensUsed: number }> {
   const client = await getClient()
+  const model = await getModel()
   const prompt = buildQnAAnalysisPrompt(csvContent, categoryName, countryName, isRufus)
 
   const response = await client.messages.create({
-    model: MODEL,
+    model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -608,7 +628,7 @@ export async function analyzeQnA(
   const result = JSON.parse(text) as QnAAnalysisResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model: MODEL, tokensUsed }
+  return { result, model, tokensUsed }
 }
 
 // --- Phase 10: A+ Content Generation ---
@@ -662,9 +682,11 @@ Write a compelling brand story with 2-3 paragraphs.`,
 
 export async function generateAPlusContent(input: APlusGenerateInput): Promise<{
   content: Record<string, unknown>
+  model: string
   tokensUsed: number
 }> {
   const client = await getClient()
+  const model = await getModel()
 
   const templateSchema = APLUS_TEMPLATES[input.templateType] || APLUS_TEMPLATES.feature_grid
 
@@ -689,7 +711,7 @@ ${templateSchema}
 Return ONLY the JSON object, no markdown, no explanation.`
 
   const response = await client.messages.create({
-    model: MODEL,
+    model,
     max_tokens: 4096,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -702,5 +724,5 @@ Return ONLY the JSON object, no markdown, no explanation.`
   const content = JSON.parse(text) as Record<string, unknown>
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { content, tokensUsed }
+  return { content, model, tokensUsed }
 }

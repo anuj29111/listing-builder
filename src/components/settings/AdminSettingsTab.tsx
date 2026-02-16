@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { Settings, Plus, Save } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbAdminSetting } from '@/types'
+import { AIModelConfig } from '@/components/settings/AIModelConfig'
 
 interface AdminSettingsTabProps {
   initialSettings: LbAdminSetting[]
@@ -26,6 +27,10 @@ export function AdminSettingsTab({ initialSettings }: AdminSettingsTabProps) {
   const [newValue, setNewValue] = useState('')
   const [newDescription, setNewDescription] = useState('')
   const [adding, setAdding] = useState(false)
+
+  // Separate model config from generic settings
+  const modelSetting = settings.find((s) => s.key === 'claude_model')
+  const genericSettings = settings.filter((s) => s.key !== 'claude_model')
 
   function handleValueChange(key: string, value: string) {
     const original = settings.find((s) => s.key === key)
@@ -119,129 +124,133 @@ export function AdminSettingsTab({ initialSettings }: AdminSettingsTabProps) {
   }
 
   return (
-    <div className="rounded-lg border bg-card">
-      <div className="flex items-center justify-between p-4 border-b">
-        <div>
-          <h3 className="font-semibold">Admin Settings</h3>
-          <p className="text-sm text-muted-foreground">
-            Application-level configuration values.
-          </p>
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setShowAddForm(!showAddForm)}
-        >
-          <Plus className="h-4 w-4 mr-1" />
-          Add Setting
-        </Button>
-      </div>
+    <div className="space-y-6">
+      <AIModelConfig currentModel={modelSetting?.value || ''} />
 
-      {showAddForm && (
-        <div className="p-4 border-b bg-muted/30">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="space-y-1">
-              <Label htmlFor="new-key" className="text-xs">
-                Key
-              </Label>
-              <Input
-                id="new-key"
-                value={newKey}
-                onChange={(e) => setNewKey(e.target.value)}
-                placeholder="e.g. anthropic_api_key"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="new-value" className="text-xs">
-                Value
-              </Label>
-              <Input
-                id="new-value"
-                value={newValue}
-                onChange={(e) => setNewValue(e.target.value)}
-                placeholder="Setting value"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="new-desc" className="text-xs">
-                Description
-              </Label>
-              <Input
-                id="new-desc"
-                value={newDescription}
-                onChange={(e) => setNewDescription(e.target.value)}
-                placeholder="Optional description"
-              />
-            </div>
+      <div className="rounded-lg border bg-card">
+        <div className="flex items-center justify-between p-4 border-b">
+          <div>
+            <h3 className="font-semibold">Admin Settings</h3>
+            <p className="text-sm text-muted-foreground">
+              Application-level configuration values.
+            </p>
           </div>
-          <div className="flex justify-end gap-2 mt-3">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setShowAddForm(false)
-                setNewKey('')
-                setNewValue('')
-                setNewDescription('')
-              }}
-            >
-              Cancel
-            </Button>
-            <Button size="sm" onClick={handleAdd} disabled={adding}>
-              {adding ? 'Adding...' : 'Add Setting'}
-            </Button>
-          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowAddForm(!showAddForm)}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Add Setting
+          </Button>
         </div>
-      )}
 
-      {settings.length === 0 && !showAddForm ? (
-        <EmptyState
-          icon={Settings}
-          title="No settings"
-          description="Add application-level configuration values like API keys."
-          action={{ label: 'Add Setting', onClick: () => setShowAddForm(true) }}
-          className="py-12"
-        />
-      ) : settings.length > 0 ? (
-        <div className="divide-y">
-          {settings.map((setting) => (
-            <div
-              key={setting.key}
-              className="flex items-center gap-4 p-4"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium font-mono">
-                  {setting.key}
-                </div>
-                {setting.description && (
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    {setting.description}
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-2 w-72 flex-shrink-0">
+        {showAddForm && (
+          <div className="p-4 border-b bg-muted/30">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="new-key" className="text-xs">
+                  Key
+                </Label>
                 <Input
-                  value={getCurrentValue(setting)}
-                  onChange={(e) =>
-                    handleValueChange(setting.key, e.target.value)
-                  }
-                  className="text-sm"
+                  id="new-key"
+                  value={newKey}
+                  onChange={(e) => setNewKey(e.target.value)}
+                  placeholder="e.g. anthropic_api_key"
                 />
-                {isDirty(setting.key) && (
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    onClick={() => handleSave(setting.key)}
-                    disabled={savingKey === setting.key}
-                  >
-                    <Save className="h-4 w-4" />
-                  </Button>
-                )}
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="new-value" className="text-xs">
+                  Value
+                </Label>
+                <Input
+                  id="new-value"
+                  value={newValue}
+                  onChange={(e) => setNewValue(e.target.value)}
+                  placeholder="Setting value"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="new-desc" className="text-xs">
+                  Description
+                </Label>
+                <Input
+                  id="new-desc"
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                  placeholder="Optional description"
+                />
               </div>
             </div>
-          ))}
-        </div>
-      ) : null}
+            <div className="flex justify-end gap-2 mt-3">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setShowAddForm(false)
+                  setNewKey('')
+                  setNewValue('')
+                  setNewDescription('')
+                }}
+              >
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleAdd} disabled={adding}>
+                {adding ? 'Adding...' : 'Add Setting'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {genericSettings.length === 0 && !showAddForm ? (
+          <EmptyState
+            icon={Settings}
+            title="No settings"
+            description="Add application-level configuration values like API keys."
+            action={{ label: 'Add Setting', onClick: () => setShowAddForm(true) }}
+            className="py-12"
+          />
+        ) : genericSettings.length > 0 ? (
+          <div className="divide-y">
+            {genericSettings.map((setting) => (
+              <div
+                key={setting.key}
+                className="flex items-center gap-4 p-4"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium font-mono">
+                    {setting.key}
+                  </div>
+                  {setting.description && (
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {setting.description}
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 w-72 flex-shrink-0">
+                  <Input
+                    value={getCurrentValue(setting)}
+                    onChange={(e) =>
+                      handleValueChange(setting.key, e.target.value)
+                    }
+                    className="text-sm"
+                  />
+                  {isDirty(setting.key) && (
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      onClick={() => handleSave(setting.key)}
+                      disabled={savingKey === setting.key}
+                    >
+                      <Save className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }
