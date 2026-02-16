@@ -110,6 +110,9 @@ npm run lint         # ESLint
 8. **Railway auto-deploy** — Can silently fail. Verify with `list-deployments` timestamps; use `railway up` as fallback.
 9. **TypeScript Set** — Use `Array.from(new Set())` not `[...new Set()]`. Use `new Set<string>(TUPLE)` to widen type.
 10. **Supabase Redirect URLs** — Each app sharing the project needs its callback URL added to Auth config.
+11. **Claude JSON responses** — Newer models return ```json fences despite instructions. Always `stripMarkdownFences()` before `JSON.parse()`.
+12. **Supabase Storage MIME types** — `lb-research-files` bucket allows: csv, excel, txt, markdown, json, octet-stream. Update if adding new file formats.
+13. **Large CSV analysis** — Reviews CSV can exceed 200K token limit. `truncateCSVContent()` in claude.ts handles this with even sampling.
 
 ---
 
@@ -135,6 +138,11 @@ npm run lint         # ESLint
 | `docs/PHASE-DETAILS.md` | Specs for remaining phases (7, 8) |
 
 ---
+
+## Pending Tasks
+
+- **BUG: QnA analysis stuck as "running"** — Selecting Chalk Markers category shows QnA analysis in "running" state permanently. Likely a stale `processing` record in `lb_research_analysis` that never completed/failed. Need: reset mechanism + timeout handling.
+- **FEATURE: Merge raw CSV + analysis file** — When both a keyword CSV and keywords_analysis .md file exist, system currently uses only the analysis file (ignores CSV). Should combine both sources into a final merged analysis instead of overwriting.
 
 ## Pending User Actions
 
