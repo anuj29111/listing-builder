@@ -92,10 +92,26 @@ const ANALYSIS_TO_PRE_ANALYZED: Record<string, string> = {
   qna_analysis: 'qna_analysis',
 }
 
+// Maps analysis type → which raw file types feed into it
+const ANALYSIS_TO_RAW: Record<string, string[]> = {
+  keyword_analysis: ['keywords'],
+  review_analysis: ['reviews'],
+  qna_analysis: ['qna', 'rufus_qna'],
+}
+
 function getAnalysisSubtitle(analysisType: string, fileTypes: string[]): string | null {
-  // Check for pre-analyzed file
   const preAnalyzedType = ANALYSIS_TO_PRE_ANALYZED[analysisType]
-  if (preAnalyzedType && fileTypes.includes(preAnalyzedType)) {
+  const hasPreAnalyzed = preAnalyzedType && fileTypes.includes(preAnalyzedType)
+  const rawTypes = ANALYSIS_TO_RAW[analysisType] || []
+  const hasRaw = rawTypes.some((rt) => fileTypes.includes(rt))
+
+  // Both pre-analyzed AND raw CSV exist → will merge
+  if (hasPreAnalyzed && hasRaw) {
+    return 'Will merge: analysis file + raw CSV data (AI-powered merge)'
+  }
+
+  // Only pre-analyzed file
+  if (hasPreAnalyzed) {
     return 'Will use: uploaded analysis file (low/no AI cost)'
   }
 
@@ -149,11 +165,21 @@ export function AnalysisStatusPanel({
         {orderedTypes.map((at) => {
           const existing = analysisMap.get(at)
           const hasSources = possibleAnalyses.has(at)
-          const canRun = hasSources && !isRunning && existing?.status !== 'processing'
+
+          // Detect stale processing — if stuck for > 5 minutes, allow re-triggering
+          const isStaleProcessing =
+            existing?.status === 'processing' &&
+            existing?.updated_at &&
+            Date.now() - new Date(existing.updated_at).getTime() > 5 * 60 * 1000
+
+          const canRun = hasSources && !isRunning && (existing?.status !== 'processing' || isStaleProcessing)
           const isComplete = existing?.status === 'completed'
 
           const subtitle = getAnalysisSubtitle(at, availableFileTypes)
           const hasPreAnalyzedFile = !!ANALYSIS_TO_PRE_ANALYZED[at] && availableFileTypes.includes(ANALYSIS_TO_PRE_ANALYZED[at])
+          const rawTypes = ANALYSIS_TO_RAW[at] || []
+          const hasRawFile = rawTypes.some((rt) => availableFileTypes.includes(rt))
+          const hasBothSources = hasPreAnalyzedFile && hasRawFile
 
           return (
             <div key={at} className="flex items-center justify-between">
@@ -179,11 +205,13 @@ export function AnalysisStatusPanel({
                     disabled={!canRun}
                     className="px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    {existing?.status === 'processing'
-                      ? 'Running...'
-                      : isComplete
-                        ? (hasPreAnalyzedFile ? 'Re-import' : 'Re-analyze')
-                        : (hasPreAnalyzedFile ? 'Import' : 'Analyze')}
+                    {isStaleProcessing
+                      ? 'Stuck — Retry'
+                      : existing?.status === 'processing'
+                        ? 'Running...'
+                        : isComplete
+                          ? (hasBothSources ? 'Re-merge' : hasPreAnalyzedFile ? 'Re-import' : 'Re-analyze')
+                          : (hasBothSources ? 'Merge' : hasPreAnalyzedFile ? 'Import' : 'Analyze')}
                   </button>
                 ) : (
                   <span className="text-xs text-muted-foreground">

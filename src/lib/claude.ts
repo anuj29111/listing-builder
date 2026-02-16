@@ -802,6 +802,61 @@ Return ONLY valid JSON, no markdown fences or explanation.`
   return { result, model, tokensUsed }
 }
 
+/**
+ * Merge a pre-analyzed file with raw CSV data into a single comprehensive analysis.
+ * Uses AI to combine both sources — more expensive than import-only but gives better results.
+ */
+export async function mergeAnalysisWithCSV(
+  analysisContent: string,
+  csvContent: string,
+  analysisType: string,
+  categoryName: string,
+  countryName: string
+): Promise<{ result: Record<string, unknown>; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const schema = ANALYSIS_JSON_SCHEMAS[analysisType] || ANALYSIS_JSON_SCHEMAS.keyword_analysis
+
+  // Truncate CSV if very large (keep analysis file intact since it's already summarized)
+  const { content: truncatedCSV } = truncateCSVContent(csvContent, MAX_PROMPT_CHARS - analysisContent.length - 5000)
+
+  const prompt = `You have TWO sources of data for ${categoryName} (${countryName}) that must be merged into a single comprehensive analysis.
+
+SOURCE 1 — PRE-ANALYZED SUMMARY (from a previous analysis):
+${analysisContent}
+
+SOURCE 2 — RAW CSV DATA (original data with additional details):
+${truncatedCSV}
+
+INSTRUCTIONS:
+1. The pre-analyzed summary (Source 1) already contains curated insights — use it as the primary foundation
+2. The raw CSV data (Source 2) may contain additional data points, keywords, or details not captured in the summary
+3. MERGE both sources: keep everything from the summary, then enrich it with any NEW information from the CSV that isn't already covered
+4. For numerical fields (counts, volumes, frequencies), prefer the raw CSV data as it's more precise
+5. For curated fields (priorities, strategic recommendations), prefer the pre-analyzed summary
+
+TARGET JSON STRUCTURE:
+${schema}
+
+Return ONLY valid JSON, no markdown fences or explanation.`
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const result = JSON.parse(stripMarkdownFences(text)) as Record<string, unknown>
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
 // --- Phase 10: A+ Content Generation ---
 
 export interface APlusGenerateInput {

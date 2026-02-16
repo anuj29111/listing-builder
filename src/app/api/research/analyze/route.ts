@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
-import { analyzeKeywords, analyzeReviews, analyzeQnA, convertAnalysisFile } from '@/lib/claude'
+import { analyzeKeywords, analyzeReviews, analyzeQnA, convertAnalysisFile, mergeAnalysisWithCSV } from '@/lib/claude'
 import type { AnalysisType, FileType } from '@/types'
 
 // Maps analysis_type → raw CSV file types
@@ -128,24 +128,53 @@ export async function POST(request: Request) {
     try {
       let analysisOutput: { result: Record<string, unknown>; model: string; tokensUsed: number }
 
-      // PATH 1: Pre-analyzed file exists → use it (cheap or free)
-      if (hasAnalysisFile) {
-        const analysisFile = analysisFiles[0]
-
+      // Helper: download analysis file content
+      const downloadAnalysisFile = async () => {
+        const analysisFile = analysisFiles![0]
         const { data: fileData, error: downloadError } = await supabase.storage
           .from('lb-research-files')
           .download(analysisFile.storage_path)
-
         if (downloadError || !fileData) {
           throw new Error(`Failed to download ${analysisFile.file_name}: ${downloadError?.message}`)
         }
+        return fileData.text()
+      }
 
-        const content = await fileData.text()
+      // Helper: download raw CSV files content
+      const downloadRawFiles = async () => {
+        const seenTypes = new Set<string>()
+        const filesToProcess: Array<{ id: string; fileType: string; content: string }> = []
+        for (const file of rawFiles!) {
+          if (seenTypes.has(file.file_type)) continue
+          seenTypes.add(file.file_type)
+          const { data: fileData, error: downloadError } = await supabase.storage
+            .from('lb-research-files')
+            .download(file.storage_path)
+          if (downloadError || !fileData) {
+            throw new Error(`Failed to download ${file.file_name}: ${downloadError?.message}`)
+          }
+          const content = await fileData.text()
+          filesToProcess.push({ id: file.id, fileType: file.file_type, content })
+        }
+        return filesToProcess
+      }
+
+      if (hasAnalysisFile && hasRawFiles) {
+        // PATH 1: Both pre-analyzed AND raw CSV → merge them
+        const [analysisContent, rawFilesList] = await Promise.all([
+          downloadAnalysisFile(),
+          downloadRawFiles(),
+        ])
+        const rawCombined = rawFilesList.map((f) => f.content).join('\n\n')
+        const output = await mergeAnalysisWithCSV(analysisContent, rawCombined, analysis_type, catResult.data.name, countryResult.data.name)
+        analysisOutput = { ...output, result: output.result as unknown as Record<string, unknown> }
+      } else if (hasAnalysisFile) {
+        // PATH 2: Pre-analyzed file only → use it (cheap or free)
+        const content = await downloadAnalysisFile()
 
         // Try to parse as JSON directly (zero AI cost)
         try {
           const parsed = JSON.parse(content)
-          // Validate it has expected top-level keys
           if (parsed && typeof parsed === 'object' && ('summary' in parsed)) {
             analysisOutput = {
               result: parsed as Record<string, unknown>,
@@ -160,29 +189,9 @@ export async function POST(request: Request) {
           const output = await convertAnalysisFile(content, analysis_type)
           analysisOutput = { ...output, result: output.result as unknown as Record<string, unknown> }
         }
-      }
-      // PATH 2: Raw CSV files → full AI analysis (expensive)
-      else {
-        // Download CSV content from storage (use the most recent file per type)
-        const seenTypes = new Set<string>()
-        const filesToProcess: Array<{ id: string; fileType: string; content: string }> = []
-
-        for (const file of rawFiles!) {
-          if (seenTypes.has(file.file_type)) continue
-          seenTypes.add(file.file_type)
-
-          const { data: fileData, error: downloadError } = await supabase.storage
-            .from('lb-research-files')
-            .download(file.storage_path)
-
-          if (downloadError || !fileData) {
-            throw new Error(`Failed to download ${file.file_name}: ${downloadError?.message}`)
-          }
-
-          const content = await fileData.text()
-          filesToProcess.push({ id: file.id, fileType: file.file_type, content })
-        }
-
+      } else {
+        // PATH 3: Raw CSV files only → full AI analysis (expensive)
+        const filesToProcess = await downloadRawFiles()
         const combinedContent = filesToProcess.map((f) => f.content).join('\n\n')
 
         if (analysis_type === 'keyword_analysis') {
