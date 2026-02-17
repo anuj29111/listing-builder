@@ -141,6 +141,8 @@ function SourceRow({
   onTrigger,
   buttonLabel,
   reButtonLabel,
+  disabled: forceDisabled,
+  disabledReason,
 }: {
   label: string
   record: AnalysisRecord | undefined
@@ -148,23 +150,31 @@ function SourceRow({
   onTrigger: () => void
   buttonLabel: string
   reButtonLabel: string
+  disabled?: boolean
+  disabledReason?: string
 }) {
   const stale = record ? isStale(record) : false
-  const canRun = !isRunning && (!record || record.status !== 'processing' || stale)
+  const canRun = !forceDisabled && !isRunning && (!record || record.status !== 'processing' || stale)
   const isComplete = record?.status === 'completed'
 
   return (
     <div className="flex items-center justify-between pl-6 py-1">
       <div className="flex items-center gap-2">
-        <StatusIcon status={record?.status ?? null} />
-        <span className="text-xs text-muted-foreground">{label}</span>
-        <StatusBadge status={record?.status ?? null} errorMessage={record?.error_message} />
-        {isComplete && record?.tokens_used != null && (
-          <span className="text-[11px] text-muted-foreground">{record.tokens_used.toLocaleString()} tokens</span>
+        <StatusIcon status={forceDisabled ? null : (record?.status ?? null)} />
+        <span className={`text-xs ${forceDisabled ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>{label}</span>
+        {forceDisabled && disabledReason ? (
+          <span className="text-[11px] text-muted-foreground/50 italic">{disabledReason}</span>
+        ) : (
+          <>
+            <StatusBadge status={record?.status ?? null} errorMessage={record?.error_message} />
+            {isComplete && record?.tokens_used != null && (
+              <span className="text-[11px] text-muted-foreground">{record.tokens_used.toLocaleString()} tokens</span>
+            )}
+          </>
         )}
       </div>
       <ActionButton
-        label={stale ? 'Stuck — Retry' : record?.status === 'processing' ? 'Running...' : isComplete ? reButtonLabel : buttonLabel}
+        label={forceDisabled ? buttonLabel : stale ? 'Stuck — Retry' : record?.status === 'processing' ? 'Running...' : isComplete ? reButtonLabel : buttonLabel}
         onClick={onTrigger}
         disabled={!canRun}
         variant="outline"
@@ -209,25 +219,22 @@ export function AnalysisStatusPanel({
       <div className="p-4 space-y-4">
         {orderedTypes.map((at) => {
           const sources = analysisMap.get(at) || new Map<string, AnalysisRecord>()
-          const hasSources = possibleAnalyses.has(at)
 
           const hasPreAnalyzedFile = !!ANALYSIS_TO_PRE_ANALYZED[at] && availableFileTypes.includes(ANALYSIS_TO_PRE_ANALYZED[at])
           const rawTypes = ANALYSIS_TO_RAW[at] || []
           const hasRawFile = rawTypes.some((rt) => availableFileTypes.includes(rt))
-          const hasBothSources = hasPreAnalyzedFile && hasRawFile
+          const hasAnyFile = hasPreAnalyzedFile || hasRawFile
 
           // Get records for each source
-          const primaryRecord = sources.get('primary')
           const csvRecord = sources.get('csv')
           const fileRecord = sources.get('file')
           const mergedRecord = sources.get('merged')
 
-          // For the header status: show merged if exists, else csv/file/primary
-          const displayRecord = mergedRecord || csvRecord || fileRecord || primaryRecord
-
           const label = ANALYSIS_LABELS[at] || at
+          const shortName = label.replace(' Analysis', '')
 
-          if (!hasSources) {
+          // No files uploaded at all — collapsed row
+          if (!hasAnyFile) {
             return (
               <div key={at} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -240,102 +247,22 @@ export function AnalysisStatusPanel({
             )
           }
 
-          // ── DUAL SOURCE MODE: both CSV and analysis file exist ──
-          if (hasBothSources) {
-            const csvDone = csvRecord?.status === 'completed'
-            const fileDone = fileRecord?.status === 'completed'
-            const canMerge = csvDone && fileDone && !isRunning && mergedRecord?.status !== 'processing'
-            const mergeStale = mergedRecord ? isStale(mergedRecord) : false
+          // ── ALWAYS show 3-row breakdown: CSV / Analysis File / Merged ──
+          const csvDone = csvRecord?.status === 'completed'
+          const fileDone = fileRecord?.status === 'completed'
+          const canMerge = csvDone && fileDone && !isRunning && mergedRecord?.status !== 'processing'
+          const mergeStale = mergedRecord ? isStale(mergedRecord) : false
 
-            return (
-              <div key={at} className="space-y-1">
-                {/* Header */}
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold">{label}</span>
-                  {mergedRecord?.status === 'completed' && (
-                    <Badge variant="success" className="text-xs">Merged</Badge>
-                  )}
-                </div>
+          // Determine best status for header badge
+          const bestRecord = mergedRecord?.status === 'completed'
+            ? mergedRecord
+            : csvRecord?.status === 'completed'
+              ? csvRecord
+              : fileRecord?.status === 'completed'
+                ? fileRecord
+                : null
 
-                {/* CSV sub-row */}
-                <SourceRow
-                  label={`${label.replace(' Analysis', '')} — CSV`}
-                  record={csvRecord}
-                  isRunning={isRunning}
-                  onTrigger={() => onTrigger(at, 'csv')}
-                  buttonLabel="Analyze"
-                  reButtonLabel="Re-analyze"
-                />
-
-                {/* File sub-row */}
-                <SourceRow
-                  label={`${label.replace(' Analysis', '')} — Analysis File`}
-                  record={fileRecord}
-                  isRunning={isRunning}
-                  onTrigger={() => onTrigger(at, 'file')}
-                  buttonLabel="Import"
-                  reButtonLabel="Re-import"
-                />
-
-                {/* Merge row */}
-                <div className="flex items-center justify-between pl-6 py-1">
-                  <div className="flex items-center gap-2">
-                    {mergedRecord?.status === 'processing' && !mergeStale ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
-                    ) : mergedRecord?.status === 'completed' ? (
-                      <Merge className="h-4 w-4 text-violet-500" />
-                    ) : (
-                      <Merge className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    <span className="text-xs text-muted-foreground">{label.replace(' Analysis', '')} — Merged</span>
-                    {mergedRecord?.status === 'completed' && (
-                      <>
-                        <Badge variant="success" className="text-xs">Complete</Badge>
-                        {mergedRecord.tokens_used != null && (
-                          <span className="text-[11px] text-muted-foreground">
-                            {mergedRecord.tokens_used.toLocaleString()} tokens
-                          </span>
-                        )}
-                      </>
-                    )}
-                    {mergedRecord?.status === 'processing' && !mergeStale && (
-                      <Badge variant="secondary" className="text-xs">Merging...</Badge>
-                    )}
-                    {mergedRecord?.status === 'failed' && (
-                      <StatusBadge status="failed" errorMessage={mergedRecord.error_message} />
-                    )}
-                    {!csvDone || !fileDone ? (
-                      <span className="text-[11px] text-muted-foreground italic">
-                        Complete both above first
-                      </span>
-                    ) : null}
-                  </div>
-                  <ActionButton
-                    label={
-                      mergeStale
-                        ? 'Stuck — Retry'
-                        : mergedRecord?.status === 'processing'
-                          ? 'Merging...'
-                          : mergedRecord?.status === 'completed'
-                            ? 'Re-merge'
-                            : 'Merge'
-                    }
-                    onClick={() => onTrigger(at, 'merged')}
-                    disabled={!canMerge || (mergedRecord?.status === 'processing' && !mergeStale)}
-                    variant="merge"
-                  />
-                </div>
-              </div>
-            )
-          }
-
-          // ── SINGLE SOURCE MODE: only CSV or only analysis file ──
-          const singleRecord = primaryRecord || csvRecord || fileRecord
-          const singleStale = singleRecord ? isStale(singleRecord) : false
-          const canRun = !isRunning && (!singleRecord || singleRecord.status !== 'processing' || singleStale)
-          const isComplete = singleRecord?.status === 'completed'
-
-          // Determine subtitle for QnA combination
+          // QnA subtitle
           let subtitle: string | null = null
           if (at === 'qna_analysis') {
             const hasQna = availableFileTypes.includes('qna')
@@ -345,37 +272,98 @@ export function AnalysisStatusPanel({
           }
 
           return (
-            <div key={at} className="flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <StatusIcon status={singleRecord?.status ?? null} />
-                    <span className="text-sm font-medium">{label}</span>
-                  </div>
-                  <StatusBadge status={singleRecord?.status ?? null} errorMessage={singleRecord?.error_message} />
-                </div>
+            <div key={at} className="space-y-1">
+              {/* Header */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold">{label}</span>
+                {mergedRecord?.status === 'completed' && (
+                  <Badge variant="success" className="text-xs">Merged</Badge>
+                )}
+                {!mergedRecord?.status && bestRecord && (
+                  <Badge variant="success" className="text-xs">Complete</Badge>
+                )}
                 {subtitle && (
-                  <p className="text-[11px] text-muted-foreground ml-6 mt-0.5">{subtitle}</p>
+                  <span className="text-[11px] text-muted-foreground italic">{subtitle}</span>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                {isComplete && singleRecord?.tokens_used != null && (
-                  <span className="text-xs text-muted-foreground">
-                    {singleRecord.tokens_used.toLocaleString()} tokens
-                  </span>
-                )}
+
+              {/* CSV sub-row */}
+              <SourceRow
+                label={`${shortName} — CSV`}
+                record={csvRecord}
+                isRunning={isRunning}
+                onTrigger={() => onTrigger(at, 'csv')}
+                buttonLabel="Analyze"
+                reButtonLabel="Re-analyze"
+                disabled={!hasRawFile}
+                disabledReason={!hasRawFile ? 'No CSV uploaded' : undefined}
+              />
+
+              {/* Analysis File sub-row */}
+              <SourceRow
+                label={`${shortName} — Analysis File`}
+                record={fileRecord}
+                isRunning={isRunning}
+                onTrigger={() => onTrigger(at, 'file')}
+                buttonLabel="Import"
+                reButtonLabel="Re-import"
+                disabled={!hasPreAnalyzedFile}
+                disabledReason={!hasPreAnalyzedFile ? 'No analysis file uploaded' : undefined}
+              />
+
+              {/* Merge row */}
+              <div className="flex items-center justify-between pl-6 py-1">
+                <div className="flex items-center gap-2">
+                  {mergedRecord?.status === 'processing' && !mergeStale ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
+                  ) : mergedRecord?.status === 'completed' ? (
+                    <Merge className="h-4 w-4 text-violet-500" />
+                  ) : (
+                    <Merge className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span className="text-xs text-muted-foreground">{shortName} — Merged</span>
+                  {mergedRecord?.status === 'completed' && (
+                    <>
+                      <Badge variant="success" className="text-xs">Complete</Badge>
+                      {mergedRecord.tokens_used != null && (
+                        <span className="text-[11px] text-muted-foreground">
+                          {mergedRecord.tokens_used.toLocaleString()} tokens
+                        </span>
+                      )}
+                    </>
+                  )}
+                  {mergedRecord?.status === 'processing' && !mergeStale && (
+                    <Badge variant="secondary" className="text-xs">Merging...</Badge>
+                  )}
+                  {mergedRecord?.status === 'failed' && (
+                    <StatusBadge status="failed" errorMessage={mergedRecord.error_message} />
+                  )}
+                  {!mergedRecord?.status && (!csvDone || !fileDone) && (
+                    <span className="text-[11px] text-muted-foreground italic">
+                      {!csvDone && !fileDone
+                        ? 'Complete both above first'
+                        : !csvDone
+                          ? 'Complete CSV analysis first'
+                          : 'Complete Analysis File first'}
+                    </span>
+                  )}
+                  {!mergedRecord?.status && csvDone && fileDone && (
+                    <Badge variant="outline" className="text-xs">Not run</Badge>
+                  )}
+                </div>
                 <ActionButton
                   label={
-                    singleStale
+                    mergeStale
                       ? 'Stuck — Retry'
-                      : singleRecord?.status === 'processing'
-                        ? 'Running...'
-                        : isComplete
-                          ? (hasPreAnalyzedFile ? 'Re-import' : 'Re-analyze')
-                          : (hasPreAnalyzedFile ? 'Import' : 'Analyze')
+                      : mergedRecord?.status === 'processing'
+                        ? 'Merging...'
+                        : mergedRecord?.status === 'completed'
+                          ? 'Re-merge'
+                          : 'Merge'
                   }
-                  onClick={() => onTrigger(at, 'primary')}
-                  disabled={!canRun}
+                  onClick={() => onTrigger(at, 'merged')}
+                  disabled={!canMerge || (mergedRecord?.status === 'processing' && !mergeStale)}
+                  variant="merge"
                 />
               </div>
             </div>

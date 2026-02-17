@@ -573,20 +573,39 @@ function buildListingGenerationPrompt(input: ListingGenerationInput): string {
     const bulletKw = keywordAnalysis.bulletKeywords?.join(', ') || 'N/A'
     const searchKw = keywordAnalysis.searchTermKeywords?.join(', ') || 'N/A'
     const intents = keywordAnalysis.customerIntentPatterns
-      ?.map((p) => `${p.category} (${p.priority})`)
-      .join(', ') || 'N/A'
+      ?.map((p) => `${p.category} (${p.priority})${p.painPoints ? ` — Pain points: ${p.painPoints}` : ''}`)
+      .join('\n  ') || 'N/A'
     const features = keywordAnalysis.featureDemand
       ?.map((f) => `${f.feature} (${f.priority})`)
       .join(', ') || 'N/A'
-    keywordSection = `Must-include title keywords (by search volume priority): ${titleKw}
+
+    // New expanded fields
+    const execSummary = keywordAnalysis.executiveSummary ? `\nExecutive Summary: ${keywordAnalysis.executiveSummary}` : ''
+    const bulletMap = keywordAnalysis.bulletKeywordMap
+      ?.map((b) => `Bullet ${b.bulletNumber}: ${b.keywords.join(', ')} — Focus: ${b.focus}`)
+      .join('\n  ') || ''
+    const bulletMapStr = bulletMap ? `\nPer-bullet keyword mapping:\n  ${bulletMap}` : ''
+    const competitive = keywordAnalysis.competitiveIntelligence
+    const competitiveStr = competitive
+      ? `\nCompetitive gaps to exploit: ${competitive.marketGaps?.join('; ') || 'N/A'}\nFeature differentiators: ${competitive.featureDifferentiation?.join('; ') || 'N/A'}`
+      : ''
+    const rufusQs = keywordAnalysis.rufusQuestionAnticipation
+      ?.slice(0, 6)
+      .join('\n  ') || ''
+    const rufusStr = rufusQs ? `\nRufus AI questions to preemptively answer:\n  ${rufusQs}` : ''
+
+    keywordSection = `${execSummary}
+Must-include title keywords (by search volume priority): ${titleKw}
 Bullet point keywords to weave in: ${bulletKw}
 Backend search term keywords: ${searchKw}
-Customer intent patterns: ${intents}
-Key feature demand signals: ${features}`
+Customer intent patterns:
+  ${intents}
+Key feature demand signals: ${features}${bulletMapStr}${competitiveStr}${rufusStr}`
   }
 
   let reviewSection = 'No review data available. Focus on general product benefits.'
   if (reviewAnalysis) {
+    const execSummary = reviewAnalysis.executiveSummary ? `Executive Summary: ${reviewAnalysis.executiveSummary}\n` : ''
     const strengths = reviewAnalysis.strengths
       ?.slice(0, 8)
       .map((s) => `${s.strength} (${s.mentions} mentions)`)
@@ -597,41 +616,90 @@ Key feature demand signals: ${features}`
       .join(', ') || 'N/A'
     const posLang = reviewAnalysis.positiveLanguage
       ?.slice(0, 8)
-      .map((w) => w.word)
+      .map((w) => `${w.word}${w.optimizationValue ? ` [${w.optimizationValue}]` : ''}`)
       .join(', ') || 'N/A'
     const weaknesses = reviewAnalysis.weaknesses
       ?.slice(0, 4)
       .map((w) => `${w.weakness} (${w.mentions} mentions)`)
       .join(', ') || 'N/A'
     const bulletStrat = reviewAnalysis.bulletStrategy
-      ?.map((b) => `Bullet ${b.bulletNumber}: Focus on "${b.focus}" — Evidence: ${b.evidence}`)
+      ?.map((b) => `Bullet ${b.bulletNumber}: Focus on "${b.focus}" — Evidence: ${b.evidence}${b.customerPainPoint ? ` — Addresses: ${b.customerPainPoint}` : ''}`)
       .join('\n  ') || 'N/A'
-    reviewSection = `Product strengths to highlight: ${strengths}
+
+    // New expanded fields
+    const voicePhrases = reviewAnalysis.customerVoicePhrases
+    const voiceParts: string[] = []
+    if (voicePhrases?.positiveEmotional?.length) voiceParts.push(...voicePhrases.positiveEmotional.slice(0, 4))
+    if (voicePhrases?.functional?.length) voiceParts.push(...voicePhrases.functional.slice(0, 3))
+    if (voicePhrases?.useCaseLanguage?.length) voiceParts.push(...voicePhrases.useCaseLanguage.slice(0, 3))
+    const voiceStr = voiceParts.length > 0 ? `\nCustomer voice phrases to echo in copy: ${voiceParts.map((p) => `"${p}"`).join(', ')}` : ''
+    const profiles = reviewAnalysis.customerProfiles
+      ?.map((p) => `${p.profile}: ${p.description}`)
+      .join('; ') || ''
+    const profileStr = profiles ? `\nKey customer profiles: ${profiles}` : ''
+    const messaging = reviewAnalysis.competitivePositioning?.messagingFramework
+    const msgStr = messaging
+      ? `\nMessaging framework — Primary: "${messaging.primaryMessage}" | Supporting: ${messaging.supportPoints?.join('; ') || 'N/A'} | Proof: ${messaging.proofPoints?.join('; ') || 'N/A'}`
+      : ''
+    const imgOpps = reviewAnalysis.imageOptimizationOpportunities
+      ?.slice(0, 4)
+      .map((o) => `${o.imageType}: ${o.rationale}`)
+      .join('; ') || ''
+    const imgStr = imgOpps ? `\nImage optimization hints: ${imgOpps}` : ''
+
+    reviewSection = `${execSummary}Product strengths to highlight: ${strengths}
 Top use cases to emphasize: ${useCases}
 Customer language that resonates: ${posLang}
 Weaknesses to preemptively address: ${weaknesses}
 Bullet strategy from review analysis:
-  ${bulletStrat}`
+  ${bulletStrat}${voiceStr}${profileStr}${msgStr}${imgStr}`
   }
 
   let qnaSection = 'No Q&A data available.'
   if (qnaAnalysis) {
+    const execSummary = qnaAnalysis.executiveSummary ? `Executive Summary: ${qnaAnalysis.executiveSummary}\n` : ''
     const concerns = qnaAnalysis.customerConcerns
       ?.slice(0, 6)
       .map((c) => `${c.concern} — Suggested: ${c.suggestedResponse}`)
       .join('\n  ') || 'N/A'
     const gaps = qnaAnalysis.contentGaps
-      ?.map((g) => `${g.gap} (${g.importance})`)
+      ?.map((g) => `${g.gap} (${g.importance})${g.priorityScore ? ` [priority: ${g.priorityScore}]` : ''}`)
       .join(', ') || 'N/A'
     const faqs = qnaAnalysis.faqForDescription
       ?.slice(0, 4)
       .map((f) => `Q: ${f.question} / A: ${f.answer}`)
       .join('\n  ') || 'N/A'
-    qnaSection = `Top customer concerns to address in listing:
+
+    // New expanded fields
+    const contradictions = qnaAnalysis.contradictions
+      ?.slice(0, 3)
+      .map((c) => `"${c.topic}": ${c.resolution}`)
+      .join('; ') || ''
+    const contradStr = contradictions ? `\nContradictions to resolve in listing: ${contradictions}` : ''
+    const highRisk = qnaAnalysis.highRiskQuestions
+      ?.slice(0, 4)
+      .map((q) => `${q.question} → ${q.defensiveAction}`)
+      .join('\n  ') || ''
+    const riskStr = highRisk ? `\nHigh-risk questions to preemptively address:\n  ${highRisk}` : ''
+    const specs = qnaAnalysis.productSpecsConfirmed
+      ?.slice(0, 8)
+      .map((s) => `${s.spec}: ${s.value}`)
+      .join('; ') || ''
+    const specStr = specs ? `\nConfirmed product specs: ${specs}` : ''
+    const defenseParts: string[] = []
+    if (qnaAnalysis.competitiveDefense?.brandProtectionOpportunities?.length) {
+      defenseParts.push(`Brand protection: ${qnaAnalysis.competitiveDefense.brandProtectionOpportunities.slice(0, 3).join('; ')}`)
+    }
+    if (qnaAnalysis.competitiveDefense?.informationGapAdvantages?.length) {
+      defenseParts.push(`Info gap advantages: ${qnaAnalysis.competitiveDefense.informationGapAdvantages.slice(0, 3).join('; ')}`)
+    }
+    const defenseStr = defenseParts.length > 0 ? `\nCompetitive defense: ${defenseParts.join(' | ')}` : ''
+
+    qnaSection = `${execSummary}Top customer concerns to address in listing:
   ${concerns}
 Content gaps to fill: ${gaps}
 FAQ to weave into description:
-  ${faqs}`
+  ${faqs}${specStr}${contradStr}${riskStr}${defenseStr}`
   }
 
   return `You are an expert Amazon listing copywriter. Generate an optimized product listing for the following product.
