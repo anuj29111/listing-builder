@@ -47,12 +47,12 @@ export async function POST(
         .eq('status', 'completed')
 
       if (analyses && analyses.length > 0) {
-        // Pick best per type: merged > csv > file > primary
-        const sourcePriority = ['merged', 'csv', 'file', 'primary']
+        // Pick best per type: merged > csv > file
+        const sourcePriority = ['merged', 'csv', 'file']
         const bestByType = new Map<string, typeof analyses[number]>()
         for (const a of analyses) {
           const existing = bestByType.get(a.analysis_type)
-          if (!existing || sourcePriority.indexOf(a.source || 'primary') < sourcePriority.indexOf(existing.source || 'primary')) {
+          if (!existing || sourcePriority.indexOf(a.source || 'csv') < sourcePriority.indexOf(existing.source || 'csv')) {
             bestByType.set(a.analysis_type, a)
           }
         }

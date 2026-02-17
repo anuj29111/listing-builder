@@ -1069,10 +1069,15 @@ function QnAAnalysisView({ data }: { data: QnAAnalysisResult }) {
 // --- Source Labels ---
 
 const SOURCE_SUFFIXES: Record<string, string> = {
-  primary: 'Analysis',
   csv: 'CSV',
   file: 'Analysis File',
   merged: 'Merged',
+}
+
+// Normalize legacy 'primary' source to 'csv'
+function normalizeSource(source?: string): string {
+  if (!source || source === 'primary') return 'csv'
+  return source
 }
 
 const ANALYSIS_TYPE_PREFIXES: Record<string, string> = {
@@ -1161,17 +1166,19 @@ export function AnalysisViewer({ analyses }: AnalysisViewerProps) {
         const records = byType.get(at) || []
         const hasMultipleSources = records.length > 1
 
-        // Sort: merged first (if exists), then csv, then file, then primary
-        const sourceOrder = ['merged', 'csv', 'file', 'primary']
+        // Sort: merged first, then csv, then file
+        const sourceOrder = ['merged', 'csv', 'file']
         const sorted = [...records].sort((a, b) => {
-          const ai = sourceOrder.indexOf(a.source || 'primary')
-          const bi = sourceOrder.indexOf(b.source || 'primary')
+          const ai = sourceOrder.indexOf(normalizeSource(a.source))
+          const bi = sourceOrder.indexOf(normalizeSource(b.source))
           return ai - bi
         })
 
         // Default to merged if available, otherwise first
-        const defaultSource = sorted.find((r) => (r.source || 'primary') === 'merged')?.source
-          || sorted[0]?.source || 'primary'
+        const defaultSource = normalizeSource(
+          sorted.find((r) => normalizeSource(r.source) === 'merged')?.source
+            ?? sorted[0]?.source
+        )
 
         return (
           <TabsContent key={at} value={at}>
@@ -1179,7 +1186,7 @@ export function AnalysisViewer({ analyses }: AnalysisViewerProps) {
               <Tabs defaultValue={defaultSource} className="w-full">
                 <TabsList className="mb-3">
                   {sorted.map((record) => {
-                    const src = record.source || 'primary'
+                    const src = normalizeSource(record.source)
                     const prefix = ANALYSIS_TYPE_PREFIXES[at] || at
                     const suffix = SOURCE_SUFFIXES[src] || src
                     return (
@@ -1191,7 +1198,7 @@ export function AnalysisViewer({ analyses }: AnalysisViewerProps) {
                 </TabsList>
 
                 {sorted.map((record) => {
-                  const src = record.source || 'primary'
+                  const src = normalizeSource(record.source)
                   return (
                     <TabsContent key={src} value={src}>
                       <AnalysisMeta record={record} />

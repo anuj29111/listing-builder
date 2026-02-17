@@ -39,10 +39,10 @@ export function AnalysisPageClient({
 
       // Optimistically update status to processing for this specific source
       setAnalyses((prev) => {
-        const existing = prev.find((a) => a.analysis_type === analysisType && (a.source || 'primary') === source)
+        const existing = prev.find((a) => a.analysis_type === analysisType && (a.source || 'csv') === source)
         if (existing) {
           return prev.map((a) =>
-            a.analysis_type === analysisType && (a.source || 'primary') === source
+            a.analysis_type === analysisType && (a.source || 'csv') === source
               ? { ...a, status: 'processing' as const, error_message: null }
               : a
           )
@@ -85,7 +85,7 @@ export function AnalysisPageClient({
         const completed = json.data as AnalysisRecord
         setAnalyses((prev) => {
           const idx = prev.findIndex(
-            (a) => a.analysis_type === analysisType && (a.source || 'primary') === source
+            (a) => a.analysis_type === analysisType && (a.source || 'csv') === source
           )
           if (idx >= 0) {
             const updated = [...prev]
@@ -102,7 +102,7 @@ export function AnalysisPageClient({
 
         setAnalyses((prev) =>
           prev.map((a) =>
-            a.analysis_type === analysisType && (a.source || 'primary') === source
+            a.analysis_type === analysisType && (a.source || 'csv') === source
               ? { ...a, status: 'failed' as const, error_message: errorMessage }
               : a
           )

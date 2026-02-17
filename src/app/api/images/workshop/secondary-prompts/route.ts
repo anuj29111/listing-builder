@@ -59,14 +59,14 @@ export async function POST(request: Request) {
     const category = catResult.data
     const analyses = analysesResult.data || []
 
-    // Pick best analysis per type
-    const sourcePriority = ['merged', 'csv', 'file', 'primary']
+    // Pick best analysis per type: prefer merged > csv > file
+    const sourcePriority = ['merged', 'csv', 'file']
     const pickBest = (type: string) => {
       const matches = analyses.filter((a) => a.analysis_type === type)
       if (matches.length === 0) return undefined
       return matches.sort((a, b) => {
-        const ai = sourcePriority.indexOf(a.source || 'primary')
-        const bi = sourcePriority.indexOf(b.source || 'primary')
+        const ai = sourcePriority.indexOf(a.source || 'csv')
+        const bi = sourcePriority.indexOf(b.source || 'csv')
         return ai - bi
       })[0]
     }

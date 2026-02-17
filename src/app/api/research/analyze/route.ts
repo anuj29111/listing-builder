@@ -44,8 +44,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid analysis_type' }, { status: 400 })
     }
 
-    const validSources: AnalysisSource[] = ['primary', 'csv', 'file', 'merged']
-    const effectiveSource: AnalysisSource = source && validSources.includes(source) ? source : 'primary'
+    const validSources: AnalysisSource[] = ['csv', 'file', 'merged']
+    const effectiveSource: AnalysisSource = source && validSources.includes(source) ? source : 'csv'
 
     // Fetch category + country info
     const [catResult, countryResult] = await Promise.all([
@@ -113,19 +113,14 @@ export async function POST(request: Request) {
       }
       useAnalysisFile = true
     } else {
-      // 'primary' — auto-detect: use whatever is available (prefer analysis file if only one)
-      if (!hasAnalysisFile && !hasRawFiles) {
+      // Default to CSV analysis when no specific source requested
+      if (!hasRawFiles) {
         return NextResponse.json(
-          { error: `No files found for ${analysis_type}. Upload raw data CSV or an analysis file.` },
+          { error: `No raw CSV files found to analyze.` },
           { status: 400 }
         )
       }
-      useAnalysisFile = hasAnalysisFile && !hasRawFiles
-      useRawFiles = hasRawFiles && !hasAnalysisFile
-      // If both exist and source='primary', default to CSV analysis
-      if (hasAnalysisFile && hasRawFiles) {
-        useRawFiles = true
-      }
+      useRawFiles = true
     }
 
     // Collect source file IDs for the record

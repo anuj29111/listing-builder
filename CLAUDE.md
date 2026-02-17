@@ -42,12 +42,6 @@ Internal tool for 10-15 people managing Amazon FBA brands across 8-10 internatio
 
 **Next:** Phase 7 or 8 (both depend only on Phase 2, can run in parallel).
 
-```
-Dependency tree (all completed phases omitted):
-Phase 2 (research upload) ─┬─ Phase 7 (Apify/DataDive)
-                           └─ Phase 8 (Google Drive)
-```
-
 ---
 
 ## Key Conventions
@@ -115,9 +109,12 @@ npm run lint         # ESLint
 13. **Large CSV analysis** — Reviews CSV can exceed 200K token limit. `truncateCSVContent()` in claude.ts handles this with even sampling.
 14. **Analysis source column** — `lb_research_analysis` has `source` column (`primary`/`csv`/`file`/`merged`). UNIQUE on `(category_id, country_id, analysis_type, source)`. All consumers must pick best source: merged > csv > file > primary.
 15. **Stale processing detection** — Analysis stuck >5min in `processing` shows "Stuck — Retry" button. API route deletes+re-inserts on retry.
-16. **Workshop state loss** — `useWorkshopStore` is Zustand (client-only). Navigating away loses all prompts/progress. Must persist to DB.
+16. **Workshop state loss (FIXED)** — Workshop POST now saves `generated_prompts` JSONB to DB. Store hydrates from DB on mount via `hydrateFromDB()`. DB is source of truth, Zustand is for in-page reactivity only.
 17. **Analysis source='primary' legacy** — Old analyses used `source='primary'`. New 3-row UI looks for `csv`/`file`/`merged`. Must handle `primary` records or migrate them.
 18. **Research page coordination** — `ResearchPageClient` wraps `ResearchStatusMatrix` + `ResearchClient`. Matrix click → sets selection → scrolls to research section. State lives in parent, passed as `externalCategoryId`/`externalCountryId`.
+19. **Supabase join returns array** — `select('field:table(cols)')` returns array not object. Normalize with `Array.isArray(x) ? x[0] || null : x` before passing to components.
+20. **Image builder dual entry** — `/listings/[id]` (tabs: Content/Main/Secondary) and `/images` (standalone with context picker). Both use shared `MainImageSection` + `SecondaryImageSection` components.
+21. **Workshop image_type column** — `lb_image_workshops.image_type` is `'main'` or `'secondary'`. Filter workshops by `image_type` when loading for each tab.
 
 ---
 
@@ -133,29 +130,26 @@ npm run lint         # ESLint
 
 ---
 
-## Reference Docs (not loaded by default)
+## Reference Docs
 
-| File | Contents |
-|------|----------|
-| `docs/SCHEMA.md` | Full SQL DDL for all 16 tables, seed data, RLS patterns |
-| `docs/SESSION-LOG.md` | Historical session notes (Sessions 1-9) |
-| `docs/RESEARCH-FORMATS.md` | CSV format specs for keywords, reviews, Q&A |
-| `docs/PHASE-DETAILS.md` | Specs for remaining phases (7, 8) |
+`docs/SCHEMA.md` (DDL) | `docs/SESSION-LOG.md` (history) | `docs/RESEARCH-FORMATS.md` (CSV specs) | `docs/PHASE-DETAILS.md` (phases 7-8)
 
 ---
 
 ## Pending Tasks
 
-- **Research Analysis Bugs (next session — PRIORITY):**
+- **Research Analysis Bugs (PRIORITY):**
   1. Third tab shows "Keywords — Analysis" — should be "Keywords — Merged"; similarly for Reviews/Q&A
-  2. Merged tab has data even though merge was never run — old `primary` source records showing as merged? Check DB source values
-  3. Reviews + Q&A show "Not run" despite completed analyses existing in DB — status sync issue between `AnalysisStatusPanel` and actual DB records. Likely the `source` field on old records is `primary` (not `csv`/`file`) so the 3-row breakdown doesn't find them
-  4. Root cause: old analyses were created with `source='primary'` before the multi-source system. The new 3-row UI only looks for `csv`/`file`/`merged` — never `primary`. Need migration or UI fallback for `primary` records
+  2. Merged tab has data even though merge was never run — old `source='primary'` records showing as merged? Check DB source values
+  3. Reviews + Q&A show "Not run" despite completed analyses in DB — 3-row UI only looks for `csv`/`file`/`merged`, old records have `source='primary'`
+  4. Root cause: migrate old `primary` records to correct source, or add UI fallback
 
-- **Image Builder UX Redesign:**
-  1. Merge Workshop + Image Builder into ONE unified experience (no separate pages)
-  2. Listing-centric flow: image generation lives inside a listing, not standalone
-  3. AI-first prompts, workshop state persisted to DB
+- **Image Builder — End-to-end Testing:**
+  1. Test main image flow: context picker → AI prompt generation → edit prompts → batch generate → tag elements → combine
+  2. Test secondary image flow: 9 concepts generated from research → edit → generate individually or all
+  3. Test listing detail page (`/listings/[id]`): Content/Main/Secondary tabs, "Edit in Wizard" link
+  4. Test standalone `/images` page: both listing-based and research-based entry points
+  5. Verify DB persistence: navigate away and back, confirm workshops + images survive
 
 ## Pending User Actions
 

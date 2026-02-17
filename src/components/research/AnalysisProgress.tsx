@@ -197,13 +197,18 @@ export function AnalysisStatusPanel({
   }
 
   // Group analyses by type and source
+  // Legacy 'primary' source is treated as 'csv'
   const analysisMap = new Map<string, Map<string, AnalysisRecord>>()
   for (const a of analyses) {
     if (!analysisMap.has(a.analysis_type)) {
       analysisMap.set(a.analysis_type, new Map())
     }
-    const source = a.source || 'primary'
-    analysisMap.get(a.analysis_type)!.set(source, a)
+    const source = (!a.source || a.source === 'primary') ? 'csv' : a.source
+    const sourceMap = analysisMap.get(a.analysis_type)!
+    // Don't overwrite a real csv/file/merged record with a legacy primary one
+    if (!sourceMap.has(source)) {
+      sourceMap.set(source, a)
+    }
   }
 
   const orderedTypes = ['keyword_analysis', 'review_analysis', 'qna_analysis']
