@@ -113,16 +113,12 @@ export function ResearchClient({
 
   // Fetch files and analyses when category or country changes
   useEffect(() => {
-    const isInitial =
-      categoryId === defaultCategoryId && countryId === defaultCountryId
-    if (!isInitial) {
-      fetchFiles()
-      fetchAnalyses()
-    } else if (categoryId && countryId) {
-      // Fetch analyses on initial load too (files come from server but analyses don't)
-      fetchAnalyses()
-    }
-  }, [categoryId, countryId, fetchFiles, fetchAnalyses, defaultCategoryId, defaultCountryId])
+    if (!categoryId || !countryId) return
+
+    // Always fetch both — initialFiles may be stale from server cache
+    fetchFiles()
+    fetchAnalyses()
+  }, [categoryId, countryId, fetchFiles, fetchAnalyses])
 
   function handleUploadComplete(newFile: unknown) {
     setFiles((prev) => [newFile as ResearchFileWithJoins, ...prev])
