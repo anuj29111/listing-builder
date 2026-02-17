@@ -953,3 +953,163 @@ Return ONLY the JSON object, no markdown, no explanation.`
 
   return { content, model, tokensUsed }
 }
+
+// --- Workshop: AI Image Prompt Generation ---
+
+export interface WorkshopPromptInput {
+  productName: string
+  brand: string
+  categoryName: string
+  keywordAnalysis?: KeywordAnalysisResult | null
+  reviewAnalysis?: ReviewAnalysisResult | null
+  qnaAnalysis?: QnAAnalysisResult | null
+}
+
+export interface WorkshopPromptResult {
+  prompts: Array<{
+    label: string
+    prompt: string
+    approach: string
+  }>
+  callout_suggestions: Array<{
+    type: 'keyword' | 'benefit' | 'usp'
+    text: string
+  }>
+}
+
+function buildWorkshopPromptsPrompt(input: WorkshopPromptInput): string {
+  const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis } = input
+
+  let researchContext = ''
+
+  if (keywordAnalysis) {
+    const topKeywords = keywordAnalysis.titleKeywords?.slice(0, 8).join(', ') || 'N/A'
+    const features = keywordAnalysis.featureDemand
+      ?.slice(0, 6)
+      .map((f) => `${f.feature} (${f.priority})`)
+      .join(', ') || 'N/A'
+    const surfaces = keywordAnalysis.surfaceDemand
+      ?.slice(0, 5)
+      .map((s) => `${s.surfaceType} (${s.totalSearchVolume} SV)`)
+      .join(', ') || 'N/A'
+    researchContext += `\n=== KEYWORD INTELLIGENCE ===
+Top keywords customers search: ${topKeywords}
+Key feature demand: ${features}
+Surface/context demand: ${surfaces}\n`
+  }
+
+  if (reviewAnalysis) {
+    const strengths = reviewAnalysis.strengths
+      ?.slice(0, 6)
+      .map((s) => `${s.strength} (${s.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    const useCases = reviewAnalysis.useCases
+      ?.slice(0, 6)
+      .map((u) => `${u.useCase} (${u.priority})`)
+      .join(', ') || 'N/A'
+    const posLang = reviewAnalysis.positiveLanguage
+      ?.slice(0, 6)
+      .map((w) => w.word)
+      .join(', ') || 'N/A'
+    const weaknesses = reviewAnalysis.weaknesses
+      ?.slice(0, 4)
+      .map((w) => `${w.weakness} (${w.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    researchContext += `\n=== CUSTOMER REVIEW INSIGHTS ===
+Product strengths: ${strengths}
+Top use cases: ${useCases}
+Positive language: ${posLang}
+Weaknesses to avoid showing: ${weaknesses}\n`
+  }
+
+  if (qnaAnalysis) {
+    const concerns = qnaAnalysis.customerConcerns
+      ?.slice(0, 5)
+      .map((c) => c.concern)
+      .join(', ') || 'N/A'
+    const gaps = qnaAnalysis.contentGaps
+      ?.slice(0, 3)
+      .map((g) => g.gap)
+      .join(', ') || 'N/A'
+    researchContext += `\n=== CUSTOMER Q&A CONCERNS ===
+Top concerns: ${concerns}
+Content gaps: ${gaps}\n`
+  }
+
+  if (!researchContext) {
+    researchContext = '\nNo research data available. Use general best practices for Amazon product photography.\n'
+  }
+
+  return `You are an expert Amazon product photography director. Generate 12 diverse main image prompts for an Amazon listing.
+
+=== PRODUCT ===
+Product: ${productName}
+Brand: ${brand}
+Category: ${categoryName}
+${researchContext}
+=== TASK ===
+Generate exactly 12 different main image prompts. Each must be a detailed, specific prompt suitable for AI image generation (DALL-E 3, Gemini, etc). The prompts are for the MAIN IMAGE on Amazon — the first image customers see in search results.
+
+Amazon main image requirements: white background, product must be the focus, no text/graphics/watermarks on the image itself.
+
+Each prompt MUST be meaningfully different — not just rephrased. Vary these dimensions:
+1. Camera angle (front, 45-degree, top-down, slight tilt, eye-level)
+2. Product presentation (single product, product with accessories, product open/in-use-pose, product with packaging)
+3. Composition (centered, rule-of-thirds, close-up detail, full product with space)
+4. Lighting style (studio flat, dramatic side light, soft diffused, high-key bright)
+5. Visual storytelling (clean minimal, premium/luxury feel, practical/functional, colorful/vibrant)
+6. Props/context hints (if allowed — e.g., the product resting on a surface that suggests use, hands holding it)
+
+Use the research data to inform your prompts:
+- Feature demand → emphasize those features visually
+- Use cases → suggest compositions that hint at those use cases
+- Strengths → make them visually obvious
+- Customer concerns → address them visually (e.g., if "durability" is a concern, show robust construction)
+- Positive language → inform the mood/feeling of the image
+
+Also generate 3 callout text suggestions (these are text badges/overlays that go ON TOP of the image in post-production, NOT in the AI prompt):
+1. A keyword-focused callout (most-searched term)
+2. A benefit-focused callout (what customers love most)
+3. A USP callout (what makes this product unique vs competitors)
+
+=== OUTPUT FORMAT ===
+Return valid JSON only, no markdown fences:
+{
+  "prompts": [
+    {
+      "label": "Short 3-6 word description of this variation",
+      "prompt": "Full detailed image generation prompt (50-150 words)",
+      "approach": "one of: studio-clean, studio-premium, lifestyle, feature-closeup, bundle-flatlay, scale-reference, in-use, emotional, concern-address, brand-story, dramatic, minimal"
+    }
+  ],
+  "callout_suggestions": [
+    { "type": "keyword", "text": "The callout text (3-8 words)" },
+    { "type": "benefit", "text": "The callout text (3-8 words)" },
+    { "type": "usp", "text": "The callout text (3-8 words)" }
+  ]
+}`
+}
+
+export async function generateImagePrompts(
+  input: WorkshopPromptInput
+): Promise<{ result: WorkshopPromptResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildWorkshopPromptsPrompt(input)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const result = JSON.parse(stripMarkdownFences(text)) as WorkshopPromptResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}

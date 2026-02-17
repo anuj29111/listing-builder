@@ -1,11 +1,14 @@
 'use client'
 
 import { useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import { useImageStore } from '@/stores/image-store'
 import { PromptEditor } from './PromptEditor'
 import { GenerationControls } from './GenerationControls'
 import { ImageGallery } from './ImageGallery'
 import { ImagePreview } from './ImagePreview'
+import { Button } from '@/components/ui/button'
+import { Layers } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbListing } from '@/types/database'
 
@@ -98,11 +101,19 @@ export function ImageBuilderClient({ listings }: ImageBuilderClientProps) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Image Builder</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Generate product images with DALL-E 3 and Gemini AI
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Image Builder</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Generate product images with DALL-E 3 and Gemini AI
+          </p>
+        </div>
+        <Link href="/images/workshop">
+          <Button variant="outline">
+            <Layers className="mr-2 h-4 w-4" />
+            Main Image Workshop
+          </Button>
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
