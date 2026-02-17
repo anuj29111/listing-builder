@@ -77,13 +77,13 @@ export const FILE_TYPE_LABELS: Record<string, string> = {
 
 // Short labels for file list badges (keeps the table clean)
 export const FILE_TYPE_SHORT_LABELS: Record<string, string> = {
-  keywords: 'Keywords',
-  reviews: 'Reviews',
-  qna: 'Q&A',
-  rufus_qna: 'Rufus Q&A',
-  keywords_analysis: 'Keywords Analysis',
-  reviews_analysis: 'Reviews Analysis',
-  qna_analysis: 'Q&A Analysis',
+  keywords: 'Keywords — CSV',
+  reviews: 'Reviews — CSV',
+  qna: 'Q&A — CSV',
+  rufus_qna: 'Rufus Q&A — CSV',
+  keywords_analysis: 'Keywords — Analysis',
+  reviews_analysis: 'Reviews — Analysis',
+  qna_analysis: 'Q&A — Analysis',
 }
 
 export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024 // 50MB

@@ -32,6 +32,7 @@ interface ResearchFileWithJoins {
 interface AnalysisRecord {
   id: string
   analysis_type: string
+  source: string
   analysis_result: Record<string, unknown>
   status: 'pending' | 'processing' | 'completed' | 'failed'
   error_message: string | null
@@ -132,23 +133,28 @@ export function ResearchClient({
   }
 
   const handleTriggerAnalysis = useCallback(
-    async (analysisType: string) => {
+    async (analysisType: string, source: string) => {
       if (!categoryId || !countryId) return
       setIsRunning(true)
 
-      // Optimistically update status to processing
+      // Optimistically update status to processing for this specific source
       setAnalyses((prev) => {
-        const existing = prev.find((a) => a.analysis_type === analysisType)
+        const existing = prev.find(
+          (a) => a.analysis_type === analysisType && (a.source || 'primary') === source
+        )
         if (existing) {
           return prev.map((a) =>
-            a.analysis_type === analysisType ? { ...a, status: 'processing' as const, error_message: null } : a
+            a.analysis_type === analysisType && (a.source || 'primary') === source
+              ? { ...a, status: 'processing' as const, error_message: null }
+              : a
           )
         }
         return [
           ...prev,
           {
-            id: 'temp',
+            id: 'temp-' + source,
             analysis_type: analysisType,
+            source,
             analysis_result: {},
             status: 'processing' as const,
             error_message: null,
@@ -167,6 +173,7 @@ export function ResearchClient({
             category_id: categoryId,
             country_id: countryId,
             analysis_type: analysisType,
+            source,
           }),
         })
 
@@ -176,18 +183,28 @@ export function ResearchClient({
           throw new Error(json.error || 'Analysis failed')
         }
 
+        // Replace with actual result
         const completed = json.data as AnalysisRecord
-        setAnalyses((prev) =>
-          prev.map((a) => (a.analysis_type === analysisType ? completed : a))
-        )
+        setAnalyses((prev) => {
+          const idx = prev.findIndex(
+            (a) => a.analysis_type === analysisType && (a.source || 'primary') === source
+          )
+          if (idx >= 0) {
+            const updated = [...prev]
+            updated[idx] = completed
+            return updated
+          }
+          return [...prev, completed]
+        })
 
-        toast.success('Analysis completed successfully')
+        const sourceLabel = source === 'merged' ? 'Merge' : source === 'file' ? 'Import' : 'Analysis'
+        toast.success(`${sourceLabel} completed successfully`)
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Analysis failed'
 
         setAnalyses((prev) =>
           prev.map((a) =>
-            a.analysis_type === analysisType
+            a.analysis_type === analysisType && (a.source || 'primary') === source
               ? { ...a, status: 'failed' as const, error_message: errorMessage }
               : a
           )

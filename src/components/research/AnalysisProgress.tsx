@@ -259,7 +259,7 @@ export function AnalysisStatusPanel({
 
                 {/* CSV sub-row */}
                 <SourceRow
-                  label="CSV Data"
+                  label={`${label.replace(' Analysis', '')} — CSV`}
                   record={csvRecord}
                   isRunning={isRunning}
                   onTrigger={() => onTrigger(at, 'csv')}
@@ -269,7 +269,7 @@ export function AnalysisStatusPanel({
 
                 {/* File sub-row */}
                 <SourceRow
-                  label="Analysis File"
+                  label={`${label.replace(' Analysis', '')} — Analysis File`}
                   record={fileRecord}
                   isRunning={isRunning}
                   onTrigger={() => onTrigger(at, 'file')}
@@ -287,7 +287,7 @@ export function AnalysisStatusPanel({
                     ) : (
                       <Merge className="h-4 w-4 text-muted-foreground" />
                     )}
-                    <span className="text-xs text-muted-foreground">Merged Result</span>
+                    <span className="text-xs text-muted-foreground">{label.replace(' Analysis', '')} — Merged</span>
                     {mergedRecord?.status === 'completed' && (
                       <>
                         <Badge variant="success" className="text-xs">Complete</Badge>

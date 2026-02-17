@@ -532,11 +532,17 @@ function QnAAnalysisView({ data }: { data: QnAAnalysisResult }) {
 
 // --- Source Labels ---
 
-const SOURCE_LABELS: Record<string, string> = {
+const SOURCE_SUFFIXES: Record<string, string> = {
   primary: 'Analysis',
-  csv: 'CSV Analysis',
-  file: 'Imported',
+  csv: 'CSV',
+  file: 'Analysis File',
   merged: 'Merged',
+}
+
+const ANALYSIS_TYPE_PREFIXES: Record<string, string> = {
+  keyword_analysis: 'Keywords',
+  review_analysis: 'Reviews',
+  qna_analysis: 'Q&A',
 }
 
 // Render a single analysis result based on type
@@ -638,9 +644,11 @@ export function AnalysisViewer({ analyses }: AnalysisViewerProps) {
                 <TabsList className="mb-3">
                   {sorted.map((record) => {
                     const src = record.source || 'primary'
+                    const prefix = ANALYSIS_TYPE_PREFIXES[at] || at
+                    const suffix = SOURCE_SUFFIXES[src] || src
                     return (
                       <TabsTrigger key={src} value={src} className="text-xs">
-                        {src === 'merged' ? '✨ ' : ''}{SOURCE_LABELS[src] || src}
+                        {src === 'merged' ? '✨ ' : ''}{prefix} — {suffix}
                       </TabsTrigger>
                     )
                   })}
