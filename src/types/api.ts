@@ -161,6 +161,56 @@ export interface ImageChatResponse {
   new_image: LbImageGeneration
 }
 
+// --- Workshop (Main Image SOP) ---
+
+export interface WorkshopPrompt {
+  label: string
+  prompt: string
+  approach: string
+}
+
+export interface GenerateWorkshopPromptsRequest {
+  product_name: string
+  brand: string
+  category_id: string
+  country_id: string
+  listing_id?: string
+  name?: string
+}
+
+export interface GenerateWorkshopPromptsResponse {
+  workshop: import('./database').LbImageWorkshop
+  prompts: WorkshopPrompt[]
+  callout_suggestions: Array<{ type: 'keyword' | 'benefit' | 'usp'; text: string }>
+}
+
+export interface BatchGenerateRequest {
+  workshop_id: string
+  prompts: Array<{ prompt: string; label: string }>
+  provider: 'dalle3' | 'gemini' | 'higgsfield'
+  orientation: 'square' | 'portrait' | 'landscape'
+  model_id?: string
+}
+
+export interface BatchGenerateResponse {
+  results: Array<{
+    label: string
+    image: import('./database').LbImageGeneration | null
+    error: string | null
+  }>
+  total: number
+  succeeded: number
+  failed: number
+}
+
+export interface UpdateWorkshopRequest {
+  step?: number
+  element_tags?: Record<string, string[]>
+  final_image_id?: string
+  callout_texts?: Array<{ type: 'keyword' | 'benefit' | 'usp'; text: string }>
+  competitor_urls?: string[]
+}
+
 // --- Phase 10: A+ Content ---
 
 export type APlusTemplateType = 'hero_banner' | 'comparison_chart' | 'feature_grid' | 'technical_specs' | 'usage_scenarios' | 'brand_story'

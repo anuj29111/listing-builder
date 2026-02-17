@@ -139,12 +139,31 @@ export interface LbListingChat {
 export interface LbImageGeneration {
   id: string
   listing_id: string | null
+  workshop_id: string | null
   prompt: string
   provider: 'dalle3' | 'gemini' | 'higgsfield'
   preview_url: string | null
   full_url: string | null
   status: 'preview' | 'approved' | 'rejected'
   cost_cents: number
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface LbImageWorkshop {
+  id: string
+  listing_id: string | null
+  name: string
+  product_name: string
+  brand: string
+  category_id: string | null
+  country_id: string | null
+  step: number
+  element_tags: Record<string, string[]>
+  final_image_id: string | null
+  callout_texts: Array<{ type: 'keyword' | 'benefit' | 'usp'; text: string }>
+  competitor_urls: string[]
   created_by: string | null
   created_at: string
   updated_at: string
