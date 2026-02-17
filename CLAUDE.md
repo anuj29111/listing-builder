@@ -115,14 +115,17 @@ npm run lint         # ESLint
 13. **Large CSV analysis** — Reviews CSV can exceed 200K token limit. `truncateCSVContent()` in claude.ts handles this with even sampling.
 14. **Analysis source column** — `lb_research_analysis` has `source` column (`primary`/`csv`/`file`/`merged`). UNIQUE on `(category_id, country_id, analysis_type, source)`. All consumers must pick best source: merged > csv > file > primary.
 15. **Stale processing detection** — Analysis stuck >5min in `processing` shows "Stuck — Retry" button. API route deletes+re-inserts on retry.
+16. **Workshop state loss** — `useWorkshopStore` is Zustand (client-only). Navigating away loses all prompts/progress. Must persist to DB.
+17. **Analysis source='primary' legacy** — Old analyses used `source='primary'`. New 3-row UI looks for `csv`/`file`/`merged`. Must handle `primary` records or migrate them.
+18. **Research page coordination** — `ResearchPageClient` wraps `ResearchStatusMatrix` + `ResearchClient`. Matrix click → sets selection → scrolls to research section. State lives in parent, passed as `externalCategoryId`/`externalCountryId`.
 
 ---
 
 ## Database
 
-16 tables prefixed `lb_`. Full DDL in `docs/SCHEMA.md`.
+17 tables prefixed `lb_`. Full DDL in `docs/SCHEMA.md`.
 
-**Key tables:** `lb_users`, `lb_categories`, `lb_countries`, `lb_research_files`, `lb_research_analysis`, `lb_product_types`, `lb_listings`, `lb_listing_sections`, `lb_listing_chats`, `lb_image_generations`, `lb_image_chats`, `lb_batch_jobs`, `lb_admin_settings`, `lb_sync_logs`, `lb_export_logs`, `lb_aplus_modules`
+**Key tables:** `lb_users`, `lb_categories`, `lb_countries`, `lb_research_files`, `lb_research_analysis`, `lb_product_types`, `lb_listings`, `lb_listing_sections`, `lb_listing_chats`, `lb_image_generations`, `lb_image_chats`, `lb_image_workshops`, `lb_batch_jobs`, `lb_admin_settings`, `lb_sync_logs`, `lb_export_logs`, `lb_aplus_modules`
 
 **RLS pattern:** All authenticated users can CRUD (except `lb_admin_settings` = admin only). All policies use `(SELECT auth.uid())` wrapper.
 
@@ -143,7 +146,16 @@ npm run lint         # ESLint
 
 ## Pending Tasks
 
-None currently.
+- **Research Analysis Bugs (next session — PRIORITY):**
+  1. Third tab shows "Keywords — Analysis" — should be "Keywords — Merged"; similarly for Reviews/Q&A
+  2. Merged tab has data even though merge was never run — old `primary` source records showing as merged? Check DB source values
+  3. Reviews + Q&A show "Not run" despite completed analyses existing in DB — status sync issue between `AnalysisStatusPanel` and actual DB records. Likely the `source` field on old records is `primary` (not `csv`/`file`) so the 3-row breakdown doesn't find them
+  4. Root cause: old analyses were created with `source='primary'` before the multi-source system. The new 3-row UI only looks for `csv`/`file`/`merged` — never `primary`. Need migration or UI fallback for `primary` records
+
+- **Image Builder UX Redesign:**
+  1. Merge Workshop + Image Builder into ONE unified experience (no separate pages)
+  2. Listing-centric flow: image generation lives inside a listing, not standalone
+  3. AI-first prompts, workshop state persisted to DB
 
 ## Pending User Actions
 
