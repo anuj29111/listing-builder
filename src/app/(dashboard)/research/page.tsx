@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { ResearchStatusMatrix } from '@/components/dashboard/ResearchStatusMatrix'
-import { ResearchClient } from '@/components/research/ResearchClient'
+import { ResearchPageClient } from '@/components/research/ResearchPageClient'
 
 export default async function ResearchPage({
   searchParams,
@@ -59,28 +58,13 @@ export default async function ResearchPage({
   const countries = countriesResult.data || []
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Research Management</h1>
-        <p className="text-muted-foreground mt-1">
-          Upload and manage CSV research files organized by category and
-          marketplace.
-        </p>
-      </div>
-
-      <ResearchStatusMatrix
-        categories={categories}
-        countries={countries}
-        coverage={coverage}
-      />
-
-      <ResearchClient
-        categories={categories}
-        countries={countries}
-        initialFiles={(filesResult.data as never[]) || []}
-        defaultCategoryId={defaultCategoryId}
-        defaultCountryId={defaultCountryId}
-      />
-    </div>
+    <ResearchPageClient
+      categories={categories}
+      countries={countries}
+      coverage={coverage}
+      initialFiles={(filesResult.data as never[]) || []}
+      defaultCategoryId={defaultCategoryId}
+      defaultCountryId={defaultCountryId}
+    />
   )
 }

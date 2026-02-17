@@ -47,6 +47,9 @@ interface ResearchClientProps {
   initialFiles: ResearchFileWithJoins[]
   defaultCategoryId: string | null
   defaultCountryId: string | null
+  externalCategoryId?: string | null
+  externalCountryId?: string | null
+  onSelectionChange?: (categoryId: string | null, countryId: string | null) => void
 }
 
 export function ResearchClient({
@@ -55,11 +58,27 @@ export function ResearchClient({
   initialFiles,
   defaultCategoryId,
   defaultCountryId,
+  externalCategoryId,
+  externalCountryId,
+  onSelectionChange,
 }: ResearchClientProps) {
-  const [categoryId, setCategoryId] = useState<string | null>(
+  const [internalCategoryId, setInternalCategoryId] = useState<string | null>(
     defaultCategoryId
   )
-  const [countryId, setCountryId] = useState<string | null>(defaultCountryId)
+  const [internalCountryId, setInternalCountryId] = useState<string | null>(defaultCountryId)
+
+  // Use external selection if provided, otherwise internal
+  const categoryId = externalCategoryId !== undefined ? externalCategoryId : internalCategoryId
+  const countryId = externalCountryId !== undefined ? externalCountryId : internalCountryId
+
+  const setCategoryId = (val: string | null) => {
+    setInternalCategoryId(val)
+    onSelectionChange?.(val, countryId)
+  }
+  const setCountryId = (val: string | null) => {
+    setInternalCountryId(val)
+    onSelectionChange?.(categoryId, val)
+  }
   const [files, setFiles] = useState<ResearchFileWithJoins[]>(initialFiles)
   const [loading, setLoading] = useState(false)
 
