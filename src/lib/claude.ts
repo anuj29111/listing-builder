@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createAdminClient } from '@/lib/supabase/server'
 import { DEFAULT_CLAUDE_MODEL } from '@/lib/constants'
 
-const MAX_TOKENS = 8192
+const MAX_TOKENS = 16384
 
 /**
  * Strip markdown code fences from Claude's response.
@@ -130,9 +130,11 @@ export interface KeywordTier {
   searchVolume: number
   relevancy: number
   strategicValue: number
+  strategicPlacement?: string // e.g., "TITLE - Position 1", "Bullet 1"
 }
 
 export interface KeywordAnalysisResult {
+  // Legacy fields (always present)
   summary: {
     totalKeywords: number
     totalSearchVolume: number
@@ -145,6 +147,8 @@ export interface KeywordAnalysisResult {
     keywordCount: number
     totalSearchVolume: number
     priority: string
+    painPoints?: string
+    opportunity?: string
   }>
   surfaceDemand: Array<{
     surfaceType: string
@@ -160,9 +164,40 @@ export interface KeywordAnalysisResult {
   titleKeywords: string[]
   bulletKeywords: string[]
   searchTermKeywords: string[]
+
+  // New expanded fields (optional for backward compat)
+  executiveSummary?: string
+  keywordDistribution?: {
+    high: { count: number; totalVolume: number; avgRelevancy: number }
+    medium: { count: number; totalVolume: number; avgRelevancy: number }
+    low: { count: number; totalVolume: number; avgRelevancy: number }
+  }
+  lowRelevancy?: KeywordTier[]
+  keywordThemes?: Array<{
+    dimension: string // "Surface", "Feature", "Color", "Tip Size", etc.
+    themes: Array<{ name: string; keywordCount: number; totalSearchVolume: number }>
+  }>
+  competitiveIntelligence?: {
+    brandPresence: Array<{ brand: string; searchVolume: number }>
+    featureDifferentiation: string[]
+    marketGaps: string[]
+  }
+  bulletKeywordMap?: Array<{
+    bulletNumber: number
+    keywords: string[]
+    focus: string
+  }>
+  rufusQuestionAnticipation?: string[]
+  marketOpportunity?: {
+    totalAddressableMarket: number
+    primaryTargetMarket: number
+    competitionLevel: string
+    growthPotential: string
+  }
 }
 
 export interface ReviewAnalysisResult {
+  // Legacy fields (always present)
   summary: {
     totalReviews: number
     averageRating: number
@@ -173,6 +208,7 @@ export interface ReviewAnalysisResult {
     stars: number
     count: number
     percentage: number
+    sentiment?: string
   }>
   useCases: Array<{
     useCase: string
@@ -192,20 +228,63 @@ export interface ReviewAnalysisResult {
   positiveLanguage: Array<{
     word: string
     frequency: number
+    optimizationValue?: string
   }>
   negativeLanguage: Array<{
     word: string
     frequency: number
+    issueToAddress?: string
   }>
   bulletStrategy: Array<{
     bulletNumber: number
     focus: string
     evidence: string
     priority: string
+    customerPainPoint?: string
   }>
+
+  // New expanded fields (optional for backward compat)
+  executiveSummary?: string
+  customerProfiles?: Array<{
+    profile: string
+    mentions: number
+    description: string
+  }>
+  productNouns?: Array<{
+    noun: string
+    frequency: number
+    listingIntegration: string
+  }>
+  crossProductAnalysis?: Array<{
+    productId: string
+    reviewCount: number
+    positiveRate: number
+    negativeRate: number
+    performanceRating: string
+  }>
+  imageOptimizationOpportunities?: Array<{
+    imageType: string
+    rationale: string
+    reviewEvidence: string
+  }>
+  competitivePositioning?: {
+    marketGaps: Array<{ gap: string; customerNeed: string; opportunity: string }>
+    messagingFramework: {
+      primaryMessage: string
+      supportPoints: string[]
+      proofPoints: string[]
+      riskReversal: string
+    }
+  }
+  customerVoicePhrases?: {
+    positiveEmotional: string[]
+    functional: string[]
+    useCaseLanguage: string[]
+  }
 }
 
 export interface QnAAnalysisResult {
+  // Legacy fields (always present)
   summary: {
     totalQuestions: number
     topConcerns: string[]
@@ -215,6 +294,7 @@ export interface QnAAnalysisResult {
     questionCount: number
     priority: string
     sampleQuestions: string[]
+    percentageOfTotal?: number
   }>
   customerConcerns: Array<{
     concern: string
@@ -226,11 +306,52 @@ export interface QnAAnalysisResult {
     gap: string
     importance: string
     recommendation: string
+    priorityScore?: number
+    customerImpact?: string
   }>
   faqForDescription: Array<{
     question: string
     answer: string
   }>
+
+  // New expanded fields (optional for backward compat)
+  executiveSummary?: string
+  productSpecsConfirmed?: Array<{
+    spec: string
+    value: string
+    source: string
+  }>
+  contradictions?: Array<{
+    topic: string
+    conflictingAnswers: string[]
+    impact: string
+    resolution: string
+  }>
+  confirmedFeatures?: {
+    positive: Array<{ feature: string; evidence: string }>
+    limitations: Array<{ limitation: string; evidence: string }>
+  }
+  questionTypeBreakdown?: Array<{
+    type: string
+    count: number
+    percentage: number
+    recommendation: string
+  }>
+  highRiskQuestions?: Array<{
+    question: string
+    risk: string
+    defensiveAction: string
+  }>
+  competitiveDefense?: {
+    brandProtectionOpportunities: string[]
+    informationGapAdvantages: string[]
+  }
+  rufusOptimizationScore?: {
+    score: number
+    maxScore: number
+    strengths: string[]
+    improvements: string[]
+  }
 }
 
 export type AnalysisResult =
@@ -246,31 +367,53 @@ function buildKeywordAnalysisPrompt(csvContent: string, categoryName: string, co
     ? `\n\nIMPORTANT: This is a representative sample of ${keptRows.toLocaleString()} out of ${originalRows.toLocaleString()} total rows, evenly sampled across the dataset. Scale your counts/totals proportionally when summarizing (e.g., totalKeywords should reflect the full ${originalRows.toLocaleString()}).\n`
     : ''
 
-  return `You are an expert Amazon listing optimization analyst. Analyze the following keyword research CSV data for the product category "${categoryName}" in the "${countryName}" marketplace.
+  return `You are an expert Amazon listing optimization analyst conducting a COMPREHENSIVE keyword analysis. Analyze the following keyword research CSV data for the product category "${categoryName}" in the "${countryName}" marketplace.
 ${truncationNote}
 The CSV has these columns: Search Terms, Type, SV (search volume), Relev. (relevancy score 0-1), and ASIN rank columns.
 - "SV" = monthly search volume
 - "Relev." = relevancy score (higher = more relevant to the product). Values like "Residue" mean low/unclear relevancy.
+- For strategicValue, calculate: searchVolume * relevancy. Treat "Residue" relevancy as 0.3.
 
-Analyze and return a JSON object with this exact structure:
+Produce a DEEP, COMPREHENSIVE analysis. Do NOT be shallow. Analyze every angle: intent patterns, surface/application demand, feature signals, competitive gaps, keyword themes by multiple dimensions, and strategic placement for every bullet.
+
+Return a JSON object with this EXACT structure:
 {
+  "executiveSummary": "<2-3 sentences: market opportunity, primary category, key strategic insight>",
   "summary": {
-    "totalKeywords": <number of keyword rows>,
+    "totalKeywords": <count>,
     "totalSearchVolume": <sum of all SV>,
     "dataQuality": "<brief assessment>"
   },
-  "highRelevancy": [top 15 keywords with relevancy >= 0.6, each: {"keyword": "", "searchVolume": 0, "relevancy": 0.0, "strategicValue": 0}],
-  "mediumRelevancy": [top 10 keywords with relevancy 0.4-0.6, same shape],
-  "customerIntentPatterns": [5-8 intent categories like "Surface-Specific", "Feature-Focused", etc. Each: {"category": "", "keywordCount": 0, "totalSearchVolume": 0, "priority": "HIGH/MEDIUM/LOW"}],
-  "surfaceDemand": [surface types like Chalkboard, Window, Glass. Each: {"surfaceType": "", "keywordCount": 0, "totalSearchVolume": 0}],
-  "featureDemand": [features like Erasable, Fine Tip, Liquid. Each: {"feature": "", "keywordCount": 0, "totalSearchVolume": 0, "priority": "CRITICAL/HIGH/MEDIUM/LOW"}],
-  "titleKeywords": [top 5-8 must-include keywords for listing title],
-  "bulletKeywords": [top 10-15 keywords for bullet points],
-  "searchTermKeywords": [top 15-20 keywords for backend search terms]
+  "keywordDistribution": {
+    "high": { "count": <keywords with relevancy>=0.6>, "totalVolume": <their SV sum>, "avgRelevancy": <avg> },
+    "medium": { "count": <keywords 0.4-0.6>, "totalVolume": <SV sum>, "avgRelevancy": <avg> },
+    "low": { "count": <keywords <0.4>, "totalVolume": <SV sum>, "avgRelevancy": <avg> }
+  },
+  "highRelevancy": [top 15 keywords relevancy>=0.6: {"keyword":"","searchVolume":0,"relevancy":0.0,"strategicValue":0,"strategicPlacement":"TITLE - Position 1 / Bullet 1 / Bullet 2 / Description / Search Terms"}],
+  "mediumRelevancy": [top 10 keywords 0.4-0.6, same shape including strategicPlacement],
+  "lowRelevancy": [top 10 keywords <0.4 by search volume: same shape - these are background/long-tail keywords],
+  "keywordThemes": [3-6 theme dimensions. Each: {"dimension":"Surface Applications / Product Features / Color Specs / Size/Tip / Use Case / Brand","themes":[{"name":"","keywordCount":0,"totalSearchVolume":0}]}],
+  "customerIntentPatterns": [5-8 distinct customer intents: {"category":"","keywordCount":0,"totalSearchVolume":0,"priority":"CRITICAL/HIGH/MEDIUM/LOW","painPoints":"what customers struggle with","opportunity":"how to position for this intent"}],
+  "surfaceDemand": [all surface/application types found: {"surfaceType":"","keywordCount":0,"totalSearchVolume":0}],
+  "featureDemand": [all features found: {"feature":"","keywordCount":0,"totalSearchVolume":0,"priority":"CRITICAL/HIGH/MEDIUM/LOW"}],
+  "competitiveIntelligence": {
+    "brandPresence": [brands found in keywords with SV: {"brand":"","searchVolume":0}],
+    "featureDifferentiation": ["3-5 features that keywords suggest are differentiators"],
+    "marketGaps": ["3-5 underserved keyword areas competitors aren't addressing"]
+  },
+  "titleKeywords": ["top 5-8 must-include keywords for title, ordered by priority"],
+  "bulletKeywordMap": [{"bulletNumber":1,"keywords":["kw1","kw2"],"focus":"surface compatibility / key feature / etc"},{"bulletNumber":2,...},... for all 5 bullets],
+  "bulletKeywords": ["top 10-15 keywords for bullet points (flat list)"],
+  "searchTermKeywords": ["top 15-20 keywords for backend search terms"],
+  "rufusQuestionAnticipation": ["5-8 questions customers will likely ask Rufus AI based on keyword patterns"],
+  "marketOpportunity": {
+    "totalAddressableMarket": <total monthly SV>,
+    "primaryTargetMarket": <SV of high+medium relevancy>,
+    "competitionLevel": "Low/Moderate/High/Very High",
+    "growthPotential": "LOW/MEDIUM/HIGH with brief reason"
+  }
 }
 
-For strategicValue, calculate: searchVolume * relevancy.
-Treat "Residue" relevancy as 0.3 for calculation purposes.
 Only return valid JSON, no markdown fences or explanation.
 
 CSV DATA:
@@ -283,25 +426,46 @@ function buildReviewAnalysisPrompt(csvContent: string, categoryName: string, cou
     ? `\n\nIMPORTANT: This is a representative sample of ${keptRows.toLocaleString()} out of ${originalRows.toLocaleString()} total reviews, evenly sampled across the dataset. Scale your counts proportionally (e.g., totalReviews = ${originalRows.toLocaleString()}, scale frequencies by ${(originalRows / keptRows).toFixed(1)}x).\n`
     : ''
 
-  return `You are an expert Amazon listing optimization analyst. Analyze the following product review CSV data for the product category "${categoryName}" in the "${countryName}" marketplace.
+  return `You are an expert Amazon listing optimization analyst conducting a COMPREHENSIVE review analysis. Analyze the following product review CSV data for the product category "${categoryName}" in the "${countryName}" marketplace.
 ${truncationNote}
 The CSV has columns: Date, Author, Verified, Helpful, Title, Body, Rating, Images, Videos, URL, Variation, Style.
 
-Analyze ALL reviews and return a JSON object with this exact structure:
+Produce a DEEP, COMPREHENSIVE analysis. Analyze every angle: use cases (find 20+), customer profiles, strengths and weaknesses with business impact, language patterns (positive, negative, product nouns), cross-product/ASIN performance if variation data exists, image optimization opportunities from review insights, competitive positioning, and authentic customer voice phrases for copy.
+
+Return a JSON object with this EXACT structure:
 {
+  "executiveSummary": "<3-5 sentences: key strategic insights, primary strength, critical weakness, market positioning opportunity, quality assessment>",
   "summary": {
     "totalReviews": <count>,
     "averageRating": <float>,
     "positivePercent": <% of 4-5 star>,
     "negativePercent": <% of 1-2 star>
   },
-  "ratingDistribution": [for each 1-5 star: {"stars": 5, "count": 0, "percentage": 0.0}],
-  "useCases": [top 15 use cases by frequency: {"useCase": "", "frequency": 0, "priority": "CRITICAL/HIGH/MEDIUM/LOW"}],
-  "strengths": [top 10 product strengths from positive reviews: {"strength": "", "mentions": 0, "impact": "PRIMARY DIFFERENTIATOR/CRITICAL FEATURE/etc."}],
-  "weaknesses": [top 8 product weaknesses from negative reviews: {"weakness": "", "mentions": 0, "impact": "CRITICAL ISSUE/RELIABILITY FAILURE/etc."}],
-  "positiveLanguage": [top 10 positive descriptors customers use: {"word": "", "frequency": 0}],
-  "negativeLanguage": [top 10 negative descriptors: {"word": "", "frequency": 0}],
-  "bulletStrategy": [5 bullets mapped to review insights: {"bulletNumber": 1, "focus": "", "evidence": "<brief review evidence>", "priority": "HIGH/MEDIUM"}]
+  "ratingDistribution": [for each 1-5 star: {"stars":5,"count":0,"percentage":0.0,"sentiment":"Highly satisfied/Satisfied/Neutral/Dissatisfied/Highly dissatisfied"}],
+  "customerProfiles": [3-5 distinct buyer personas identified from reviews: {"profile":"Food Service Industry/Business Users/Educators/Creative Community/etc","mentions":0,"description":"brief profile description"}],
+  "useCases": [top 20 use cases by frequency: {"useCase":"","frequency":0,"priority":"CRITICAL/HIGH/MEDIUM/LOW"}],
+  "strengths": [top 10 product strengths: {"strength":"","mentions":0,"impact":"PRIMARY DIFFERENTIATOR/CRITICAL FEATURE/USER EXPERIENCE/TRUST BUILDER/PURCHASE DRIVER/SELECTION APPEAL/RELIABILITY/PERFORMANCE"}],
+  "weaknesses": [top 10 product weaknesses: {"weakness":"","mentions":0,"impact":"CRITICAL ISSUE/RELIABILITY FAILURE/FEATURE FAILURE/TRUST DESTROYER/QUALITY CONTROL/PERFORMANCE GAP/VALUE CONCERN/BASIC FUNCTION FAIL"}],
+  "positiveLanguage": [top 12 positive descriptors: {"word":"","frequency":0,"optimizationValue":"Use in bullets/Feature emphasis/Color positioning/Quality assurance/Visual appeal/Outcome description/Emotional trigger"}],
+  "negativeLanguage": [top 12 negative descriptors: {"word":"","frequency":0,"issueToAddress":"Longevity concerns/Quality issues/Usability barriers/Expectation gaps/Coverage issues/Reliability issues"}],
+  "productNouns": [top 10 product-defining nouns customers use: {"noun":"","frequency":0,"listingIntegration":"Primary product term/Variety emphasis/Technology identifier/Surface specification/Precision feature"}],
+  "crossProductAnalysis": [if Variation/Style/ASIN data exists, show per-variation breakdown: {"productId":"ASIN or variation name","reviewCount":0,"positiveRate":0.0,"negativeRate":0.0,"performanceRating":"BEST/HIGH/GOOD/AVERAGE/BELOW AVERAGE/POOR"}. If no variation data, return empty array],
+  "bulletStrategy": [5 bullets: {"bulletNumber":1,"focus":"","evidence":"specific review evidence","priority":"HIGH/MEDIUM","customerPainPoint":"the pain point this bullet addresses"}],
+  "imageOptimizationOpportunities": [5-6 image suggestions driven by review insights: {"imageType":"Before/After Demo/Color Chart/Multi-Surface/Professional Use/No-Mess Application/etc","rationale":"why this image matters","reviewEvidence":"what reviews say that supports this"}],
+  "competitivePositioning": {
+    "marketGaps": [3-5 gaps: {"gap":"","customerNeed":"","opportunity":""}],
+    "messagingFramework": {
+      "primaryMessage": "one-line primary positioning message",
+      "supportPoints": ["3-4 support points"],
+      "proofPoints": ["3-4 proof points from reviews"],
+      "riskReversal": "how to preemptively address top weakness"
+    }
+  },
+  "customerVoicePhrases": {
+    "positiveEmotional": ["5-8 authentic positive phrases customers use, e.g. 'great for menu boards'"],
+    "functional": ["5-8 functional phrases, e.g. 'liquid chalk markers', 'erasable and washable'"],
+    "useCaseLanguage": ["5-8 use case phrases, e.g. 'chalkboard menu displays', 'window decorating'"]
+  }
 }
 
 Only return valid JSON, no markdown fences or explanation.
@@ -317,20 +481,41 @@ function buildQnAAnalysisPrompt(csvContent: string, categoryName: string, countr
     ? `\n\nIMPORTANT: This is a representative sample of ${keptRows.toLocaleString()} out of ${originalRows.toLocaleString()} total Q&A pairs, evenly sampled. Scale counts proportionally.\n`
     : ''
 
-  return `You are an expert Amazon listing optimization analyst. Analyze the following ${source} Q&A data for the product category "${categoryName}" in the "${countryName}" marketplace.
+  return `You are an expert Amazon listing optimization analyst conducting a COMPREHENSIVE Q&A analysis. Analyze the following ${source} Q&A data for the product category "${categoryName}" in the "${countryName}" marketplace.
 ${truncationNote}
 The data is formatted as Q&A pairs (Q1:, A1:, Q2:, A2:, etc.).
 
-Analyze all questions and answers, then return a JSON object with this exact structure:
+Produce a DEEP, COMPREHENSIVE analysis. Analyze every angle: product specs confirmed from Q&A, surface/feature compatibility, contradictions in answers, 10+ information gaps with priority scores, confirmed features (positive and limitations), question type breakdown with percentages, high-risk questions for competitor ad placement, competitive defense strategy, and a Rufus AI optimization score.
+
+Return a JSON object with this EXACT structure:
 {
+  "executiveSummary": "<3-5 sentences: critical finding, product specs confirmed, market alignment with keyword data, number of information gaps found>",
   "summary": {
     "totalQuestions": <count>,
-    "topConcerns": ["concern 1", "concern 2", "concern 3"]
+    "topConcerns": ["top 3-5 concerns"]
   },
-  "themes": [5-8 question themes: {"theme": "", "questionCount": 0, "priority": "HIGH/MEDIUM/LOW", "sampleQuestions": ["q1", "q2"]}],
-  "customerConcerns": [top 10 concerns: {"concern": "", "frequency": 0, "addressInListing": true/false, "suggestedResponse": ""}],
-  "contentGaps": [3-5 gaps the listing should address: {"gap": "", "importance": "HIGH/MEDIUM/LOW", "recommendation": ""}],
-  "faqForDescription": [top 5 Q&As to weave into listing description: {"question": "", "answer": ""}]
+  "productSpecsConfirmed": [product specifications confirmed from Q&A answers: {"spec":"Tip Size/Quantity/Colors/Product Type/Target Surfaces/etc","value":"confirmed value","source":"Q# reference or general"}],
+  "themes": [5-8 question themes: {"theme":"","questionCount":0,"priority":"HIGH/MEDIUM/LOW","percentageOfTotal":0,"sampleQuestions":["q1","q2","q3"]}],
+  "contradictions": [any contradictions found in answers - where one answer says yes and another says no: {"topic":"e.g. Whiteboard Compatibility","conflictingAnswers":["Answer 1: Yes...","Answer 2: No..."],"impact":"Major confusion for customers / Minor inconsistency","resolution":"recommended resolution for listing"}. Return empty array if none found],
+  "customerConcerns": [top 12 concerns: {"concern":"","frequency":0,"addressInListing":true/false,"suggestedResponse":""}],
+  "contentGaps": [10-12 information gaps the listing doesn't address but customers ask about: {"gap":"","importance":"CRITICAL/HIGH/MEDIUM/LOW","priorityScore":<1-15 numerical>,"customerImpact":"HIGH/MEDIUM/LOW","recommendation":"specific action to take"}],
+  "confirmedFeatures": {
+    "positive": [features confirmed working from Q&A: {"feature":"","evidence":"brief evidence from Q&A"}],
+    "limitations": [confirmed limitations: {"limitation":"","evidence":"brief evidence"}]
+  },
+  "questionTypeBreakdown": [breakdown by question pattern: {"type":"Can these be used on.../Are these markers.../How.../Do they...","count":0,"percentage":0,"recommendation":"how to address this question type in listing"}],
+  "highRiskQuestions": [3-5 questions where competitors could place ads or steal customers: {"question":"","risk":"why this is risky","defensiveAction":"how to defend in listing"}],
+  "faqForDescription": [top 8 Q&As to weave into listing: {"question":"","answer":""}],
+  "competitiveDefense": {
+    "brandProtectionOpportunities": ["3-5 opportunities to protect brand position"],
+    "informationGapAdvantages": ["3-5 advantages from proactively addressing gaps competitors leave open"]
+  },
+  "rufusOptimizationScore": {
+    "score": <1-5>,
+    "maxScore": 5,
+    "strengths": ["what the Q&A data shows is well-covered"],
+    "improvements": ["what needs to be added to the listing to handle Rufus questions"]
+  }
 }
 
 Only return valid JSON, no markdown fences or explanation.
@@ -728,32 +913,52 @@ export async function analyzeQnA(
 
 const ANALYSIS_JSON_SCHEMAS: Record<string, string> = {
   keyword_analysis: `{
+  "executiveSummary": "string",
   "summary": { "totalKeywords": number, "totalSearchVolume": number, "dataQuality": "string" },
-  "highRelevancy": [{ "keyword": "", "searchVolume": 0, "relevancy": 0.0, "strategicValue": 0 }],
+  "keywordDistribution": { "high": { "count": 0, "totalVolume": 0, "avgRelevancy": 0 }, "medium": {...}, "low": {...} },
+  "highRelevancy": [{ "keyword": "", "searchVolume": 0, "relevancy": 0.0, "strategicValue": 0, "strategicPlacement": "TITLE/Bullet 1/etc" }],
   "mediumRelevancy": [same shape],
-  "customerIntentPatterns": [{ "category": "", "keywordCount": 0, "totalSearchVolume": 0, "priority": "HIGH/MEDIUM/LOW" }],
+  "lowRelevancy": [same shape],
+  "keywordThemes": [{ "dimension": "Surface/Feature/Color/etc", "themes": [{ "name": "", "keywordCount": 0, "totalSearchVolume": 0 }] }],
+  "customerIntentPatterns": [{ "category": "", "keywordCount": 0, "totalSearchVolume": 0, "priority": "HIGH/MEDIUM/LOW", "painPoints": "", "opportunity": "" }],
   "surfaceDemand": [{ "surfaceType": "", "keywordCount": 0, "totalSearchVolume": 0 }],
   "featureDemand": [{ "feature": "", "keywordCount": 0, "totalSearchVolume": 0, "priority": "CRITICAL/HIGH/MEDIUM/LOW" }],
-  "titleKeywords": ["keyword1", "keyword2"],
-  "bulletKeywords": ["keyword1", "keyword2"],
-  "searchTermKeywords": ["keyword1", "keyword2"]
+  "competitiveIntelligence": { "brandPresence": [{ "brand": "", "searchVolume": 0 }], "featureDifferentiation": [""], "marketGaps": [""] },
+  "titleKeywords": [""], "bulletKeywordMap": [{ "bulletNumber": 1, "keywords": [""], "focus": "" }], "bulletKeywords": [""], "searchTermKeywords": [""],
+  "rufusQuestionAnticipation": [""],
+  "marketOpportunity": { "totalAddressableMarket": 0, "primaryTargetMarket": 0, "competitionLevel": "", "growthPotential": "" }
 }`,
   review_analysis: `{
+  "executiveSummary": "string",
   "summary": { "totalReviews": number, "averageRating": float, "positivePercent": number, "negativePercent": number },
-  "ratingDistribution": [{ "stars": 5, "count": 0, "percentage": 0.0 }],
+  "ratingDistribution": [{ "stars": 5, "count": 0, "percentage": 0.0, "sentiment": "" }],
+  "customerProfiles": [{ "profile": "", "mentions": 0, "description": "" }],
   "useCases": [{ "useCase": "", "frequency": 0, "priority": "CRITICAL/HIGH/MEDIUM/LOW" }],
-  "strengths": [{ "strength": "", "mentions": 0, "impact": "string" }],
-  "weaknesses": [{ "weakness": "", "mentions": 0, "impact": "string" }],
-  "positiveLanguage": [{ "word": "", "frequency": 0 }],
-  "negativeLanguage": [{ "word": "", "frequency": 0 }],
-  "bulletStrategy": [{ "bulletNumber": 1, "focus": "", "evidence": "", "priority": "HIGH/MEDIUM" }]
+  "strengths": [{ "strength": "", "mentions": 0, "impact": "PRIMARY DIFFERENTIATOR/CRITICAL FEATURE/etc" }],
+  "weaknesses": [{ "weakness": "", "mentions": 0, "impact": "CRITICAL ISSUE/RELIABILITY FAILURE/etc" }],
+  "positiveLanguage": [{ "word": "", "frequency": 0, "optimizationValue": "" }],
+  "negativeLanguage": [{ "word": "", "frequency": 0, "issueToAddress": "" }],
+  "productNouns": [{ "noun": "", "frequency": 0, "listingIntegration": "" }],
+  "crossProductAnalysis": [{ "productId": "", "reviewCount": 0, "positiveRate": 0, "negativeRate": 0, "performanceRating": "" }],
+  "bulletStrategy": [{ "bulletNumber": 1, "focus": "", "evidence": "", "priority": "HIGH/MEDIUM", "customerPainPoint": "" }],
+  "imageOptimizationOpportunities": [{ "imageType": "", "rationale": "", "reviewEvidence": "" }],
+  "competitivePositioning": { "marketGaps": [{ "gap": "", "customerNeed": "", "opportunity": "" }], "messagingFramework": { "primaryMessage": "", "supportPoints": [""], "proofPoints": [""], "riskReversal": "" } },
+  "customerVoicePhrases": { "positiveEmotional": [""], "functional": [""], "useCaseLanguage": [""] }
 }`,
   qna_analysis: `{
-  "summary": { "totalQuestions": number, "topConcerns": ["concern 1", "concern 2", "concern 3"] },
-  "themes": [{ "theme": "", "questionCount": 0, "priority": "HIGH/MEDIUM/LOW", "sampleQuestions": ["q1", "q2"] }],
-  "customerConcerns": [{ "concern": "", "frequency": 0, "addressInListing": true/false, "suggestedResponse": "" }],
-  "contentGaps": [{ "gap": "", "importance": "HIGH/MEDIUM/LOW", "recommendation": "" }],
-  "faqForDescription": [{ "question": "", "answer": "" }]
+  "executiveSummary": "string",
+  "summary": { "totalQuestions": number, "topConcerns": [""] },
+  "productSpecsConfirmed": [{ "spec": "", "value": "", "source": "" }],
+  "themes": [{ "theme": "", "questionCount": 0, "priority": "HIGH/MEDIUM/LOW", "percentageOfTotal": 0, "sampleQuestions": [""] }],
+  "contradictions": [{ "topic": "", "conflictingAnswers": [""], "impact": "", "resolution": "" }],
+  "customerConcerns": [{ "concern": "", "frequency": 0, "addressInListing": true, "suggestedResponse": "" }],
+  "contentGaps": [{ "gap": "", "importance": "CRITICAL/HIGH/MEDIUM/LOW", "priorityScore": 0, "customerImpact": "", "recommendation": "" }],
+  "confirmedFeatures": { "positive": [{ "feature": "", "evidence": "" }], "limitations": [{ "limitation": "", "evidence": "" }] },
+  "questionTypeBreakdown": [{ "type": "", "count": 0, "percentage": 0, "recommendation": "" }],
+  "highRiskQuestions": [{ "question": "", "risk": "", "defensiveAction": "" }],
+  "faqForDescription": [{ "question": "", "answer": "" }],
+  "competitiveDefense": { "brandProtectionOpportunities": [""], "informationGapAdvantages": [""] },
+  "rufusOptimizationScore": { "score": 0, "maxScore": 5, "strengths": [""], "improvements": [""] }
 }`,
 }
 
