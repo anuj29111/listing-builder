@@ -93,7 +93,7 @@ export function ListingsHistoryClient({ listings: initialListings }: ListingsHis
               </thead>
               <tbody>
                 {listings.map((listing) => (
-                  <tr key={listing.id} className="border-b last:border-0 hover:bg-muted/30">
+                  <tr key={listing.id} className="border-b last:border-0 hover:bg-muted/30 cursor-pointer" onClick={() => router.push(`/listings/${listing.id}`)}>
                     <td className="px-4 py-3">
                       <div>
                         <p className="font-medium truncate max-w-[250px]">
@@ -125,11 +125,11 @@ export function ListingsHistoryClient({ listings: initialListings }: ListingsHis
                       {listing.creator?.full_name || '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => router.push(`/listings/new?edit=${listing.id}`)}
+                          onClick={() => router.push(`/listings/${listing.id}`)}
                           title="View / Edit"
                         >
                           <Eye className="h-4 w-4" />

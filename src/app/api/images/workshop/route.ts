@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     const adminClient = createAdminClient()
     const body = (await request.json()) as GenerateWorkshopPromptsRequest
 
-    const { product_name, brand, category_id, country_id, listing_id, name } = body
+    const { product_name, brand, category_id, country_id, listing_id, name, image_type } = body
 
     if (!product_name || !brand || !category_id || !country_id) {
       return NextResponse.json(
@@ -84,8 +84,9 @@ export async function POST(request: Request) {
       qnaAnalysis,
     })
 
-    // Create workshop record
+    // Create workshop record — save prompts to DB for persistence
     const workshopName = name || `${brand} ${product_name} — ${new Date().toLocaleDateString()}`
+    const allIndices = result.prompts.map((_: unknown, i: number) => i)
     const { data: workshop, error: insertError } = await adminClient
       .from('lb_image_workshops')
       .insert({
@@ -99,6 +100,9 @@ export async function POST(request: Request) {
         element_tags: {},
         callout_texts: result.callout_suggestions || [],
         competitor_urls: [],
+        generated_prompts: result.prompts,
+        selected_prompt_indices: allIndices,
+        image_type: image_type || 'main',
         created_by: lbUser.id,
       })
       .select()
@@ -125,11 +129,47 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     await getAuthenticatedUser()
     const supabase = createClient()
 
+    const { searchParams } = new URL(request.url)
+    const listingId = searchParams.get('listing_id')
+    const categoryId = searchParams.get('category_id')
+    const countryId = searchParams.get('country_id')
+
+    // If specific filters provided, return workshops + images for context
+    if (listingId || (categoryId && countryId)) {
+      let workshopQuery = supabase
+        .from('lb_image_workshops')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (listingId) {
+        workshopQuery = workshopQuery.eq('listing_id', listingId)
+      } else {
+        workshopQuery = workshopQuery.eq('category_id', categoryId!).eq('country_id', countryId!)
+      }
+
+      const { data: workshops } = await workshopQuery
+      const ws = workshops || []
+      const workshopIds = ws.map((w) => w.id)
+
+      let imgs: unknown[] = []
+      if (workshopIds.length > 0) {
+        const { data: imageData } = await supabase
+          .from('lb_image_generations')
+          .select('*')
+          .in('workshop_id', workshopIds)
+          .order('created_at', { ascending: true })
+        imgs = imageData || []
+      }
+
+      return NextResponse.json({ data: { workshops: ws, images: imgs } })
+    }
+
+    // Default: return recent workshops list
     const { data, error } = await supabase
       .from('lb_image_workshops')
       .select('id, name, product_name, brand, step, created_at')

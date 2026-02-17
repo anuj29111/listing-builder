@@ -1363,6 +1363,167 @@ Return valid JSON only, no markdown fences:
 }`
 }
 
+// --- Secondary Image Prompts ---
+
+export interface SecondaryPromptInput {
+  productName: string
+  brand: string
+  categoryName: string
+  listingTitle?: string | null
+  bulletPoints?: string[]
+  keywordAnalysis?: KeywordAnalysisResult | null
+  reviewAnalysis?: ReviewAnalysisResult | null
+  qnaAnalysis?: QnAAnalysisResult | null
+}
+
+export interface SecondaryConceptResult {
+  concepts: Array<{
+    position: number
+    title: string
+    headline: string
+    sub_headline: string
+    visual_reference: string
+    hero_image: string
+    supporting_visuals: string
+    background: string
+    unique_selling_point: string
+    prompt: string
+  }>
+}
+
+function buildSecondaryPromptsPrompt(input: SecondaryPromptInput): string {
+  const { productName, brand, categoryName, listingTitle, bulletPoints, keywordAnalysis, reviewAnalysis, qnaAnalysis } = input
+
+  let researchContext = ''
+
+  if (keywordAnalysis) {
+    const topKeywords = keywordAnalysis.titleKeywords?.slice(0, 8).join(', ') || 'N/A'
+    const features = keywordAnalysis.featureDemand
+      ?.slice(0, 6)
+      .map((f) => `${f.feature} (${f.priority})`)
+      .join(', ') || 'N/A'
+    researchContext += `\n=== KEYWORD INTELLIGENCE ===
+Top keywords: ${topKeywords}
+Key feature demand: ${features}\n`
+  }
+
+  if (reviewAnalysis) {
+    const strengths = reviewAnalysis.strengths
+      ?.slice(0, 6)
+      .map((s) => `${s.strength} (${s.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    const useCases = reviewAnalysis.useCases
+      ?.slice(0, 6)
+      .map((u) => `${u.useCase} (${u.priority})`)
+      .join(', ') || 'N/A'
+    const weaknesses = reviewAnalysis.weaknesses
+      ?.slice(0, 4)
+      .map((w) => `${w.weakness} (${w.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    researchContext += `\n=== CUSTOMER REVIEW INSIGHTS ===
+Strengths: ${strengths}
+Use cases: ${useCases}
+Weaknesses to address: ${weaknesses}\n`
+  }
+
+  if (qnaAnalysis) {
+    const concerns = qnaAnalysis.customerConcerns
+      ?.slice(0, 5)
+      .map((c) => c.concern)
+      .join(', ') || 'N/A'
+    researchContext += `\n=== CUSTOMER Q&A CONCERNS ===
+Top concerns: ${concerns}\n`
+  }
+
+  let listingContext = ''
+  if (listingTitle || (bulletPoints && bulletPoints.length > 0)) {
+    listingContext = `\n=== LISTING CONTENT ===
+Title: ${listingTitle || 'N/A'}
+Bullet points:\n${bulletPoints?.map((b, i) => `${i + 1}. ${b}`).join('\n') || 'N/A'}\n`
+  }
+
+  if (!researchContext && !listingContext) {
+    researchContext = '\nNo research data available. Use general best practices for Amazon secondary images.\n'
+  }
+
+  return `You are an expert Amazon listing image strategist. Generate 9 secondary image concepts for an Amazon product listing.
+
+=== PRODUCT ===
+Product: ${productName}
+Brand: ${brand}
+Category: ${categoryName}
+${researchContext}${listingContext}
+=== TASK ===
+Generate exactly 9 secondary image concepts. These are the supporting images (positions 2-10) in an Amazon listing after the main image. Each concept should tell a different part of the product story.
+
+Standard Amazon secondary image types to cover (adapt based on product):
+1. Lifestyle/In-Use — Show the product being used in a real setting
+2. Key Features Infographic — Highlight 4-6 key features with callout text
+3. How It Works / How To Use — Step-by-step usage guide
+4. Size/Dimensions/Contents — Show what's included, dimensions, scale reference
+5. Materials/Ingredients/Quality — Close-up on quality, materials, certifications
+6. Comparison/Why Choose Us — Compare vs competitors or alternatives
+7. Benefits Infographic — Customer benefits with icons and supporting text
+8. Social Proof/Awards/Trust — Certifications, awards, customer testimonials
+9. Brand Story/Packaging — Brand values, packaging design, unboxing experience
+
+For each concept, provide:
+- A clear title describing the image type
+- A bold headline (text overlay for the image, 5-10 words)
+- A sub-headline (supporting tagline, 8-15 words)
+- Visual reference description (layout, composition, scene)
+- Hero image description (the main visual element)
+- Supporting visuals (icons, badges, callouts)
+- Background style/color
+- Unique selling point this image communicates
+- Full image generation prompt (50-150 words, suitable for DALL-E 3 / Gemini)
+
+Use the research data to decide which features, benefits, and concerns to emphasize in each image.
+
+=== OUTPUT FORMAT ===
+Return valid JSON only, no markdown fences:
+{
+  "concepts": [
+    {
+      "position": 1,
+      "title": "Image type title",
+      "headline": "Bold headline text for overlay",
+      "sub_headline": "Supporting tagline text",
+      "visual_reference": "Layout and composition description",
+      "hero_image": "Main visual element description",
+      "supporting_visuals": "Icons, badges, and callout descriptions",
+      "background": "Background style and color",
+      "unique_selling_point": "What this image communicates",
+      "prompt": "Full detailed image generation prompt (50-150 words)"
+    }
+  ]
+}`
+}
+
+export async function generateSecondaryImagePrompts(
+  input: SecondaryPromptInput
+): Promise<{ result: SecondaryConceptResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildSecondaryPromptsPrompt(input)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const result = JSON.parse(stripMarkdownFences(text)) as SecondaryConceptResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
 export async function generateImagePrompts(
   input: WorkshopPromptInput
 ): Promise<{ result: WorkshopPromptResult; model: string; tokensUsed: number }> {

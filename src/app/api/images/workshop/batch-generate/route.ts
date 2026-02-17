@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     const adminClient = createAdminClient()
     const body = (await request.json()) as BatchGenerateRequest
 
-    const { workshop_id, prompts, provider, orientation, model_id } = body
+    const { workshop_id, prompts, provider, orientation, model_id, image_type } = body
 
     if (!workshop_id || !prompts || !Array.isArray(prompts) || prompts.length === 0) {
       return NextResponse.json(
@@ -43,13 +43,15 @@ export async function POST(request: Request) {
     for (let i = 0; i < prompts.length; i += BATCH_SIZE) {
       const batch = prompts.slice(i, i + BATCH_SIZE)
       const settled = await Promise.allSettled(
-        batch.map(({ prompt }) =>
+        batch.map(({ prompt, position }) =>
           generateAndStoreImage({
             prompt,
             provider,
             orientation: orientation || 'square',
             modelId: model_id,
             workshopId: workshop_id,
+            imageType: image_type || 'main',
+            position: position ?? null,
             createdBy: lbUser.id,
             adminClient,
           })

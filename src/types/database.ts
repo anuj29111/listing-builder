@@ -146,6 +146,8 @@ export interface LbImageGeneration {
   full_url: string | null
   status: 'preview' | 'approved' | 'rejected'
   cost_cents: number
+  image_type: 'main' | 'secondary'
+  position: number | null
   created_by: string | null
   created_at: string
   updated_at: string
@@ -164,6 +166,11 @@ export interface LbImageWorkshop {
   final_image_id: string | null
   callout_texts: Array<{ type: 'keyword' | 'benefit' | 'usp'; text: string }>
   competitor_urls: string[]
+  generated_prompts: unknown[]
+  selected_prompt_indices: number[]
+  provider: 'dalle3' | 'gemini' | 'higgsfield'
+  orientation: 'square' | 'portrait' | 'landscape'
+  image_type: 'main' | 'secondary'
   created_by: string | null
   created_at: string
   updated_at: string

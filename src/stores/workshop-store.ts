@@ -11,6 +11,7 @@ interface WorkshopState {
   workshopId: string | null
   workshop: LbImageWorkshop | null
   step: 1 | 2 | 3 | 4
+  imageType: 'main' | 'secondary'
 
   // Step 1: Setup
   generatedPrompts: WorkshopPrompt[]
@@ -36,6 +37,7 @@ interface WorkshopState {
   competitorUrls: string[]
 
   // Actions
+  hydrateFromDB: (workshop: LbImageWorkshop, images: LbImageGeneration[]) => void
   setStep: (step: 1 | 2 | 3 | 4) => void
   setWorkshopId: (id: string) => void
   setWorkshop: (workshop: LbImageWorkshop) => void
@@ -64,6 +66,7 @@ const initialState = {
   workshopId: null as string | null,
   workshop: null as LbImageWorkshop | null,
   step: 1 as const,
+  imageType: 'main' as const,
   generatedPrompts: [] as WorkshopPrompt[],
   calloutSuggestions: [] as Array<{ type: 'keyword' | 'benefit' | 'usp'; text: string }>,
   selectedPromptIndices: [] as number[],
@@ -81,8 +84,38 @@ const initialState = {
   competitorUrls: [] as string[],
 }
 
-export const useWorkshopStore = create<WorkshopState>((set, get) => ({
+export const useWorkshopStore = create<WorkshopState>((set) => ({
   ...initialState,
+
+  hydrateFromDB: (workshop, images) => {
+    const prompts = (workshop.generated_prompts || []) as WorkshopPrompt[]
+    const selectedIndices = (workshop.selected_prompt_indices || prompts.map((_, i) => i)) as number[]
+    const finalImg = workshop.final_image_id
+      ? images.find((img) => img.id === workshop.final_image_id) || null
+      : null
+
+    set({
+      workshopId: workshop.id,
+      workshop,
+      step: (workshop.step || 1) as 1 | 2 | 3 | 4,
+      imageType: workshop.image_type || 'main',
+      generatedPrompts: prompts,
+      calloutSuggestions: workshop.callout_texts || [],
+      selectedPromptIndices: selectedIndices,
+      provider: workshop.provider || 'gemini',
+      orientation: workshop.orientation || 'square',
+      workshopImages: images,
+      elementTags: workshop.element_tags || {},
+      finalImage: finalImg,
+      calloutTexts: workshop.callout_texts || [],
+      competitorUrls: workshop.competitor_urls || [],
+      isGeneratingPrompts: false,
+      isBatchGenerating: false,
+      isGeneratingFinal: false,
+      batchProgress: { done: 0, total: 0 },
+      combinedPrompt: '',
+    })
+  },
 
   setStep: (step) => set({ step }),
   setWorkshopId: (workshopId) => set({ workshopId }),

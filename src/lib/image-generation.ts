@@ -11,6 +11,8 @@ export interface GenerateAndStoreParams {
   modelId?: string
   listingId?: string | null
   workshopId?: string | null
+  imageType?: 'main' | 'secondary'
+  position?: number | null
   createdBy: string
   adminClient: SupabaseClient
 }
@@ -23,7 +25,7 @@ export interface GenerateAndStoreParams {
 export async function generateAndStoreImage(
   params: GenerateAndStoreParams
 ): Promise<LbImageGeneration> {
-  const { prompt, provider, orientation, modelId, listingId, workshopId, createdBy, adminClient } = params
+  const { prompt, provider, orientation, modelId, listingId, workshopId, imageType, position, createdBy, adminClient } = params
 
   let previewUrl: string
   let storagePath: string
@@ -106,6 +108,8 @@ export async function generateAndStoreImage(
       full_url: null,
       status: 'preview',
       cost_cents: costCents,
+      image_type: imageType || 'main',
+      position: position ?? null,
       created_by: createdBy,
     })
     .select()
