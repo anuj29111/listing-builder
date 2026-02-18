@@ -80,22 +80,25 @@ export async function PATCH(
           .update({
             selected_variation: section.selected_variation,
             is_approved: section.is_approved,
+            final_text: section.final_text !== undefined ? section.final_text : undefined,
             updated_at: new Date().toISOString(),
           })
           .eq('id', section.id)
           .eq('listing_id', listingId)
       }
 
-      // Sync denormalized fields on lb_listings from selected variations
+      // Sync denormalized fields on lb_listings — prefer final_text over selected variation
       const { data: allSections } = await adminClient
         .from('lb_listing_sections')
-        .select('section_type, variations, selected_variation')
+        .select('section_type, variations, selected_variation, final_text')
         .eq('listing_id', listingId)
 
       if (allSections) {
         const getSelectedText = (sectionType: string): string => {
           const sec = allSections.find((s) => s.section_type === sectionType)
           if (!sec) return ''
+          // Prefer final_text (user's edited version) over AI variation
+          if (sec.final_text && sec.final_text.trim()) return sec.final_text
           const vars = sec.variations as string[]
           return vars[sec.selected_variation] || vars[0] || ''
         }

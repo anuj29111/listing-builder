@@ -25,6 +25,8 @@ export function StepGeneration() {
   const tokensUsed = useListingStore((s) => s.tokensUsed)
   const sections = useListingStore((s) => s.sections)
   const analysisAvailability = useListingStore((s) => s.analysisAvailability)
+  const optimizationMode = useListingStore((s) => s.optimizationMode)
+  const existingListingText = useListingStore((s) => s.existingListingText)
   const setGenerating = useListingStore((s) => s.setGenerating)
   const setGenerationError = useListingStore((s) => s.setGenerationError)
   const setGenerationResult = useListingStore((s) => s.setGenerationResult)
@@ -53,6 +55,8 @@ export function StepGeneration() {
           brand,
           attributes: attrsObj,
           product_type_name: productTypeName || undefined,
+          optimization_mode: optimizationMode,
+          existing_listing_text: optimizationMode === 'optimize_existing' ? existingListingText : undefined,
         }),
       })
 
@@ -77,7 +81,8 @@ export function StepGeneration() {
     }
   }, [
     categoryId, countryId, productName, asin, brand, filledAttributes,
-    productTypeName, setGenerating, setGenerationError, setGenerationResult,
+    productTypeName, optimizationMode, existingListingText,
+    setGenerating, setGenerationError, setGenerationResult,
   ])
 
   // If already generated, show success state
@@ -151,6 +156,12 @@ export function StepGeneration() {
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground ml-6">ASIN:</span>
               <span className="font-medium font-mono">{asin}</span>
+            </div>
+          )}
+          {optimizationMode === 'optimize_existing' && (
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground ml-6">Mode:</span>
+              <Badge variant="secondary">Optimize Existing</Badge>
             </div>
           )}
         </div>

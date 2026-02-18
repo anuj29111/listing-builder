@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createAdminClient } from '@/lib/supabase/server'
 import { DEFAULT_CLAUDE_MODEL } from '@/lib/constants'
 
-const MAX_TOKENS = 16384
+const MAX_TOKENS = 32768
 
 /**
  * Strip markdown code fences from Claude's response.
@@ -544,14 +544,30 @@ export interface ListingGenerationInput {
   keywordAnalysis?: KeywordAnalysisResult | null
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  optimizationMode?: 'new' | 'optimize_existing'
+  existingListingText?: { title: string; bullets: string[]; description: string } | null
 }
 
 export interface ListingGenerationResult {
+  planningMatrix: Array<{
+    bulletNumber: number
+    primaryFocus: string
+    qnaGapsAddressed: string[]
+    reviewThemes: string[]
+    priorityKeywords: string[]
+    rufusQuestionTypes: string[]
+  }>
   title: string[]
-  bullets: string[][]
+  bullets: Array<{
+    seo: { concise: string; medium: string; longer: string }
+    benefit: { concise: string; medium: string; longer: string }
+    balanced: { concise: string; medium: string; longer: string }
+  }>
   description: string[]
   searchTerms: string[]
   subjectMatter: string[][]
+  backendAttributes: Record<string, string[]>
 }
 
 // --- Listing Generation Prompt ---
@@ -559,7 +575,8 @@ export interface ListingGenerationResult {
 function buildListingGenerationPrompt(input: ListingGenerationInput): string {
   const {
     productName, brand, asin, attributes, categoryName, countryName, language,
-    charLimits, keywordAnalysis, reviewAnalysis, qnaAnalysis,
+    charLimits, keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    optimizationMode, existingListingText,
   } = input
 
   const attrStr = Object.entries(attributes)
@@ -579,7 +596,6 @@ function buildListingGenerationPrompt(input: ListingGenerationInput): string {
       ?.map((f) => `${f.feature} (${f.priority})`)
       .join(', ') || 'N/A'
 
-    // New expanded fields
     const execSummary = keywordAnalysis.executiveSummary ? `\nExecutive Summary: ${keywordAnalysis.executiveSummary}` : ''
     const bulletMap = keywordAnalysis.bulletKeywordMap
       ?.map((b) => `Bullet ${b.bulletNumber}: ${b.keywords.join(', ')} — Focus: ${b.focus}`)
@@ -626,7 +642,6 @@ Key feature demand signals: ${features}${bulletMapStr}${competitiveStr}${rufusSt
       ?.map((b) => `Bullet ${b.bulletNumber}: Focus on "${b.focus}" — Evidence: ${b.evidence}${b.customerPainPoint ? ` — Addresses: ${b.customerPainPoint}` : ''}`)
       .join('\n  ') || 'N/A'
 
-    // New expanded fields
     const voicePhrases = reviewAnalysis.customerVoicePhrases
     const voiceParts: string[] = []
     if (voicePhrases?.positiveEmotional?.length) voiceParts.push(...voicePhrases.positiveEmotional.slice(0, 4))
@@ -641,18 +656,13 @@ Key feature demand signals: ${features}${bulletMapStr}${competitiveStr}${rufusSt
     const msgStr = messaging
       ? `\nMessaging framework — Primary: "${messaging.primaryMessage}" | Supporting: ${messaging.supportPoints?.join('; ') || 'N/A'} | Proof: ${messaging.proofPoints?.join('; ') || 'N/A'}`
       : ''
-    const imgOpps = reviewAnalysis.imageOptimizationOpportunities
-      ?.slice(0, 4)
-      .map((o) => `${o.imageType}: ${o.rationale}`)
-      .join('; ') || ''
-    const imgStr = imgOpps ? `\nImage optimization hints: ${imgOpps}` : ''
 
     reviewSection = `${execSummary}Product strengths to highlight: ${strengths}
 Top use cases to emphasize: ${useCases}
 Customer language that resonates: ${posLang}
 Weaknesses to preemptively address: ${weaknesses}
 Bullet strategy from review analysis:
-  ${bulletStrat}${voiceStr}${profileStr}${msgStr}${imgStr}`
+  ${bulletStrat}${voiceStr}${profileStr}${msgStr}`
   }
 
   let qnaSection = 'No Q&A data available.'
@@ -670,7 +680,6 @@ Bullet strategy from review analysis:
       .map((f) => `Q: ${f.question} / A: ${f.answer}`)
       .join('\n  ') || 'N/A'
 
-    // New expanded fields
     const contradictions = qnaAnalysis.contradictions
       ?.slice(0, 3)
       .map((c) => `"${c.topic}": ${c.resolution}`)
@@ -702,7 +711,62 @@ FAQ to weave into description:
   ${faqs}${specStr}${contradStr}${riskStr}${defenseStr}`
   }
 
-  return `You are an expert Amazon listing copywriter. Generate an optimized product listing for the following product.
+  let competitorSection = ''
+  if (competitorAnalysis) {
+    const titlePatterns = competitorAnalysis.titlePatterns
+      ?.slice(0, 5)
+      .map((p) => `"${p.pattern}" (${p.frequency}x) — e.g. "${p.example}"`)
+      .join('\n  ') || 'N/A'
+    const bulletThemes = competitorAnalysis.bulletThemes
+      ?.slice(0, 6)
+      .map((t) => `${t.theme} (${t.frequency}x)`)
+      .join(', ') || 'N/A'
+    const gaps = competitorAnalysis.differentiationGaps
+      ?.slice(0, 5)
+      .map((g) => `${g.gap}: ${g.opportunity} (${g.priority})`)
+      .join('\n  ') || 'N/A'
+    const usps = competitorAnalysis.usps
+      ?.slice(0, 4)
+      .map((u) => `${u.usp} — Competitor weakness: ${u.competitorWeakness}`)
+      .join('\n  ') || 'N/A'
+
+    competitorSection = `
+=== COMPETITOR INTELLIGENCE ===
+Executive Summary: ${competitorAnalysis.executiveSummary}
+Competitor title patterns to learn from (and differentiate against):
+  ${titlePatterns}
+Common bullet themes across competitors: ${bulletThemes}
+Differentiation gaps to exploit:
+  ${gaps}
+Our unique selling propositions:
+  ${usps}`
+  }
+
+  let existingListingSection = ''
+  if (optimizationMode === 'optimize_existing' && existingListingText) {
+    const bullets = existingListingText.bullets
+      .map((b, i) => `  Bullet ${i + 1}: ${b}`)
+      .join('\n')
+    existingListingSection = `
+
+=== EXISTING LISTING TO OPTIMIZE ===
+This is an OPTIMIZATION task. The customer has an existing listing they want improved. Analyze it first, then generate optimized versions.
+
+Current Title: ${existingListingText.title}
+Current Bullets:
+${bullets}
+Current Description: ${existingListingText.description}
+
+OPTIMIZATION INSTRUCTIONS:
+1. Score the existing listing 1-10 on: keyword coverage, benefit communication, readability, competitive positioning
+2. Identify missing high-volume keywords that should be added
+3. Identify weak/generic phrases that can be made more specific and compelling
+4. Preserve elements that are already strong (don't fix what isn't broken)
+5. Your generated variations should be OPTIMIZED versions of this listing, not entirely new listings
+6. Each variation strategy (SEO/Benefit/Balanced) should improve upon the original in its specific dimension`
+  }
+
+  return `You are an expert Amazon listing copywriter. ${optimizationMode === 'optimize_existing' ? 'Optimize an existing' : 'Generate an optimized'} product listing for the following product.
 
 === PRODUCT INFO ===
 Product: ${productName}
@@ -727,40 +791,79 @@ ${keywordSection}
 ${reviewSection}
 
 === Q&A / CUSTOMER CONCERNS ===
-${qnaSection}
+${qnaSection}${competitorSection}${existingListingSection}
+
+=== PLANNING PHASE ===
+BEFORE writing any content, you MUST first create a planningMatrix. For each bullet (1-${charLimits.bulletCount}), decide:
+- What is the primary focus of this bullet?
+- Which Q&A gaps does it address?
+- Which review themes does it leverage?
+- Which priority keywords must be woven in?
+- What Rufus AI question types does it preemptively answer?
+
+This planning step ensures each bullet has a distinct purpose and maximum coverage of customer needs.
 
 === OUTPUT FORMAT ===
 Return a JSON object with this EXACT structure:
 {
-  "title": ["variation 1", "variation 2", "variation 3"],
-  "bullets": [
-    ["bullet 1 var 1", "bullet 1 var 2", "bullet 1 var 3"],
-    ["bullet 2 var 1", "bullet 2 var 2", "bullet 2 var 3"],
-    ["bullet 3 var 1", "bullet 3 var 2", "bullet 3 var 3"],
-    ["bullet 4 var 1", "bullet 4 var 2", "bullet 4 var 3"],
-    ["bullet 5 var 1", "bullet 5 var 2", "bullet 5 var 3"]
+  "planningMatrix": [
+    {
+      "bulletNumber": 1,
+      "primaryFocus": "Main theme for this bullet",
+      "qnaGapsAddressed": ["gap 1", "gap 2"],
+      "reviewThemes": ["theme 1", "theme 2"],
+      "priorityKeywords": ["kw1", "kw2"],
+      "rufusQuestionTypes": ["question type 1"]
+    }
   ],
-  "description": ["variation 1", "variation 2", "variation 3"],
+  "title": ["SEO-dense title", "Benefit-focused title", "Balanced title", "Feature-rich title", "Concise/clean title"],
+  "bullets": [
+    {
+      "seo": { "concise": "110-140 char SEO bullet", "medium": "140-180 char SEO bullet", "longer": "180-${charLimits.bullet} char SEO bullet" },
+      "benefit": { "concise": "110-140 char benefit bullet", "medium": "140-180 char benefit bullet", "longer": "180-${charLimits.bullet} char benefit bullet" },
+      "balanced": { "concise": "110-140 char balanced bullet", "medium": "140-180 char balanced bullet", "longer": "180-${charLimits.bullet} char balanced bullet" }
+    }
+  ],
+  "description": ["SEO variation", "Benefit variation", "Balanced variation"],
   "searchTerms": ["variation 1", "variation 2", "variation 3"],
   "subjectMatter": [
     ["field 1 var 1", "field 1 var 2", "field 1 var 3"],
     ["field 2 var 1", "field 2 var 2", "field 2 var 3"],
     ["field 3 var 1", "field 3 var 2", "field 3 var 3"]
-  ]
+  ],
+  "backendAttributes": {
+    "material": ["value1", "value2"],
+    "target_audience": ["value1"],
+    "special_features": ["value1", "value2"],
+    "recommended_uses": ["value1", "value2"],
+    "included_components": ["value1"]
+  }
 }
 
 === RULES ===
-1. Each variation must be DISTINCT in style/approach, not just rephrased
-2. Variation 1: Keyword-dense, SEO-optimized — pack in as many relevant keywords as possible while remaining readable
-3. Variation 2: Benefit-focused, emotional appeal — speak to the customer's needs and desires
-4. Variation 3: Balanced — keywords + benefits combined naturally
-5. Title MUST start with the brand name "${brand}"
-6. Bullets should start with a CAPITALIZED benefit phrase followed by a dash or colon, then details
-7. Search terms: no brand name, no ASINs, no commas (space-separated), include common misspellings and synonyms
-8. Subject matter: short descriptive phrases for Amazon's subject matter fields (3 fields, each under 50 characters)
-9. STRICT character limits — count characters carefully and stay under the limits above
-10. ALL content in ${language}
-11. Only return valid JSON, no markdown fences or explanation`
+1. Generate exactly 5 DISTINCT title variations:
+   - Title 1: Keyword-dense, SEO-optimized — maximum keyword coverage while readable
+   - Title 2: Benefit-focused — speak to customer desires and needs
+   - Title 3: Balanced — keywords + benefits combined naturally
+   - Title 4: Feature-rich — highlight specific product features and specifications
+   - Title 5: Concise/clean — short, punchy, premium feel
+2. ALL titles MUST start with the brand name "${brand}"
+3. For EACH bullet point, generate 3 strategies x 3 lengths = 9 variations:
+   - SEO strategy: keyword-dense, search-optimized
+   - Benefit strategy: emotional, customer-focused, addresses pain points
+   - Balanced strategy: keywords + benefits naturally combined
+   - Concise: 110-140 characters
+   - Medium: 140-180 characters
+   - Longer: 180-${charLimits.bullet} characters (but NEVER exceed the limit)
+4. Bullets should start with a CAPITALIZED benefit phrase followed by a dash or colon, then details
+5. Each bullet must serve its planningMatrix purpose — no two bullets should overlap in primary focus
+6. Description: 3 distinct variations (SEO, Benefit, Balanced)
+7. Search terms: no brand name, no ASINs, no commas (space-separated), include misspellings and synonyms
+8. Subject matter: short descriptive phrases for Amazon's subject matter fields (3 fields, each under 50 chars)
+9. Backend attributes: recommend values for Amazon's backend fields based on keyword/review/Q&A data. Include at least: material, target_audience, special_features, recommended_uses, included_components. Add more if relevant.
+10. STRICT character limits — count characters carefully
+11. ALL content in ${language}
+12. Only return valid JSON, no markdown fences or explanation`
 }
 
 // --- Listing Generation Function ---
@@ -774,20 +877,22 @@ export async function generateListing(
 
   const response = await client.messages.create({
     model,
-    max_tokens: 12288,
+    max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
   })
+
+  if (response.stop_reason === 'max_tokens') {
+    throw new Error(
+      'Generation Failed: Response was cut off due to token limit. Try reducing the number of product attributes or simplifying the product name.'
+    )
+  }
 
   const text = response.content
     .filter((b): b is Anthropic.TextBlock => b.type === 'text')
     .map((b) => b.text)
     .join('')
 
-  // Try to parse, handling potential markdown fences
-  let jsonText = text.trim()
-  if (jsonText.startsWith('```')) {
-    jsonText = jsonText.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '')
-  }
+  const jsonText = stripMarkdownFences(text)
 
   const result = JSON.parse(jsonText) as ListingGenerationResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
@@ -894,6 +999,323 @@ export async function refineSection(
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
   return { refinedText: text, model, tokensUsed }
+}
+
+// --- Competitor Analysis ---
+
+function buildCompetitorAnalysisPrompt(
+  competitors: Array<{ title: string; bullets: string[]; description: string }>,
+  categoryName: string,
+  countryName: string
+): string {
+  const competitorTexts = competitors
+    .map((c, i) => {
+      const bullets = c.bullets.map((b, j) => `  Bullet ${j + 1}: ${b}`).join('\n')
+      return `--- Competitor ${i + 1} ---
+Title: ${c.title}
+Bullets:
+${bullets}
+Description: ${c.description}`
+    })
+    .join('\n\n')
+
+  return `You are an expert Amazon listing strategist. Analyze the following ${competitors.length} competitor listings for the "${categoryName}" category in the "${countryName}" marketplace.
+
+=== COMPETITOR LISTINGS ===
+${competitorTexts}
+
+=== TASK ===
+Perform a COMPREHENSIVE competitive analysis. Identify patterns, gaps, and opportunities.
+
+Return a JSON object with this EXACT structure:
+{
+  "executiveSummary": "<3-5 sentences: key competitive landscape insights, primary opportunity, biggest gap to exploit>",
+  "competitors": [
+    { "title": "competitor title", "bullets": ["bullet1",...], "description": "competitor description" }
+  ],
+  "titlePatterns": [
+    { "pattern": "pattern description", "frequency": <how many competitors use it>, "example": "example from a competitor" }
+  ],
+  "bulletThemes": [
+    { "theme": "theme description", "frequency": <how many competitors mention it>, "examples": ["example 1", "example 2"] }
+  ],
+  "featureComparisonMatrix": [
+    { "feature": "feature name", "competitors": { "Comp 1": true/false/"specific value", "Comp 2": true/false/"value" } }
+  ],
+  "differentiationGaps": [
+    { "gap": "what competitors miss", "opportunity": "how to exploit this", "priority": "CRITICAL/HIGH/MEDIUM/LOW" }
+  ],
+  "usps": [
+    { "usp": "unique selling proposition", "evidence": "why this is a USP", "competitorWeakness": "specific weakness to exploit" }
+  ]
+}
+
+Rules:
+1. Identify at least 5-8 title patterns (common structures, keyword placements, brand patterns)
+2. Identify at least 6-10 bullet themes (recurring topics across competitors)
+3. Feature comparison matrix should cover 8-12 features
+4. Find at least 4-6 differentiation gaps
+5. Suggest at least 3-5 USPs based on competitor weaknesses
+6. Only return valid JSON, no markdown fences or explanation`
+}
+
+export async function analyzeCompetitors(
+  competitors: Array<{ title: string; bullets: string[]; description: string }>,
+  categoryName: string,
+  countryName: string
+): Promise<{ result: import('@/types/api').CompetitorAnalysisResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildCompetitorAnalysisPrompt(competitors, categoryName, countryName)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const result = JSON.parse(stripMarkdownFences(text)) as import('@/types/api').CompetitorAnalysisResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
+// --- Q&A Coverage Verification ---
+
+function buildQnAVerificationPrompt(
+  listingText: Record<string, string>,
+  qnaAnalysis: QnAAnalysisResult
+): string {
+  const listingContent = Object.entries(listingText)
+    .map(([key, val]) => `${key}: ${val}`)
+    .join('\n\n')
+
+  const concerns = qnaAnalysis.customerConcerns
+    ?.map((c) => `- ${c.concern} (frequency: ${c.frequency})`)
+    .join('\n') || 'N/A'
+
+  const gaps = qnaAnalysis.contentGaps
+    ?.map((g) => `- ${g.gap} (${g.importance})`)
+    .join('\n') || 'N/A'
+
+  const themes = qnaAnalysis.themes
+    ?.map((t) => t.sampleQuestions?.map((q) => `- [${t.theme}] ${q}`).join('\n'))
+    .filter(Boolean)
+    .join('\n') || 'N/A'
+
+  return `You are an expert Amazon listing quality auditor. Verify how well the following listing addresses customer questions and concerns from Q&A data.
+
+=== LISTING CONTENT ===
+${listingContent}
+
+=== CUSTOMER CONCERNS FROM Q&A ===
+${concerns}
+
+=== CONTENT GAPS FROM Q&A ===
+${gaps}
+
+=== SAMPLE CUSTOMER QUESTIONS ===
+${themes}
+
+=== TASK ===
+For each customer concern and question, check if the listing addresses it — fully, partially, or not at all. Be thorough and specific.
+
+Return a JSON object with this EXACT structure:
+{
+  "overallScore": <1-10 score for Q&A coverage>,
+  "totalQuestions": <total concerns/gaps checked>,
+  "addressedCount": <fully addressed>,
+  "partiallyAddressedCount": <partially addressed>,
+  "unaddressedCount": <not addressed>,
+  "coverageMatrix": [
+    {
+      "question": "the customer concern or question",
+      "addressed": true/false,
+      "partially": true/false,
+      "addressedIn": "Title / Bullet 1 / Description / null",
+      "excerpt": "the specific text that addresses it, or null",
+      "recommendation": "how to address this gap, or null if fully addressed"
+    }
+  ]
+}
+
+Rules:
+1. Check EVERY concern and content gap, not just a sample
+2. "addressed" = the listing clearly answers/addresses this concern
+3. "partially" = the listing touches on it but doesn't fully answer
+4. "addressedIn" = which section of the listing addresses it
+5. "excerpt" = the specific phrase/sentence that addresses it
+6. "recommendation" = what to add/change if not fully addressed, including WHICH section to update
+7. Only return valid JSON, no markdown fences or explanation`
+}
+
+export async function verifyQnACoverage(
+  listingText: Record<string, string>,
+  qnaAnalysis: QnAAnalysisResult
+): Promise<{ result: import('@/types/api').QnACoverageResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildQnAVerificationPrompt(listingText, qnaAnalysis)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const result = JSON.parse(stripMarkdownFences(text)) as import('@/types/api').QnACoverageResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
+// --- Image Stack Recommendations ---
+
+function buildImageStackRecommendationPrompt(
+  categoryName: string,
+  keywordAnalysis?: KeywordAnalysisResult | null,
+  reviewAnalysis?: ReviewAnalysisResult | null,
+  qnaAnalysis?: QnAAnalysisResult | null
+): string {
+  let researchContext = ''
+
+  if (keywordAnalysis) {
+    const features = keywordAnalysis.featureDemand
+      ?.slice(0, 8)
+      .map((f) => `${f.feature} (${f.priority}, SV: ${f.totalSearchVolume})`)
+      .join('\n  ') || 'N/A'
+    const surfaces = keywordAnalysis.surfaceDemand
+      ?.slice(0, 6)
+      .map((s) => `${s.surfaceType} (SV: ${s.totalSearchVolume})`)
+      .join(', ') || 'N/A'
+    const intents = keywordAnalysis.customerIntentPatterns
+      ?.slice(0, 6)
+      .map((p) => `${p.category} (${p.priority})`)
+      .join(', ') || 'N/A'
+    researchContext += `\n=== KEYWORD INTELLIGENCE ===
+Feature demand:\n  ${features}
+Surface/application demand: ${surfaces}
+Customer intents: ${intents}\n`
+  }
+
+  if (reviewAnalysis) {
+    const strengths = reviewAnalysis.strengths
+      ?.slice(0, 6)
+      .map((s) => `${s.strength} (${s.mentions} mentions, ${s.impact})`)
+      .join('\n  ') || 'N/A'
+    const useCases = reviewAnalysis.useCases
+      ?.slice(0, 8)
+      .map((u) => `${u.useCase} (${u.priority})`)
+      .join(', ') || 'N/A'
+    const weaknesses = reviewAnalysis.weaknesses
+      ?.slice(0, 4)
+      .map((w) => `${w.weakness} (${w.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    const imageOps = reviewAnalysis.imageOptimizationOpportunities
+      ?.map((o) => `${o.imageType}: ${o.rationale} (Evidence: ${o.reviewEvidence})`)
+      .join('\n  ') || ''
+    const imageOpsStr = imageOps ? `\nImage optimization opportunities from reviews:\n  ${imageOps}` : ''
+    researchContext += `\n=== CUSTOMER REVIEW INSIGHTS ===
+Strengths:\n  ${strengths}
+Use cases: ${useCases}
+Weaknesses to address: ${weaknesses}${imageOpsStr}\n`
+  }
+
+  if (qnaAnalysis) {
+    const concerns = qnaAnalysis.customerConcerns
+      ?.slice(0, 6)
+      .map((c) => `${c.concern} (frequency: ${c.frequency})`)
+      .join(', ') || 'N/A'
+    const gaps = qnaAnalysis.contentGaps
+      ?.slice(0, 5)
+      .map((g) => `${g.gap} (${g.importance})`)
+      .join(', ') || 'N/A'
+    researchContext += `\n=== Q&A CUSTOMER CONCERNS ===
+Top concerns: ${concerns}
+Content gaps: ${gaps}\n`
+  }
+
+  if (!researchContext) {
+    researchContext = '\nNo research data available. Use general Amazon secondary image best practices.\n'
+  }
+
+  return `You are an expert Amazon listing image strategist. Based on research data, recommend the optimal 9 secondary image types for position 2-10 of an Amazon listing.
+
+Category: ${categoryName}
+${researchContext}
+=== TASK ===
+Recommend exactly 9 image types for secondary image positions (2-10). Each recommendation should be data-driven — backed by keyword demand, review insights, or customer Q&A patterns.
+
+Standard secondary image types to consider (adapt and prioritize based on data):
+- Lifestyle/In-Use, Key Features Infographic, How-To/Usage Guide
+- Size/Dimensions/Contents, Materials/Quality Close-up, Comparison Chart
+- Benefits Infographic, Social Proof/Trust, Brand Story
+- Before/After, Multi-Surface Demo, Color Chart, Bundle/Contents Flatlay
+- Problem/Solution, Warranty/Guarantee, User-Generated Style
+
+=== OUTPUT FORMAT ===
+Return valid JSON only, no markdown fences:
+{
+  "overallStrategy": "2-3 sentence strategic rationale for the recommended image stack",
+  "recommendations": [
+    {
+      "position": 1,
+      "recommendedType": "Image type name",
+      "rationale": "Why this image type at this position — cite specific research data",
+      "evidence": {
+        "keywordSignals": ["relevant keyword 1", "relevant keyword 2"],
+        "reviewMentions": <number of relevant review mentions>,
+        "qnaQuestions": <number of relevant Q&A questions>
+      },
+      "confidence": "HIGH/MEDIUM/LOW"
+    }
+  ]
+}
+
+Rules:
+1. Position 1 should be the highest-impact image (first thing after main image)
+2. Prioritize: features with high keyword demand > review pain points > Q&A gaps
+3. Vary image types — don't recommend 3 infographics in a row
+4. Consider the psychological flow: hook → features → proof → trust → brand
+5. Cite specific data from the research to justify each recommendation
+6. Only return valid JSON, no markdown fences or explanation`
+}
+
+export async function generateImageStackRecommendations(
+  categoryName: string,
+  keywordAnalysis?: KeywordAnalysisResult | null,
+  reviewAnalysis?: ReviewAnalysisResult | null,
+  qnaAnalysis?: QnAAnalysisResult | null
+): Promise<{ result: import('@/types/api').ImageStackRecommendationsResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildImageStackRecommendationPrompt(categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const result = JSON.parse(stripMarkdownFences(text)) as import('@/types/api').ImageStackRecommendationsResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
 }
 
 // --- Analysis Functions ---

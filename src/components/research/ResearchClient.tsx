@@ -13,6 +13,7 @@ import { FileUploader } from '@/components/research/FileUploader'
 import { FileList } from '@/components/research/FileList'
 import { AnalysisStatusPanel } from '@/components/research/AnalysisProgress'
 import { AnalysisViewer } from '@/components/research/AnalysisViewer'
+import { CompetitorInput } from '@/components/research/CompetitorInput'
 import { Info } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCategory, LbCountry } from '@/types'
@@ -361,6 +362,15 @@ export function ResearchClient({
 
                 <AnalysisViewer analyses={analyses} />
               </div>
+            )}
+
+            {/* Competitor Analysis — available regardless of file uploads */}
+            {categoryId && countryId && (
+              <CompetitorInput
+                categoryId={categoryId}
+                countryId={countryId}
+                onAnalysisComplete={fetchAnalyses}
+              />
             )}
           </div>
         </>

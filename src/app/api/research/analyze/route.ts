@@ -4,15 +4,15 @@ import { getAuthenticatedUser } from '@/lib/auth'
 import { analyzeKeywords, analyzeReviews, analyzeQnA, convertAnalysisFile, mergeAnalysisResults } from '@/lib/claude'
 import type { AnalysisType, AnalysisSource, FileType } from '@/types'
 
-// Maps analysis_type → raw CSV file types
-const RAW_FILE_TYPES: Record<AnalysisType, FileType[]> = {
+// Maps analysis_type → raw CSV file types (competitor_analysis uses text paste, not files)
+const RAW_FILE_TYPES: Partial<Record<AnalysisType, FileType[]>> = {
   keyword_analysis: ['keywords'],
   review_analysis: ['reviews'],
   qna_analysis: ['qna', 'rufus_qna'],
 }
 
 // Maps analysis_type → pre-analyzed file type
-const ANALYSIS_FILE_TYPES: Record<AnalysisType, FileType> = {
+const ANALYSIS_FILE_TYPES: Partial<Record<AnalysisType, FileType>> = {
   keyword_analysis: 'keywords_analysis',
   review_analysis: 'reviews_analysis',
   qna_analysis: 'qna_analysis',
@@ -39,9 +39,10 @@ export async function POST(request: Request) {
       )
     }
 
+    // competitor_analysis has its own dedicated route — not handled here
     const validTypes: AnalysisType[] = ['keyword_analysis', 'review_analysis', 'qna_analysis']
     if (!validTypes.includes(analysis_type)) {
-      return NextResponse.json({ error: 'Invalid analysis_type' }, { status: 400 })
+      return NextResponse.json({ error: 'Invalid analysis_type. Use /api/research/analyze/competitors for competitor analysis.' }, { status: 400 })
     }
 
     const validSources: AnalysisSource[] = ['csv', 'file', 'merged']
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
     // ── CSV or FILE or PRIMARY path: download files from storage ──
 
     // Check for pre-analyzed file
-    const analysisFileType = ANALYSIS_FILE_TYPES[analysis_type]
+    const analysisFileType = ANALYSIS_FILE_TYPES[analysis_type] || 'keywords_analysis'
     const { data: analysisFiles } = await supabase
       .from('lb_research_files')
       .select('id, file_type, storage_path, file_name')
@@ -82,7 +83,7 @@ export async function POST(request: Request) {
       .limit(1)
 
     // Check for raw CSV files
-    const rawFileTypes = RAW_FILE_TYPES[analysis_type]
+    const rawFileTypes = RAW_FILE_TYPES[analysis_type] || []
     const { data: rawFiles, error: filesError } = await supabase
       .from('lb_research_files')
       .select('id, file_type, storage_path, file_name')

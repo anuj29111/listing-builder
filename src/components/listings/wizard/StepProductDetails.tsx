@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2, MapPin, Tag } from 'lucide-react'
+import { Textarea } from '@/components/ui/textarea'
 import type { LbCategory } from '@/types/database'
 
 interface StepProductDetailsProps {
@@ -25,6 +26,10 @@ export function StepProductDetails({ categories }: StepProductDetailsProps) {
   const addAttribute = useListingStore((s) => s.addAttribute)
   const removeAttribute = useListingStore((s) => s.removeAttribute)
   const updateAttribute = useListingStore((s) => s.updateAttribute)
+  const optimizationMode = useListingStore((s) => s.optimizationMode)
+  const setOptimizationMode = useListingStore((s) => s.setOptimizationMode)
+  const existingListingText = useListingStore((s) => s.existingListingText)
+  const setExistingListingText = useListingStore((s) => s.setExistingListingText)
 
   const selectedCategory = categories.find((c) => c.id === categoryId)
 
@@ -36,6 +41,103 @@ export function StepProductDetails({ categories }: StepProductDetailsProps) {
           Enter the product information for your listing
         </p>
       </div>
+
+      {/* Optimization Mode Toggle */}
+      <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/30">
+        <span className="text-sm font-medium mr-2">Mode:</span>
+        <button
+          onClick={() => {
+            setOptimizationMode('new')
+            setExistingListingText(null)
+          }}
+          className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+            optimizationMode === 'new'
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-background border hover:bg-muted'
+          }`}
+        >
+          New Product
+        </button>
+        <button
+          onClick={() => {
+            setOptimizationMode('optimize_existing')
+            if (!existingListingText) {
+              setExistingListingText({ title: '', bullets: ['', '', '', '', ''], description: '' })
+            }
+          }}
+          className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+            optimizationMode === 'optimize_existing'
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-background border hover:bg-muted'
+          }`}
+        >
+          Optimize Existing
+        </button>
+      </div>
+
+      {/* Existing Listing Text (only in optimize mode) */}
+      {optimizationMode === 'optimize_existing' && existingListingText && (
+        <div className="space-y-4 rounded-lg border p-4 bg-muted/20">
+          <div>
+            <h3 className="text-sm font-semibold mb-1">Current Listing to Optimize</h3>
+            <p className="text-xs text-muted-foreground">
+              Paste your existing listing text below. Claude will analyze it, score it, and generate optimized variations.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="existingTitle">Existing Title</Label>
+            <Textarea
+              id="existingTitle"
+              value={existingListingText.title}
+              onChange={(e) =>
+                setExistingListingText({
+                  ...existingListingText,
+                  title: e.target.value,
+                })
+              }
+              placeholder="Paste your current Amazon title here..."
+              rows={2}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Existing Bullet Points</Label>
+            {existingListingText.bullets.map((bullet, i) => (
+              <Textarea
+                key={i}
+                value={bullet}
+                onChange={(e) => {
+                  const newBullets = [...existingListingText.bullets]
+                  newBullets[i] = e.target.value
+                  setExistingListingText({
+                    ...existingListingText,
+                    bullets: newBullets,
+                  })
+                }}
+                placeholder={`Bullet point ${i + 1}...`}
+                rows={2}
+              />
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="existingDescription">Existing Description</Label>
+            <Textarea
+              id="existingDescription"
+              value={existingListingText.description}
+              onChange={(e) =>
+                setExistingListingText({
+                  ...existingListingText,
+                  description: e.target.value,
+                })
+              }
+              placeholder="Paste your current Amazon description here..."
+              rows={4}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Context Badge */}
       <div className="flex items-center gap-2 flex-wrap">

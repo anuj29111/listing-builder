@@ -33,6 +33,8 @@ interface ListingWizardState {
   attributes: ProductAttribute[]
   productTypeName: string
   productTypeId: string | null
+  optimizationMode: 'new' | 'optimize_existing'
+  existingListingText: { title: string; bullets: string[]; description: string } | null
 
   // Step 3: Generation result
   listingId: string | null
@@ -76,7 +78,10 @@ interface ListingWizardState {
   ) => void
   selectVariation: (sectionId: string, variationIndex: number) => void
   toggleSectionApproval: (sectionId: string) => void
+  updateFinalText: (sectionId: string, text: string) => void
   setListingStatus: (status: ListingStatus) => void
+  setOptimizationMode: (mode: 'new' | 'optimize_existing') => void
+  setExistingListingText: (text: { title: string; bullets: string[]; description: string } | null) => void
   addVariation: (sectionId: string, newText: string, newIndex: number) => void
   setSections: (sections: LbListingSection[]) => void
   loadEditListing: (
@@ -104,6 +109,8 @@ const initialState = {
   attributes: [{ key: '', value: '' }] as ProductAttribute[],
   productTypeName: '',
   productTypeId: null as string | null,
+  optimizationMode: 'new' as 'new' | 'optimize_existing',
+  existingListingText: null as { title: string; bullets: string[]; description: string } | null,
   listingId: null as string | null,
   isGenerating: false,
   generationError: null as string | null,
@@ -178,7 +185,18 @@ export const useListingStore = create<ListingWizardState>((set) => ({
       ),
     })),
 
+  updateFinalText: (sectionId, text) =>
+    set((state) => ({
+      sections: state.sections.map((s) =>
+        s.id === sectionId ? { ...s, final_text: text } : s
+      ),
+    })),
+
   setListingStatus: (status) => set({ listingStatus: status }),
+
+  setOptimizationMode: (mode) => set({ optimizationMode: mode }),
+
+  setExistingListingText: (text) => set({ existingListingText: text }),
 
   addVariation: (sectionId, newText, newIndex) =>
     set((state) => ({

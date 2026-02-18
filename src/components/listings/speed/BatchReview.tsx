@@ -25,8 +25,7 @@ export function BatchReview() {
   const setExpandedListingId = useBatchStore((s) => s.setExpandedListingId)
   const approveAllSections = useBatchStore((s) => s.approveAllSections)
   const approveAllListings = useBatchStore((s) => s.approveAllListings)
-  const selectVariation = useBatchStore((s) => s.selectVariation)
-  const toggleSectionApproval = useBatchStore((s) => s.toggleSectionApproval)
+  const updateFinalText = useBatchStore((s) => s.updateFinalText)
   const addVariation = useBatchStore((s) => s.addVariation)
   const charLimits = useBatchStore((s) => s.charLimits)
   const batchJobId = useBatchStore((s) => s.batchJobId)
@@ -37,7 +36,7 @@ export function BatchReview() {
   // Count approved sections across all listings
   const totalSections = generatedListings.length * 9
   const approvedSections = generatedListings.reduce(
-    (sum, gl) => sum + gl.sections.filter((s) => s.is_approved).length,
+    (sum, gl) => sum + gl.sections.filter((s) => (s.final_text?.trim() || '').length > 0).length,
     0
   )
 
@@ -74,9 +73,10 @@ export function BatchReview() {
               sections: gl.sections.map((s) => ({
                 id: s.id,
                 selected_variation: s.selected_variation,
-                is_approved: s.is_approved,
+                is_approved: (s.final_text?.trim() || '').length > 0,
+                final_text: s.final_text || null,
               })),
-              status: gl.sections.every((s) => s.is_approved) ? 'approved' : 'review',
+              status: gl.sections.every((s) => (s.final_text?.trim() || '').length > 0) ? 'approved' : 'review',
             }),
           })
           return res.ok
@@ -112,8 +112,13 @@ export function BatchReview() {
           const sorted = sortSections(gl.sections)
           for (const section of sorted) {
             const label = SECTION_TYPE_LABELS[section.section_type] || section.section_type
-            const vars = section.variations as string[]
-            const text = vars[section.selected_variation] || vars[0] || ''
+            let text = ''
+            if (section.final_text && section.final_text.trim()) {
+              text = section.final_text
+            } else {
+              const vars = section.variations as string[]
+              text = vars[section.selected_variation] || vars[0] || ''
+            }
             lines.push(`${label}: ${text}`)
           }
           lines.push('')
@@ -266,7 +271,7 @@ export function BatchReview() {
             (gl.listing.generation_context as Record<string, string>)?.productName || 'Unknown'
           const asin = (gl.listing.generation_context as Record<string, string>)?.asin || ''
           const isExpanded = expandedListingId === gl.listing.id
-          const sectionApprovedCount = gl.sections.filter((s) => s.is_approved).length
+          const sectionApprovedCount = gl.sections.filter((s) => (s.final_text?.trim() || '').length > 0).length
           const sorted = sortSections(gl.sections)
 
           return (
@@ -335,11 +340,8 @@ export function BatchReview() {
                         label={SECTION_TYPE_LABELS[section.section_type] || section.section_type}
                         charLimit={getCharLimit(section.section_type)}
                         listingId={gl.listing.id}
-                        onSelectVariation={(sectionId, varIdx) =>
-                          selectVariation(gl.listing.id, sectionId, varIdx)
-                        }
-                        onToggleApproval={(sectionId) =>
-                          toggleSectionApproval(gl.listing.id, sectionId)
+                        onFinalTextChange={(sectionId, text) =>
+                          updateFinalText(gl.listing.id, sectionId, text)
                         }
                         onVariationAdded={(sectionId, newText, newIndex) =>
                           addVariation(gl.listing.id, sectionId, newText, newIndex)

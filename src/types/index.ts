@@ -15,6 +15,8 @@ export type {
   LbSyncLog,
   LbExportLog,
   LbAPlusModule,
+  BulletPlanningMatrixEntry,
+  ExistingListingText,
 } from './database'
 
 export type {
@@ -43,14 +45,18 @@ export type {
   CreateAPlusModuleRequest,
   APlusModuleResponse,
   GenerateAPlusContentRequest,
+  CompetitorAnalysisResult,
+  QnACoverageResult,
+  ImageStackRecommendation,
+  ImageStackRecommendationsResult,
 } from './api'
 
 export type Brand = 'Chalkola' | 'Spedalon' | 'Funcils' | 'Other'
 export type FileType = 'keywords' | 'reviews' | 'qna' | 'rufus_qna' | 'keywords_analysis' | 'reviews_analysis' | 'qna_analysis'
-export type AnalysisType = 'keyword_analysis' | 'review_analysis' | 'qna_analysis'
+export type AnalysisType = 'keyword_analysis' | 'review_analysis' | 'qna_analysis' | 'competitor_analysis'
 export type AnalysisSource = 'csv' | 'file' | 'merged'
 export type ListingStatus = 'draft' | 'review' | 'approved' | 'exported'
-export type SectionType = 'title' | 'bullet_1' | 'bullet_2' | 'bullet_3' | 'bullet_4' | 'bullet_5' | 'description' | 'search_terms' | 'subject_matter'
+export type SectionType = 'title' | 'bullet_1' | 'bullet_2' | 'bullet_3' | 'bullet_4' | 'bullet_5' | 'description' | 'search_terms' | 'subject_matter' | 'backend_attributes'
 export type ImageProvider = 'dalle3' | 'gemini'
 export type SyncType = 'google_drive' | 'apify' | 'datadive'
 export type ExportType = 'csv' | 'clipboard' | 'flat_file'

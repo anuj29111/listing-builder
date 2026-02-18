@@ -79,6 +79,7 @@ interface BatchState {
   approveAllListings: () => void
   selectVariation: (listingId: string, sectionId: string, variationIndex: number) => void
   toggleSectionApproval: (listingId: string, sectionId: string) => void
+  updateFinalText: (listingId: string, sectionId: string, text: string) => void
   addVariation: (listingId: string, sectionId: string, newText: string, newIndex: number) => void
   resetBatch: () => void
 }
@@ -233,6 +234,19 @@ export const useBatchStore = create<BatchState>((set) => ({
           ...gl,
           sections: gl.sections.map((s) =>
             s.id === sectionId ? { ...s, is_approved: !s.is_approved } : s
+          ),
+        }
+      }),
+    })),
+
+  updateFinalText: (listingId, sectionId, text) =>
+    set((state) => ({
+      generatedListings: state.generatedListings.map((gl) => {
+        if (gl.listing.id !== listingId) return gl
+        return {
+          ...gl,
+          sections: gl.sections.map((s) =>
+            s.id === sectionId ? { ...s, final_text: text } : s
           ),
         }
       }),

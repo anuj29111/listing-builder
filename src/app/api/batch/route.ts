@@ -8,7 +8,7 @@ import {
   type QnAAnalysisResult,
 } from '@/lib/claude'
 import { SECTION_TYPES } from '@/lib/constants'
-import type { BatchProduct } from '@/types/api'
+import type { BatchProduct, CompetitorAnalysisResult } from '@/types/api'
 
 const MAX_BATCH_SIZE = 20
 
@@ -134,6 +134,7 @@ export async function POST(request: Request) {
     const keywordRow = pickBest('keyword_analysis')
     const reviewRow = pickBest('review_analysis')
     const qnaRow = pickBest('qna_analysis')
+    const competitorRow = pickBest('competitor_analysis')
 
     const keywordAnalysis = keywordRow
       ? (keywordRow.analysis_result as unknown as KeywordAnalysisResult)
@@ -143,6 +144,9 @@ export async function POST(request: Request) {
       : null
     const qnaAnalysis = qnaRow
       ? (qnaRow.analysis_result as unknown as QnAAnalysisResult)
+      : null
+    const competitorAnalysis = competitorRow
+      ? (competitorRow.analysis_result as unknown as CompetitorAnalysisResult)
       : null
 
     // Create batch job
@@ -226,7 +230,19 @@ export async function POST(request: Request) {
           keywordAnalysis,
           reviewAnalysis,
           qnaAnalysis,
+          competitorAnalysis,
         })
+
+        // Flatten bullet object into 9-element array
+        const flattenBullet = (bullet: typeof result.bullets[0]): string[] => {
+          if (!bullet) return []
+          if (Array.isArray(bullet)) return bullet as unknown as string[]
+          return [
+            bullet.seo?.concise || '', bullet.seo?.medium || '', bullet.seo?.longer || '',
+            bullet.benefit?.concise || '', bullet.benefit?.medium || '', bullet.benefit?.longer || '',
+            bullet.balanced?.concise || '', bullet.balanced?.medium || '', bullet.balanced?.longer || '',
+          ]
+        }
 
         // Insert listing row
         const { data: listing, error: listingError } = await adminClient
@@ -235,11 +251,13 @@ export async function POST(request: Request) {
             product_type_id: productType?.id || null,
             country_id,
             title: result.title[0] || '',
-            bullet_points: result.bullets.map((b) => b[0] || ''),
+            bullet_points: result.bullets.map((b) => flattenBullet(b)[0] || ''),
             description: result.description[0] || '',
             search_terms: result.searchTerms[0] || '',
-            subject_matter: result.subjectMatter.map((s) => s[0] || ''),
+            subject_matter: (result.subjectMatter || []).map((s) => s[0] || ''),
             backend_keywords: result.searchTerms[0] || '',
+            planning_matrix: result.planningMatrix || null,
+            backend_attributes: result.backendAttributes || null,
             status: 'draft',
             generation_context: {
               categoryId: category_id,
@@ -262,7 +280,7 @@ export async function POST(request: Request) {
           throw new Error(listingError?.message || 'Failed to save listing')
         }
 
-        // Insert 9 listing sections
+        // Insert listing sections
         const sectionRows = SECTION_TYPES.map((sectionType) => {
           let variations: string[] = []
 
@@ -270,7 +288,7 @@ export async function POST(request: Request) {
             variations = result.title
           } else if (sectionType.startsWith('bullet_')) {
             const bulletIndex = parseInt(sectionType.split('_')[1]) - 1
-            variations = result.bullets[bulletIndex] || []
+            variations = flattenBullet(result.bullets[bulletIndex])
           } else if (sectionType === 'description') {
             variations = result.description
           } else if (sectionType === 'search_terms') {
@@ -280,6 +298,12 @@ export async function POST(request: Request) {
             variations = [0, 1, 2].map((varIdx) =>
               sm.map((field) => field[varIdx] || '').join('; ')
             )
+          } else if (sectionType === 'backend_attributes') {
+            const attrs = result.backendAttributes || {}
+            const formatted = Object.entries(attrs)
+              .map(([key, values]) => `${key.replace(/_/g, ' ')}: ${(values || []).join(', ')}`)
+              .join('\n')
+            variations = [formatted]
           }
 
           return {

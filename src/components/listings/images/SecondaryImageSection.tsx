@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { IMAGE_ORIENTATION_LABELS } from '@/lib/constants'
+import { ImageStackRecommendations } from './ImageStackRecommendations'
 import { Loader2, Sparkles, ImageIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbImageGeneration, LbImageWorkshop } from '@/types/database'
@@ -266,17 +267,25 @@ export function SecondaryImageSection({
 
   if (!concepts.length && !isGeneratingPrompts) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
-        <h3 className="text-lg font-semibold mb-2">Secondary Image Concepts</h3>
-        <p className="text-sm text-muted-foreground mb-6 max-w-md">
-          AI will generate 9 secondary image concepts — lifestyle, infographic, how-to, comparison,
-          and more — all driven by your research data and listing content.
-        </p>
-        <Button onClick={handleGenerateConcepts} size="lg" className="gap-2">
-          <Sparkles className="h-4 w-4" />
-          Generate Secondary Concepts
-        </Button>
+      <div className="space-y-6">
+        {/* AI Recommendations (optional step before generating) */}
+        <ImageStackRecommendations
+          categoryId={categoryId}
+          countryId={countryId}
+        />
+
+        <div className="flex flex-col items-center justify-center py-12 text-center">
+          <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
+          <h3 className="text-lg font-semibold mb-2">Secondary Image Concepts</h3>
+          <p className="text-sm text-muted-foreground mb-6 max-w-md">
+            AI will generate 9 secondary image concepts — lifestyle, infographic, how-to, comparison,
+            and more — all driven by your research data and listing content.
+          </p>
+          <Button onClick={handleGenerateConcepts} size="lg" className="gap-2">
+            <Sparkles className="h-4 w-4" />
+            Generate Secondary Concepts
+          </Button>
+        </div>
       </div>
     )
   }

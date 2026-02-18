@@ -66,13 +66,14 @@ export async function POST(
       sectionsByListing[section.listing_id].push(section)
     }
 
-    // Helper to get selected text from sections
+    // Helper to get selected text — prefer final_text (user's edited version)
     const getSelectedText = (
       sections: typeof allSections,
       sectionType: string
     ): string => {
       const sec = (sections || []).find((s) => s.section_type === sectionType)
       if (!sec) return ''
+      if (sec.final_text && sec.final_text.trim()) return sec.final_text
       const vars = sec.variations as string[]
       return vars[sec.selected_variation] || vars[0] || ''
     }

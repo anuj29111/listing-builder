@@ -57,7 +57,7 @@ export interface LbResearchAnalysis {
   id: string
   category_id: string
   country_id: string
-  analysis_type: 'keyword_analysis' | 'review_analysis' | 'qna_analysis'
+  analysis_type: 'keyword_analysis' | 'review_analysis' | 'qna_analysis' | 'competitor_analysis'
   source_file_ids: string[]
   analysis_result: Record<string, unknown>
   model_used: string | null
@@ -111,17 +111,37 @@ export interface LbListing {
   created_by: string | null
   approved_by: string | null
   batch_job_id: string | null
+  planning_matrix: BulletPlanningMatrixEntry[] | null
+  backend_attributes: Record<string, string[]> | null
+  optimization_mode: 'new' | 'optimize_existing'
+  existing_listing_text: ExistingListingText | null
   created_at: string
   updated_at: string
+}
+
+export interface BulletPlanningMatrixEntry {
+  bulletNumber: number
+  primaryFocus: string
+  qnaGapsAddressed: string[]
+  reviewThemes: string[]
+  priorityKeywords: string[]
+  rufusQuestionTypes: string[]
+}
+
+export interface ExistingListingText {
+  title: string
+  bullets: string[]
+  description: string
 }
 
 export interface LbListingSection {
   id: string
   listing_id: string
-  section_type: 'title' | 'bullet_1' | 'bullet_2' | 'bullet_3' | 'bullet_4' | 'bullet_5' | 'description' | 'search_terms' | 'subject_matter'
+  section_type: 'title' | 'bullet_1' | 'bullet_2' | 'bullet_3' | 'bullet_4' | 'bullet_5' | 'description' | 'search_terms' | 'subject_matter' | 'backend_attributes'
   variations: unknown[]
   selected_variation: number
   is_approved: boolean
+  final_text: string | null
   created_at: string
   updated_at: string
 }

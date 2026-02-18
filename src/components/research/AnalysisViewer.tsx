@@ -1084,6 +1084,7 @@ const ANALYSIS_TYPE_PREFIXES: Record<string, string> = {
   keyword_analysis: 'Keywords',
   review_analysis: 'Reviews',
   qna_analysis: 'Q&A',
+  competitor_analysis: 'Competitors',
 }
 
 // Render a single analysis result based on type
@@ -1130,10 +1131,11 @@ export function AnalysisViewer({ analyses }: AnalysisViewerProps) {
     keyword_analysis: 'Keywords',
     review_analysis: 'Reviews',
     qna_analysis: 'Q&A',
+    competitor_analysis: 'Competitors',
   }
 
   // Group by analysis_type, preserving order
-  const orderedTypes = ['keyword_analysis', 'review_analysis', 'qna_analysis']
+  const orderedTypes = ['keyword_analysis', 'review_analysis', 'qna_analysis', 'competitor_analysis']
   const byType = new Map<string, typeof completedAnalyses>()
   for (const a of completedAnalyses) {
     if (!byType.has(a.analysis_type)) byType.set(a.analysis_type, [])

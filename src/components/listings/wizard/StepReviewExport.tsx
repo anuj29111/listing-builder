@@ -18,10 +18,9 @@ export function StepReviewExport() {
   const categoryName = useListingStore((s) => s.categoryName)
   const countryName = useListingStore((s) => s.countryName)
   const productName = useListingStore((s) => s.productName)
-  const selectVariation = useListingStore((s) => s.selectVariation)
-  const toggleSectionApproval = useListingStore((s) => s.toggleSectionApproval)
   const setListingStatus = useListingStore((s) => s.setListingStatus)
   const addVariation = useListingStore((s) => s.addVariation)
+  const updateFinalText = useListingStore((s) => s.updateFinalText)
 
   const [isSaving, setIsSaving] = useState(false)
 
@@ -30,6 +29,13 @@ export function StepReviewExport() {
       addVariation(sectionId, newText, newIndex)
     },
     [addVariation]
+  )
+
+  const handleFinalTextChange = useCallback(
+    (sectionId: string, text: string) => {
+      updateFinalText(sectionId, text)
+    },
+    [updateFinalText]
   )
 
   // Sort sections by SECTION_TYPES order
@@ -52,7 +58,7 @@ export function StepReviewExport() {
     return map[limitKey] || 250
   }
 
-  const approvedCount = sections.filter((s) => s.is_approved).length
+  const approvedCount = sections.filter((s) => (s.final_text?.trim() || '').length > 0).length
 
   const handleSave = useCallback(async () => {
     if (!listingId) return
@@ -65,7 +71,8 @@ export function StepReviewExport() {
           sections: sections.map((s) => ({
             id: s.id,
             selected_variation: s.selected_variation,
-            is_approved: s.is_approved,
+            is_approved: (s.final_text?.trim() || '').length > 0,
+            final_text: s.final_text || null,
           })),
           status: listingStatus,
         }),
@@ -99,7 +106,7 @@ export function StepReviewExport() {
       <div>
         <h2 className="text-lg font-semibold mb-1">Review & Export</h2>
         <p className="text-sm text-muted-foreground">
-          Select your preferred variation for each section, approve sections, and export
+          Review AI variations, paste your final text in the box below each section, then save and export
         </p>
       </div>
 
@@ -148,7 +155,7 @@ export function StepReviewExport() {
       </div>
 
       {/* Section Cards */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         {sortedSections.map((section) => (
           <SectionCard
             key={section.id}
@@ -156,8 +163,7 @@ export function StepReviewExport() {
             label={SECTION_TYPE_LABELS[section.section_type] || section.section_type}
             charLimit={getCharLimit(section.section_type)}
             listingId={listingId!}
-            onSelectVariation={selectVariation}
-            onToggleApproval={toggleSectionApproval}
+            onFinalTextChange={handleFinalTextChange}
             onVariationAdded={handleVariationAdded}
           />
         ))}

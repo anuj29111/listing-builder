@@ -53,10 +53,11 @@ export async function POST(request: Request) {
       (a, b) => (sectionOrder[a.section_type] ?? 99) - (sectionOrder[b.section_type] ?? 99)
     )
 
-    // Helper to get selected text from a section
+    // Helper to get selected text — prefer final_text (user's edited version)
     const getSelectedText = (sectionType: string): string => {
       const sec = sortedSections.find((s) => s.section_type === sectionType)
       if (!sec) return ''
+      if (sec.final_text && sec.final_text.trim()) return sec.final_text
       const vars = sec.variations as string[]
       return vars[sec.selected_variation] || vars[0] || ''
     }

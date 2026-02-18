@@ -22,6 +22,8 @@ export interface GenerateListingRequest {
   brand: string
   attributes: Record<string, string>
   product_type_name?: string
+  optimization_mode?: 'new' | 'optimize_existing'
+  existing_listing_text?: { title: string; bullets: string[]; description: string }
 }
 
 export interface GenerateListingResponse {
@@ -41,6 +43,7 @@ export interface UpdateListingSectionsRequest {
     id: string
     selected_variation: number
     is_approved: boolean
+    final_text?: string | null
   }>
   status?: 'draft' | 'review' | 'approved' | 'exported'
 }
@@ -302,4 +305,72 @@ export interface GenerateAPlusContentRequest {
   category_name: string
   category_id?: string
   country_id?: string
+}
+
+// --- Listing Enhancement Types ---
+
+export interface CompetitorAnalysisResult {
+  executiveSummary: string
+  competitors: Array<{
+    title: string
+    bullets: string[]
+    description: string
+  }>
+  titlePatterns: Array<{
+    pattern: string
+    frequency: number
+    example: string
+  }>
+  bulletThemes: Array<{
+    theme: string
+    frequency: number
+    examples: string[]
+  }>
+  featureComparisonMatrix: Array<{
+    feature: string
+    competitors: Record<string, boolean | string>
+  }>
+  differentiationGaps: Array<{
+    gap: string
+    opportunity: string
+    priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+  }>
+  usps: Array<{
+    usp: string
+    evidence: string
+    competitorWeakness: string
+  }>
+}
+
+export interface QnACoverageResult {
+  overallScore: number
+  totalQuestions: number
+  addressedCount: number
+  partiallyAddressedCount: number
+  unaddressedCount: number
+  coverageMatrix: Array<{
+    question: string
+    addressed: boolean
+    partially: boolean
+    addressedIn: string | null
+    excerpt: string | null
+    recommendation: string | null
+  }>
+}
+
+export interface ImageStackRecommendation {
+  position: number
+  recommendedType: string
+  rationale: string
+  evidence: {
+    keywordSignals: string[]
+    reviewMentions: number
+    qnaQuestions: number
+  }
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW'
+}
+
+export interface ImageStackRecommendationsResult {
+  recommendations: ImageStackRecommendation[]
+  overallStrategy: string
 }

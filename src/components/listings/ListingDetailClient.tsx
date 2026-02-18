@@ -7,6 +7,9 @@ import { Badge } from '@/components/ui/badge'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { SectionCard } from '@/components/listings/SectionCard'
 import { ExportOptions } from '@/components/listings/ExportOptions'
+import { BulletPlanningMatrix } from '@/components/listings/BulletPlanningMatrix'
+import { BackendAttributesCard } from '@/components/listings/BackendAttributesCard'
+import { QnAVerification } from '@/components/listings/QnAVerification'
 import { MainImageSection } from '@/components/listings/images/MainImageSection'
 import { SecondaryImageSection } from '@/components/listings/images/SecondaryImageSection'
 import { SECTION_TYPES, SECTION_TYPE_LABELS, SECTION_CHAR_LIMIT_MAP } from '@/lib/constants'
@@ -21,6 +24,8 @@ interface ListingDetailClientProps {
     status: string
     country_id: string
     generation_context: Record<string, unknown>
+    planning_matrix?: unknown[] | null
+    backend_attributes?: Record<string, string[]> | null
     product_type?: { id: string; name: string; asin: string | null; category_id: string } | null
     country?: {
       name: string; code: string; flag_emoji: string | null; language: string
@@ -67,7 +72,7 @@ export function ListingDetailClient({
     router.replace(`/listings/${listing.id}?${params.toString()}`, { scroll: false })
   }
 
-  // --- Content tab logic (from StepReviewExport) ---
+  // --- Content tab logic ---
   const charLimits = {
     title: listing.country?.title_limit || 200,
     bullet: listing.country?.bullet_limit || 500,
@@ -93,15 +98,9 @@ export function ListingDetailClient({
     return map[limitKey] || 250
   }
 
-  const selectVariation = useCallback((sectionId: string, variationIndex: number) => {
+  const updateFinalText = useCallback((sectionId: string, text: string) => {
     setSections((prev) =>
-      prev.map((s) => (s.id === sectionId ? { ...s, selected_variation: variationIndex } : s))
-    )
-  }, [])
-
-  const toggleSectionApproval = useCallback((sectionId: string) => {
-    setSections((prev) =>
-      prev.map((s) => (s.id === sectionId ? { ...s, is_approved: !s.is_approved } : s))
+      prev.map((s) => (s.id === sectionId ? { ...s, final_text: text } : s))
     )
   }, [])
 
@@ -126,7 +125,8 @@ export function ListingDetailClient({
           sections: sections.map((s) => ({
             id: s.id,
             selected_variation: s.selected_variation,
-            is_approved: s.is_approved,
+            is_approved: (s.final_text?.trim() || '').length > 0,
+            final_text: s.final_text || null,
           })),
           status: listingStatus,
         }),
@@ -142,7 +142,7 @@ export function ListingDetailClient({
     }
   }
 
-  const approvedCount = sections.filter((s) => s.is_approved).length
+  const approvedCount = sections.filter((s) => (s.final_text?.trim() || '').length > 0).length
 
   const TABS: { key: Tab; label: string }[] = [
     { key: 'content', label: 'Content' },
@@ -246,8 +246,15 @@ export function ListingDetailClient({
             </div>
           </div>
 
+          {/* Planning Matrix (above bullet sections) */}
+          {listing.planning_matrix && (
+            <BulletPlanningMatrix
+              matrix={listing.planning_matrix as import('@/types/database').BulletPlanningMatrixEntry[]}
+            />
+          )}
+
           {/* Section Cards */}
-          <div className="space-y-4">
+          <div className="space-y-3">
             {sortedSections.map((section) => (
               <SectionCard
                 key={section.id}
@@ -255,12 +262,21 @@ export function ListingDetailClient({
                 label={SECTION_TYPE_LABELS[section.section_type] || section.section_type}
                 charLimit={getCharLimit(section.section_type)}
                 listingId={listing.id}
-                onSelectVariation={selectVariation}
-                onToggleApproval={toggleSectionApproval}
+                onFinalTextChange={updateFinalText}
                 onVariationAdded={addVariation}
               />
             ))}
           </div>
+
+          {/* Backend Attributes */}
+          {listing.backend_attributes && (
+            <BackendAttributesCard
+              attributes={listing.backend_attributes as Record<string, string[]>}
+            />
+          )}
+
+          {/* Q&A Verification */}
+          <QnAVerification listingId={listing.id} />
 
           {/* Export */}
           <ExportOptions listingId={listing.id} />

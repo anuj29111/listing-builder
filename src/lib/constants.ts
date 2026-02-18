@@ -6,7 +6,7 @@ export const BRANDS = ['Chalkola', 'Spedalon', 'Funcils', 'Other'] as const
 
 export const FILE_TYPES = ['keywords', 'reviews', 'qna', 'rufus_qna', 'keywords_analysis', 'reviews_analysis', 'qna_analysis'] as const
 
-export const ANALYSIS_TYPES = ['keyword_analysis', 'review_analysis', 'qna_analysis'] as const
+export const ANALYSIS_TYPES = ['keyword_analysis', 'review_analysis', 'qna_analysis', 'competitor_analysis'] as const
 
 export const LISTING_STATUSES = ['draft', 'review', 'approved', 'exported'] as const
 
@@ -20,6 +20,7 @@ export const SECTION_TYPES = [
   'description',
   'search_terms',
   'subject_matter',
+  'backend_attributes',
 ] as const
 
 export const IMAGE_PROVIDERS = ['dalle3', 'gemini', 'higgsfield'] as const
@@ -50,6 +51,7 @@ export const SECTION_TYPE_LABELS: Record<string, string> = {
   description: 'Description',
   search_terms: 'Search Terms',
   subject_matter: 'Subject Matter',
+  backend_attributes: 'Backend Attributes',
 }
 
 // Maps section_type to the corresponding country char limit field
@@ -63,6 +65,7 @@ export const SECTION_CHAR_LIMIT_MAP: Record<string, 'title_limit' | 'bullet_limi
   description: 'description_limit',
   search_terms: 'search_terms_limit',
   subject_matter: 'search_terms_limit', // subject matter uses same limit as search terms
+  backend_attributes: 'search_terms_limit',
 }
 
 export const FILE_TYPE_LABELS: Record<string, string> = {

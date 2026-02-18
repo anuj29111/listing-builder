@@ -107,14 +107,18 @@ npm run lint         # ESLint
 11. **Claude JSON responses** — Newer models return ```json fences despite instructions. Always `stripMarkdownFences()` before `JSON.parse()`.
 12. **Supabase Storage MIME types** — `lb-research-files` bucket allows: csv, excel, txt, markdown, json, octet-stream. Update if adding new file formats.
 13. **Large CSV analysis** — Reviews CSV can exceed 200K token limit. `truncateCSVContent()` in claude.ts handles this with even sampling.
-14. **Analysis source column** — `lb_research_analysis` has `source` column (`primary`/`csv`/`file`/`merged`). UNIQUE on `(category_id, country_id, analysis_type, source)`. All consumers must pick best source: merged > csv > file > primary.
+14. **Analysis source column** — `lb_research_analysis` has `source` column (`csv`/`file`/`merged`). UNIQUE on `(category_id, country_id, analysis_type, source)`. All consumers pick best source: merged > csv > file. Legacy `'primary'` was migrated out.
 15. **Stale processing detection** — Analysis stuck >5min in `processing` shows "Stuck — Retry" button. API route deletes+re-inserts on retry.
 16. **Workshop state loss (FIXED)** — Workshop POST now saves `generated_prompts` JSONB to DB. Store hydrates from DB on mount via `hydrateFromDB()`. DB is source of truth, Zustand is for in-page reactivity only.
-17. **Analysis source='primary' legacy** — Old analyses used `source='primary'`. New 3-row UI looks for `csv`/`file`/`merged`. Must handle `primary` records or migrate them.
+17. **Analysis source='primary' legacy (FIXED)** — Old `source='primary'` records migrated to `csv`. Code has defensive `normalizeSource()` mapping `primary` → `csv`. `AnalysisSource` type no longer includes `'primary'`.
 18. **Research page coordination** — `ResearchPageClient` wraps `ResearchStatusMatrix` + `ResearchClient`. Matrix click → sets selection → scrolls to research section. State lives in parent, passed as `externalCategoryId`/`externalCountryId`.
 19. **Supabase join returns array** — `select('field:table(cols)')` returns array not object. Normalize with `Array.isArray(x) ? x[0] || null : x` before passing to components.
 20. **Image builder dual entry** — `/listings/[id]` (tabs: Content/Main/Secondary) and `/images` (standalone with context picker). Both use shared `MainImageSection` + `SecondaryImageSection` components.
 21. **Workshop image_type column** — `lb_image_workshops.image_type` is `'main'` or `'secondary'`. Filter workshops by `image_type` when loading for each tab.
+22. **Bullet variations format** — New listings store 9 variations per bullet as flat array: `[seo_concise, seo_medium, seo_longer, benefit_concise, ..., balanced_longer]`. Old listings may have 3-element arrays. `flattenBullet()` in API route handles both.
+23. **SectionCard approval** — `final_text` replaces `is_approved` toggle. Section is "approved" when `final_text.trim()` is non-empty. `is_approved` DB column is derived from `final_text` on save.
+24. **Generation max_tokens** — Set to 32768 for the enhanced output format (5 titles, 9 bullet variations, planning matrix, backend attrs). If quality degrades, consider splitting into 2 calls.
+25. **Competitor analysis** — Stored as `analysis_type='competitor_analysis'` in `lb_research_analysis`. Max 5 competitors, 5000 chars each. Uses dedicated API route `/api/research/analyze/competitors`.
 
 ---
 
@@ -138,18 +142,17 @@ npm run lint         # ESLint
 
 ## Pending Tasks
 
-- **Research Analysis Bugs (PRIORITY):**
-  1. Third tab shows "Keywords — Analysis" — should be "Keywords — Merged"; similarly for Reviews/Q&A
-  2. Merged tab has data even though merge was never run — old `source='primary'` records showing as merged? Check DB source values
-  3. Reviews + Q&A show "Not run" despite completed analyses in DB — 3-row UI only looks for `csv`/`file`/`merged`, old records have `source='primary'`
-  4. Root cause: migrate old `primary` records to correct source, or add UI fallback
-
+- **Session 15 Enhancement Testing (Phases 1-6 built, needs e2e testing):**
+  1. Create new listing — verify 5 titles, 3x3 bullet variations, planning matrix, backend attributes all render
+  2. Test SectionCard — final text box, "Use" buttons, collapsible sections, char counters
+  3. Test Competitor Analysis — Research page → paste competitors → analyze → verify saved analysis
+  4. Test Optimize Existing mode — wizard toggle → paste listing → generate → verify optimized variations
+  5. Test Q&A Verification — listing detail page → "Verify Q&A Coverage" → coverage matrix
+  6. Test Image Stack Recommendations — secondary images tab → "Get Recommendations" panel
 - **Image Builder — End-to-end Testing:**
   1. Test main image flow: context picker → AI prompt generation → edit prompts → batch generate → tag elements → combine
   2. Test secondary image flow: 9 concepts generated from research → edit → generate individually or all
-  3. Test listing detail page (`/listings/[id]`): Content/Main/Secondary tabs, "Edit in Wizard" link
-  4. Test standalone `/images` page: both listing-based and research-based entry points
-  5. Verify DB persistence: navigate away and back, confirm workshops + images survive
+  3. Verify DB persistence: navigate away and back, confirm workshops + images survive
 
 ## Pending User Actions
 
