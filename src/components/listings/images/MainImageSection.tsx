@@ -6,21 +6,12 @@ import { ConceptCard } from './ConceptCard'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { IMAGE_ORIENTATION_LABELS } from '@/lib/constants'
+import { ProviderModelBar, getEffectiveModelId } from './ProviderModelBar'
 import { Loader2, Sparkles, ImageIcon, Tag, ArrowRight, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbImageGeneration, LbImageWorkshop } from '@/types/database'
 import type { WorkshopPrompt } from '@/types/api'
-import type { ProviderInfo } from '@/app/api/images/providers/route'
 
 interface MainImageSectionProps {
   listingId?: string | null
@@ -30,12 +21,6 @@ interface MainImageSectionProps {
   brand: string
   workshops: LbImageWorkshop[]
   images: LbImageGeneration[]
-}
-
-const COST_PER_IMAGE: Record<string, number> = {
-  openai: 3,
-  gemini: 2,
-  higgsfield: 0,
 }
 
 export function MainImageSection({
@@ -48,7 +33,6 @@ export function MainImageSection({
   images,
 }: MainImageSectionProps) {
   const store = useWorkshopStore()
-  const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [tagInputs, setTagInputs] = useState<Record<string, string>>({})
 
   // Find existing main workshop for this context
@@ -67,28 +51,7 @@ export function MainImageSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingWorkshop?.id])
 
-  // Fetch providers
-  useEffect(() => {
-    async function fetchProviders() {
-      try {
-        const res = await fetch('/api/images/providers')
-        const json = await res.json()
-        if (res.ok && json.data?.providers) {
-          setProviders((json.data.providers as ProviderInfo[]).filter((p) => p.enabled))
-        }
-      } catch {
-        setProviders([
-          { id: 'openai', label: 'GPT Image 1.5', enabled: true, models: [] },
-          { id: 'gemini', label: 'Gemini', enabled: true, models: [] },
-        ])
-      }
-    }
-    fetchProviders()
-  }, [])
-
   const selectedCount = store.selectedPromptIndices.length
-  const costPerImage = COST_PER_IMAGE[store.provider] || 0
-  const totalCost = selectedCount * costPerImage
 
   // Save to DB helper
   const patchWorkshop = useCallback(async (workshopId: string, updates: Record<string, unknown>) => {
@@ -157,19 +120,23 @@ export function MainImageSection({
     }
   }
 
-  // Provider/orientation change with DB persist
-  const handleProviderChange = async (provider: 'openai' | 'gemini' | 'higgsfield') => {
-    store.setProvider(provider)
+  // Provider/orientation/model change with DB persist
+  const handleProviderChange = async (provider: string) => {
+    store.setProvider(provider as 'openai' | 'gemini' | 'higgsfield')
     if (store.workshopId) {
       await patchWorkshop(store.workshopId, { provider })
     }
   }
 
-  const handleOrientationChange = async (orientation: 'square' | 'portrait' | 'landscape') => {
-    store.setOrientation(orientation)
+  const handleOrientationChange = async (orientation: string) => {
+    store.setOrientation(orientation as 'square' | 'portrait' | 'landscape')
     if (store.workshopId) {
       await patchWorkshop(store.workshopId, { orientation })
     }
+  }
+
+  const handleGeminiModelChange = (model: string | null) => {
+    store.setGeminiModel(model)
   }
 
   // Batch generate images
@@ -190,6 +157,7 @@ export function MainImageSection({
           prompts: selectedPrompts.map((p) => ({ prompt: p.prompt, label: p.label })),
           provider: store.provider,
           orientation: store.orientation,
+          model_id: getEffectiveModelId(store.provider, store.geminiModel),
           image_type: 'main',
         }),
       })
@@ -229,6 +197,7 @@ export function MainImageSection({
           prompt: prompt.prompt,
           provider: store.provider,
           orientation: store.orientation,
+          model_id: getEffectiveModelId(store.provider, store.geminiModel),
           listing_id: listingId || undefined,
         }),
       })
@@ -299,6 +268,7 @@ export function MainImageSection({
           prompt: combined,
           provider: store.provider,
           orientation: store.orientation,
+          model_id: getEffectiveModelId(store.provider, store.geminiModel),
           listing_id: listingId || undefined,
         }),
       })
@@ -393,42 +363,18 @@ export function MainImageSection({
         </div>
       </div>
 
-      {/* Provider + Orientation bar */}
+      {/* Provider + Model + Orientation bar */}
       {!hasImages && (
-        <div className="flex items-center gap-4 p-4 border rounded-lg bg-muted/30">
-          <div className="flex-1">
-            <Label className="text-xs">Provider</Label>
-            <Select value={store.provider} onValueChange={handleProviderChange}>
-              <SelectTrigger className="h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {providers.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex-1">
-            <Label className="text-xs">Orientation</Label>
-            <Select value={store.orientation} onValueChange={handleOrientationChange}>
-              <SelectTrigger className="h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(IMAGE_ORIENTATION_LABELS).map(([key, label]) => (
-                  <SelectItem key={key} value={key}>{label as string}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="text-right">
-            <Label className="text-xs">Estimated Cost</Label>
-            <p className="text-sm font-mono font-semibold">
-              {totalCost > 0 ? `${totalCost}\u00A2` : 'Free'}
-            </p>
-          </div>
-        </div>
+        <ProviderModelBar
+          provider={store.provider}
+          orientation={store.orientation}
+          geminiModel={store.geminiModel}
+          onProviderChange={handleProviderChange}
+          onOrientationChange={handleOrientationChange}
+          onGeminiModelChange={handleGeminiModelChange}
+          imageCount={selectedCount}
+          costLabel="Estimated Cost"
+        />
       )}
 
       {/* Concept Cards */}
@@ -513,7 +459,6 @@ export function MainImageSection({
               <>
                 <ImageIcon className="mr-2 h-4 w-4" />
                 Generate {selectedCount} Images
-                {totalCost > 0 && ` (${totalCost}\u00A2)`}
               </>
             )}
           </Button>

@@ -7,19 +7,11 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { IMAGE_ORIENTATION_LABELS } from '@/lib/constants'
+import { ProviderModelBar, getEffectiveModelId } from './ProviderModelBar'
 import { Loader2, Sparkles, Palette, Plus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbImageGeneration, LbImageWorkshop } from '@/types/database'
 import type { SwatchConcept, SwatchVariant } from '@/types/api'
-import type { ProviderInfo } from '@/app/api/images/providers/route'
 
 interface SwatchImageSectionProps {
   listingId?: string | null
@@ -29,12 +21,6 @@ interface SwatchImageSectionProps {
   brand: string
   workshops: LbImageWorkshop[]
   images: LbImageGeneration[]
-}
-
-const COST_PER_IMAGE: Record<string, number> = {
-  openai: 3,
-  gemini: 2,
-  higgsfield: 0,
 }
 
 const MAX_VARIANTS = 20
@@ -50,7 +36,6 @@ export function SwatchImageSection({
   workshops,
   images,
 }: SwatchImageSectionProps) {
-  const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [concepts, setConcepts] = useState<SwatchConcept[]>([])
   const [workshopId, setWorkshopId] = useState<string | null>(null)
   const [conceptImages, setConceptImages] = useState<Record<number, LbImageGeneration>>({})
@@ -60,6 +45,7 @@ export function SwatchImageSection({
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 })
   const [provider, setProvider] = useState<'openai' | 'gemini' | 'higgsfield'>('gemini')
   const [orientation, setOrientation] = useState<'square' | 'portrait' | 'landscape'>('square')
+  const [geminiModel, setGeminiModel] = useState<string | null>(null)
 
   // Variant input state
   const [variants, setVariants] = useState<SwatchVariant[]>([{ ...EMPTY_VARIANT }])
@@ -88,25 +74,6 @@ export function SwatchImageSection({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingWorkshop?.id])
-
-  // Fetch providers
-  useEffect(() => {
-    async function fetchProviders() {
-      try {
-        const res = await fetch('/api/images/providers')
-        const json = await res.json()
-        if (res.ok && json.data?.providers) {
-          setProviders((json.data.providers as ProviderInfo[]).filter((p) => p.enabled))
-        }
-      } catch {
-        setProviders([
-          { id: 'openai', label: 'GPT Image 1.5', enabled: true, models: [] },
-          { id: 'gemini', label: 'Gemini', enabled: true, models: [] },
-        ])
-      }
-    }
-    fetchProviders()
-  }, [])
 
   // Save preference to DB
   const patchWorkshop = useCallback(async (wId: string, updates: Record<string, unknown>) => {
@@ -199,6 +166,7 @@ export function SwatchImageSection({
           prompts: [{ prompt: concept.prompt, label: concept.variant_name, position: concept.position }],
           provider,
           orientation,
+          model_id: getEffectiveModelId(provider, geminiModel),
           image_type: 'swatch',
         }),
       })
@@ -249,6 +217,7 @@ export function SwatchImageSection({
           })),
           provider,
           orientation,
+          model_id: getEffectiveModelId(provider, geminiModel),
           image_type: 'swatch',
         }),
       })
@@ -302,9 +271,12 @@ export function SwatchImageSection({
     if (workshopId) await patchWorkshop(workshopId, { orientation: val })
   }
 
+  const handleGeminiModelChange = (model: string | null) => {
+    setGeminiModel(model)
+  }
+
   const generatedCount = Object.keys(conceptImages).length
   const totalConcepts = concepts.length
-  const costPerImage = COST_PER_IMAGE[provider] || 0
 
   // --- Stage 1: Variant Input ---
 
@@ -456,41 +428,15 @@ export function SwatchImageSection({
         </div>
       </div>
 
-      {/* Provider + Orientation bar */}
-      <div className="flex items-center gap-4 p-4 border rounded-lg bg-muted/30">
-        <div className="flex-1">
-          <Label className="text-xs">Provider</Label>
-          <Select value={provider} onValueChange={handleProviderChange}>
-            <SelectTrigger className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {providers.map((p) => (
-                <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex-1">
-          <Label className="text-xs">Orientation</Label>
-          <Select value={orientation} onValueChange={handleOrientationChange}>
-            <SelectTrigger className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(IMAGE_ORIENTATION_LABELS).map(([key, label]) => (
-                <SelectItem key={key} value={key}>{label as string}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="text-right">
-          <Label className="text-xs">Cost per Image</Label>
-          <p className="text-sm font-mono font-semibold">
-            {costPerImage > 0 ? `${costPerImage}\u00A2` : 'Free'}
-          </p>
-        </div>
-      </div>
+      {/* Provider + Model + Orientation bar */}
+      <ProviderModelBar
+        provider={provider}
+        orientation={orientation}
+        geminiModel={geminiModel}
+        onProviderChange={handleProviderChange}
+        onOrientationChange={handleOrientationChange}
+        onGeminiModelChange={handleGeminiModelChange}
+      />
 
       {/* Concept Cards */}
       <div className="space-y-3">
@@ -535,7 +481,6 @@ export function SwatchImageSection({
           <>
             <Palette className="mr-2 h-4 w-4" />
             Generate All Remaining ({totalConcepts - generatedCount} swatches)
-            {costPerImage > 0 && ` — ${(totalConcepts - generatedCount) * costPerImage}\u00A2`}
           </>
         )}
       </Button>
