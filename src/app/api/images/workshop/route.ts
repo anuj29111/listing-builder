@@ -169,11 +169,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ data: { workshops: ws, images: imgs } })
     }
 
-    // Default: return recent workshops list
+    // Default: return recent workshops list (for drafts display)
     const { data, error } = await supabase
       .from('lb_image_workshops')
-      .select('id, name, product_name, brand, step, created_at')
-      .order('created_at', { ascending: false })
+      .select('id, name, product_name, brand, image_type, category_id, country_id, listing_id, step, created_at, updated_at')
+      .order('updated_at', { ascending: false })
       .limit(20)
 
     if (error) {

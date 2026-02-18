@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ImageIcon, ArrowRight, X } from 'lucide-react'
+import { ImageIcon, ArrowRight, X, Clock, Palette, Video, Image } from 'lucide-react'
 import type { LbCategory, LbCountry, LbImageWorkshop, LbImageGeneration } from '@/types/database'
 
 interface ListingOption {
@@ -44,6 +44,52 @@ interface ResolvedContext {
   brand: string
 }
 
+interface DraftWorkshop {
+  id: string
+  name: string
+  product_name: string
+  brand: string
+  image_type: string
+  category_id: string | null
+  country_id: string | null
+  listing_id: string | null
+  step: number
+  created_at: string
+  updated_at: string
+}
+
+const IMAGE_TYPE_LABELS: Record<string, string> = {
+  main: 'Main Image',
+  secondary: 'Secondary Images',
+  video_thumbnail: 'Video Thumbnail',
+  swatch: 'Swatch',
+}
+
+const IMAGE_TYPE_ICONS: Record<string, typeof ImageIcon> = {
+  main: Image,
+  secondary: ImageIcon,
+  video_thumbnail: Video,
+  swatch: Palette,
+}
+
+const IMAGE_TYPE_TO_TAB: Record<string, Tab> = {
+  main: 'main',
+  secondary: 'secondary',
+  video_thumbnail: 'video_thumbnail',
+  swatch: 'swatch',
+}
+
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
+
 export function ImageBuilderClient({
   listings,
   categories,
@@ -66,6 +112,28 @@ export function ImageBuilderClient({
   const [images, setImages] = useState<LbImageGeneration[]>([])
   const [isLoadingWorkshops, setIsLoadingWorkshops] = useState(false)
 
+  // Drafts
+  const [drafts, setDrafts] = useState<DraftWorkshop[]>([])
+  const [isLoadingDrafts, setIsLoadingDrafts] = useState(true)
+
+  // Fetch drafts on mount
+  useEffect(() => {
+    async function fetchDrafts() {
+      try {
+        const res = await fetch('/api/images/workshop')
+        const json = await res.json()
+        if (res.ok && json.data) {
+          setDrafts(Array.isArray(json.data) ? json.data : [])
+        }
+      } catch {
+        setDrafts([])
+      } finally {
+        setIsLoadingDrafts(false)
+      }
+    }
+    fetchDrafts()
+  }, [])
+
   // Fetch workshops for the resolved context
   const fetchWorkshops = useCallback(async (ctx: ResolvedContext) => {
     setIsLoadingWorkshops(true)
@@ -86,7 +154,6 @@ export function ImageBuilderClient({
         setImages(imgs)
       }
     } catch {
-      // If API doesn't support GET yet, start fresh
       setWorkshops([])
       setImages([])
     } finally {
@@ -115,7 +182,6 @@ export function ImageBuilderClient({
           (listing.generation_context?.productName as string) || 'Product',
         brand: (listing.generation_context?.brand as string) || '',
       }
-      // Auto-fill brand from category if not in generation_context
       if (!ctx.brand && listing.product_type?.category_id) {
         const cat = categories.find((c) => c.id === listing.product_type?.category_id)
         if (cat) ctx.brand = cat.brand || ''
@@ -144,6 +210,19 @@ export function ImageBuilderClient({
     setContextMode(null)
   }
 
+  // Resume a draft — build context from the draft and jump to the right tab
+  const handleResumeDraft = (draft: DraftWorkshop) => {
+    const ctx: ResolvedContext = {
+      listingId: draft.listing_id,
+      categoryId: draft.category_id || '',
+      countryId: draft.country_id || '',
+      productName: draft.product_name,
+      brand: draft.brand,
+    }
+    setResolvedContext(ctx)
+    setActiveTab(IMAGE_TYPE_TO_TAB[draft.image_type] || 'main')
+  }
+
   const getListingLabel = (l: ListingOption) => {
     const name = l.product_type?.name || (l.generation_context?.productName as string) || 'Untitled'
     const asin = l.product_type?.asin
@@ -152,7 +231,7 @@ export function ImageBuilderClient({
 
   // --- Render ---
 
-  // Context not yet resolved — show picker
+  // Context not yet resolved — show picker + drafts
   if (!resolvedContext) {
     return (
       <div className="max-w-3xl mx-auto">
@@ -160,9 +239,83 @@ export function ImageBuilderClient({
           <ImageIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
           <h1 className="text-2xl font-bold">Image Builder</h1>
           <p className="text-sm text-muted-foreground mt-2">
-            Generate main and secondary product images powered by AI and your research data.
+            Generate main, secondary, video thumbnail, and swatch product images powered by AI and your research data.
           </p>
         </div>
+
+        {/* Drafts Section */}
+        {!contextMode && drafts.length > 0 && (
+          <div className="mb-8">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+              Your Drafts
+            </h2>
+            <div className="space-y-2">
+              {drafts.map((draft) => {
+                const IconComponent = IMAGE_TYPE_ICONS[draft.image_type] || ImageIcon
+                const typeLabel = IMAGE_TYPE_LABELS[draft.image_type] || draft.image_type
+                const country = countries.find((c) => c.id === draft.country_id)
+                const category = categories.find((c) => c.id === draft.category_id)
+
+                return (
+                  <button
+                    key={draft.id}
+                    onClick={() => handleResumeDraft(draft)}
+                    className="w-full flex items-center gap-4 p-4 border rounded-lg hover:border-primary hover:bg-muted/30 transition-colors text-left"
+                  >
+                    <div className="flex-shrink-0 h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
+                      <IconComponent className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium truncate">
+                          {draft.brand} {draft.product_name}
+                        </span>
+                        <Badge variant="secondary" className="text-xs flex-shrink-0">
+                          {typeLabel}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                        {country && (
+                          <span>{country.flag_emoji} {country.name}</span>
+                        )}
+                        {category && (
+                          <>
+                            <span>·</span>
+                            <span>{category.name}</span>
+                          </>
+                        )}
+                        <span>·</span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {timeAgo(draft.updated_at)}
+                        </span>
+                      </div>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {isLoadingDrafts && (
+          <div className="flex items-center justify-center py-6 mb-8">
+            <p className="text-sm text-muted-foreground">Loading drafts...</p>
+          </div>
+        )}
+
+        {/* Divider when drafts exist */}
+        {!contextMode && drafts.length > 0 && (
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-3 text-muted-foreground">or start new</span>
+            </div>
+          </div>
+        )}
 
         {/* Mode selection */}
         {!contextMode && (
@@ -343,7 +496,7 @@ export function ImageBuilderClient({
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
               activeTab === tab.key
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
