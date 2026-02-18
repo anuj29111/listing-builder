@@ -11,7 +11,7 @@ interface SectionCardProps {
   section: LbListingSection
   label: string
   charLimit: number
-  listingId: string
+  listingId?: string
   defaultCollapsed?: boolean
   onFinalTextChange: (sectionId: string, text: string) => void
   onVariationAdded: (sectionId: string, newText: string, newIndex: number) => void
@@ -191,39 +191,43 @@ export function SectionCard({
             )}
           </div>
 
-          {/* Refine Button */}
-          <div>
-            <Button
-              variant={isChatOpen ? 'secondary' : 'outline'}
-              size="sm"
-              onClick={() => setIsChatOpen(!isChatOpen)}
-              className="gap-1 h-7 text-xs"
-            >
-              {isChatOpen ? (
-                <>
-                  <X className="h-3 w-3" />
-                  Close Chat
-                </>
-              ) : (
-                <>
-                  <MessageSquare className="h-3 w-3" />
-                  Refine with AI
-                </>
-              )}
-            </Button>
-          </div>
+          {/* Refine Button — only shown when listing exists in DB */}
+          {listingId && (
+            <>
+              <div>
+                <Button
+                  variant={isChatOpen ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={() => setIsChatOpen(!isChatOpen)}
+                  className="gap-1 h-7 text-xs"
+                >
+                  {isChatOpen ? (
+                    <>
+                      <X className="h-3 w-3" />
+                      Close Chat
+                    </>
+                  ) : (
+                    <>
+                      <MessageSquare className="h-3 w-3" />
+                      Refine with AI
+                    </>
+                  )}
+                </Button>
+              </div>
 
-          {/* Modular Chat */}
-          {isChatOpen && (
-            <div className="border-t pt-3">
-              <ModularChat
-                listingId={listingId}
-                sectionId={section.id}
-                sectionType={section.section_type}
-                sectionLabel={label}
-                onNewVariation={onVariationAdded}
-              />
-            </div>
+              {/* Modular Chat */}
+              {isChatOpen && (
+                <div className="border-t pt-3">
+                  <ModularChat
+                    listingId={listingId}
+                    sectionId={section.id}
+                    sectionType={section.section_type}
+                    sectionLabel={label}
+                    onNewVariation={onVariationAdded}
+                  />
+                </div>
+              )}
+            </>
           )}
 
           {/* Final Approved Text */}

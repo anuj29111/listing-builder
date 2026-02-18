@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { LbListingSection, LbListing, LbProductType, LbCategory, LbCountry } from '@/types/database'
+import type { LbListingSection, LbListing, LbProductType, LbCategory, LbCountry, GenerationPhase, KeywordCoverage, BulletPlanningMatrixEntry } from '@/types/database'
 import type { ListingStatus } from '@/types'
 
 interface ProductAttribute {
@@ -47,6 +47,18 @@ interface ListingWizardState {
   sections: LbListingSection[]
   listingStatus: ListingStatus
 
+  // Phased generation state
+  generationPhase: GenerationPhase
+  activePhaseLoading: 'title' | 'bullets' | 'description' | 'backend' | null
+  keywordCoverage: KeywordCoverage | null
+  totalTokensUsed: number
+  confirmedTitle: string | null
+  confirmedBullets: string[] | null
+  confirmedDescription: string | null
+  confirmedSearchTerms: string | null
+  planningMatrix: BulletPlanningMatrixEntry[] | null
+  backendAttributes: Record<string, string[]> | null
+
   // Actions
   setStep: (step: number) => void
   setCategoryCountry: (
@@ -92,6 +104,37 @@ interface ListingWizardState {
     productType: LbProductType | null
   ) => void
   resetWizard: () => void
+
+  // Phased generation actions
+  setActivePhaseLoading: (phase: 'title' | 'bullets' | 'description' | 'backend' | null) => void
+  onTitlePhaseComplete: (
+    listingId: string,
+    titleSection: LbListingSection,
+    coverage: KeywordCoverage,
+    model: string,
+    tokensUsed: number
+  ) => void
+  onBulletsPhaseComplete: (
+    bulletSections: LbListingSection[],
+    planningMatrix: BulletPlanningMatrixEntry[] | null,
+    coverage: KeywordCoverage,
+    tokensUsed: number
+  ) => void
+  onDescriptionPhaseComplete: (
+    descSections: LbListingSection[],
+    coverage: KeywordCoverage,
+    tokensUsed: number
+  ) => void
+  onBackendPhaseComplete: (
+    subjectSection: LbListingSection[],
+    backendAttrs: Record<string, string[]> | null,
+    coverage: KeywordCoverage,
+    tokensUsed: number
+  ) => void
+  confirmTitle: (finalText: string) => void
+  confirmBullets: (finalTexts: string[]) => void
+  confirmDescription: (finalDescription: string, finalSearchTerms: string) => void
+  setKeywordCoverage: (coverage: KeywordCoverage) => void
 }
 
 const initialState = {
@@ -118,6 +161,16 @@ const initialState = {
   tokensUsed: null as number | null,
   sections: [] as LbListingSection[],
   listingStatus: 'draft' as ListingStatus,
+  generationPhase: 'pending' as GenerationPhase,
+  activePhaseLoading: null as 'title' | 'bullets' | 'description' | 'backend' | null,
+  keywordCoverage: null as KeywordCoverage | null,
+  totalTokensUsed: 0,
+  confirmedTitle: null as string | null,
+  confirmedBullets: null as string[] | null,
+  confirmedDescription: null as string | null,
+  confirmedSearchTerms: null as string | null,
+  planningMatrix: null as BulletPlanningMatrixEntry[] | null,
+  backendAttributes: null as Record<string, string[]> | null,
 }
 
 export const useListingStore = create<ListingWizardState>((set) => ({
@@ -234,6 +287,91 @@ export const useListingStore = create<ListingWizardState>((set) => ({
       modelUsed: listing.model_used,
       tokensUsed: listing.tokens_used,
     }),
+
+  // Phased generation actions
+  setActivePhaseLoading: (phase) => set({ activePhaseLoading: phase, generationError: phase ? null : undefined }),
+
+  onTitlePhaseComplete: (listingId, titleSection, coverage, model, tokensUsed) =>
+    set({
+      listingId,
+      sections: [titleSection],
+      generationPhase: 'title',
+      activePhaseLoading: null,
+      keywordCoverage: coverage,
+      modelUsed: model,
+      totalTokensUsed: tokensUsed,
+      isGenerating: false,
+      generationError: null,
+    }),
+
+  onBulletsPhaseComplete: (bulletSections, planningMatrix, coverage, tokensUsed) =>
+    set((state) => ({
+      sections: [...state.sections.filter((s) => !s.section_type.startsWith('bullet_')), ...bulletSections],
+      generationPhase: 'bullets',
+      activePhaseLoading: null,
+      keywordCoverage: coverage,
+      planningMatrix,
+      totalTokensUsed: (state.totalTokensUsed || 0) + tokensUsed,
+      isGenerating: false,
+    })),
+
+  onDescriptionPhaseComplete: (descSections, coverage, tokensUsed) =>
+    set((state) => ({
+      sections: [
+        ...state.sections.filter((s) => s.section_type !== 'description' && s.section_type !== 'search_terms'),
+        ...descSections,
+      ],
+      generationPhase: 'description',
+      activePhaseLoading: null,
+      keywordCoverage: coverage,
+      totalTokensUsed: (state.totalTokensUsed || 0) + tokensUsed,
+      isGenerating: false,
+    })),
+
+  onBackendPhaseComplete: (subjectSection, backendAttrs, coverage, tokensUsed) =>
+    set((state) => ({
+      sections: [
+        ...state.sections.filter((s) => s.section_type !== 'subject_matter'),
+        ...subjectSection,
+      ],
+      generationPhase: 'complete',
+      activePhaseLoading: null,
+      keywordCoverage: coverage,
+      backendAttributes: backendAttrs,
+      totalTokensUsed: (state.totalTokensUsed || 0) + tokensUsed,
+      isGenerating: false,
+    })),
+
+  confirmTitle: (finalText) =>
+    set((state) => ({
+      confirmedTitle: finalText,
+      sections: state.sections.map((s) =>
+        s.section_type === 'title' ? { ...s, final_text: finalText } : s
+      ),
+    })),
+
+  confirmBullets: (finalTexts) =>
+    set((state) => ({
+      confirmedBullets: finalTexts,
+      sections: state.sections.map((s) => {
+        if (!s.section_type.startsWith('bullet_')) return s
+        const idx = parseInt(s.section_type.split('_')[1]) - 1
+        return { ...s, final_text: finalTexts[idx] || '' }
+      }),
+    })),
+
+  confirmDescription: (finalDescription, finalSearchTerms) =>
+    set((state) => ({
+      confirmedDescription: finalDescription,
+      confirmedSearchTerms: finalSearchTerms,
+      sections: state.sections.map((s) => {
+        if (s.section_type === 'description') return { ...s, final_text: finalDescription }
+        if (s.section_type === 'search_terms') return { ...s, final_text: finalSearchTerms }
+        return s
+      }),
+    })),
+
+  setKeywordCoverage: (coverage) => set({ keywordCoverage: coverage }),
 
   resetWizard: () => set({ ...initialState, attributes: [{ key: '', value: '' }] }),
 }))

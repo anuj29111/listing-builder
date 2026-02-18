@@ -427,3 +427,60 @@ export interface ImageStackRecommendationsResult {
   recommendations: ImageStackRecommendation[]
   overallStrategy: string
 }
+
+// --- Phased Generation Types ---
+
+export interface PhaseGenerateRequest {
+  phase: 'title' | 'bullets' | 'description' | 'backend'
+  listing_id?: string
+  // Creation fields (title phase only):
+  category_id?: string
+  country_id?: string
+  product_name?: string
+  asin?: string
+  brand?: string
+  attributes?: Record<string, string>
+  product_type_name?: string
+  optimization_mode?: 'new' | 'optimize_existing'
+  existing_listing_text?: { title: string; bullets: string[]; description: string }
+}
+
+export interface TitlePhaseResult {
+  titles: string[]
+  keywordCoverage: import('./database').KeywordCoverage
+}
+
+export interface BulletsPhaseResult {
+  planningMatrix: import('./database').BulletPlanningMatrixEntry[]
+  bullets: Array<{
+    seo: { concise: string; medium: string; longer: string }
+    benefit: { concise: string; medium: string; longer: string }
+    balanced: { concise: string; medium: string; longer: string }
+  }>
+  keywordCoverage: import('./database').KeywordCoverage
+}
+
+export interface DescriptionPhaseResult {
+  descriptions: string[]
+  searchTerms: string[]
+  keywordCoverage: import('./database').KeywordCoverage
+}
+
+export interface BackendPhaseResult {
+  subjectMatter: string[][]
+  backendAttributes: Record<string, string[]>
+  keywordCoverage: import('./database').KeywordCoverage
+}
+
+export interface PhaseGenerateResponse {
+  phase: 'title' | 'bullets' | 'description' | 'backend'
+  listing_id: string
+  sections: LbListingSection[]
+  model: string
+  tokensUsed: number
+  totalTokensUsed: number
+  keywordCoverage: import('./database').KeywordCoverage
+  planningMatrix?: import('./database').BulletPlanningMatrixEntry[] | null
+  backendAttributes?: Record<string, string[]> | null
+  productType?: import('./database').LbProductType | null
+}

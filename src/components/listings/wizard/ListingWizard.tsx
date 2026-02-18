@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useListingStore } from '@/stores/listing-store'
 import { StepCategoryCountry } from './StepCategoryCountry'
 import { StepProductDetails } from './StepProductDetails'
-import { StepGeneration } from './StepGeneration'
+import { StepPhasedGeneration } from './StepPhasedGeneration'
 import { StepReviewExport } from './StepReviewExport'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -38,6 +38,7 @@ export function ListingWizard({ categories, countries, editData }: ListingWizard
   const categoryId = useListingStore((s) => s.categoryId)
   const productName = useListingStore((s) => s.productName)
   const listingId = useListingStore((s) => s.listingId)
+  const generationPhase = useListingStore((s) => s.generationPhase)
 
   // Load edit data on mount
   useEffect(() => {
@@ -61,7 +62,7 @@ export function ListingWizard({ categories, countries, editData }: ListingWizard
       case 1:
         return productName.trim().length >= 3
       case 2:
-        return !!listingId
+        return !!listingId && generationPhase === 'complete'
       default:
         return true
     }
@@ -155,7 +156,7 @@ export function ListingWizard({ categories, countries, editData }: ListingWizard
         {currentStep === 1 && (
           <StepProductDetails categories={categories} />
         )}
-        {currentStep === 2 && <StepGeneration />}
+        {currentStep === 2 && <StepPhasedGeneration />}
         {currentStep === 3 && <StepReviewExport />}
       </div>
 

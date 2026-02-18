@@ -229,7 +229,8 @@ export async function POST(request: Request) {
       )
     }
 
-    // Insert listing sections (title, 5 bullets, description, search_terms, subject_matter, backend_attributes)
+    // Insert listing sections (title, 5 bullets, description, search_terms, subject_matter)
+    // Note: backend_attributes are stored as JSONB on the listing record itself, not as a section
     const sectionRows = SECTION_TYPES.map((sectionType) => {
       let variations: string[] = []
 
@@ -247,13 +248,6 @@ export async function POST(request: Request) {
         variations = [0, 1, 2].map((varIdx) =>
           sm.map((field) => field[varIdx] || '').join('; ')
         )
-      } else if (sectionType === 'backend_attributes') {
-        // Format backend attributes as readable text variations
-        const attrs = result.backendAttributes || {}
-        const formatted = Object.entries(attrs)
-          .map(([key, values]) => `${key.replace(/_/g, ' ')}: ${(values || []).join(', ')}`)
-          .join('\n')
-        variations = [formatted]
       }
 
       return {

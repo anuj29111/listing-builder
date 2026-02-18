@@ -2,12 +2,15 @@ import { NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
 import {
-  generateListing,
+  generateTitlePhase,
+  generateBulletsPhase,
+  generateDescriptionPhase,
+  generateBackendPhase,
   type KeywordAnalysisResult,
   type ReviewAnalysisResult,
   type QnAAnalysisResult,
+  type ListingGenerationInput,
 } from '@/lib/claude'
-import { SECTION_TYPES } from '@/lib/constants'
 import type { BatchProduct, CompetitorAnalysisResult } from '@/types/api'
 
 const MAX_BATCH_SIZE = 20
@@ -211,8 +214,8 @@ export async function POST(request: Request) {
           }
         }
 
-        // Generate listing via Claude
-        const { result, model, tokensUsed } = await generateListing({
+        // Build shared generation input for all 4 phases
+        const genInput: ListingGenerationInput = {
           productName: product.product_name.trim(),
           brand: product.brand,
           asin: product.asin || undefined,
@@ -231,10 +234,10 @@ export async function POST(request: Request) {
           reviewAnalysis,
           qnaAnalysis,
           competitorAnalysis,
-        })
+        }
 
         // Flatten bullet object into 9-element array
-        const flattenBullet = (bullet: typeof result.bullets[0]): string[] => {
+        const flattenBullet = (bullet: { seo?: { concise: string; medium: string; longer: string }; benefit?: { concise: string; medium: string; longer: string }; balanced?: { concise: string; medium: string; longer: string } }): string[] => {
           if (!bullet) return []
           if (Array.isArray(bullet)) return bullet as unknown as string[]
           return [
@@ -244,20 +247,52 @@ export async function POST(request: Request) {
           ]
         }
 
+        let totalTokens = 0
+        let modelUsed = ''
+
+        // --- Phase 1: Title ---
+        const titleResult = await generateTitlePhase(genInput)
+        totalTokens += titleResult.tokensUsed
+        modelUsed = titleResult.model
+        const confirmedTitle = titleResult.result.titles[0] || ''
+        let keywordCov = titleResult.result.keywordCoverage
+
+        // --- Phase 2: Bullets ---
+        const bulletsResult = await generateBulletsPhase(genInput, confirmedTitle, keywordCov)
+        totalTokens += bulletsResult.tokensUsed
+        const confirmedBullets = bulletsResult.result.bullets.map((b) => flattenBullet(b)[0] || '')
+        keywordCov = bulletsResult.result.keywordCoverage
+
+        // --- Phase 3: Description + Search Terms ---
+        const descResult = await generateDescriptionPhase(genInput, confirmedTitle, confirmedBullets, keywordCov)
+        totalTokens += descResult.tokensUsed
+        const confirmedDescription = descResult.result.descriptions[0] || ''
+        const confirmedSearchTerms = descResult.result.searchTerms[0] || ''
+        keywordCov = descResult.result.keywordCoverage
+
+        // --- Phase 4: Backend ---
+        const backendResult = await generateBackendPhase(
+          genInput, confirmedTitle, confirmedBullets, confirmedDescription, confirmedSearchTerms, keywordCov
+        )
+        totalTokens += backendResult.tokensUsed
+        keywordCov = backendResult.result.keywordCoverage
+
         // Insert listing row
         const { data: listing, error: listingError } = await adminClient
           .from('lb_listings')
           .insert({
             product_type_id: productType?.id || null,
             country_id,
-            title: result.title[0] || '',
-            bullet_points: result.bullets.map((b) => flattenBullet(b)[0] || ''),
-            description: result.description[0] || '',
-            search_terms: result.searchTerms[0] || '',
-            subject_matter: (result.subjectMatter || []).map((s) => s[0] || ''),
-            backend_keywords: result.searchTerms[0] || '',
-            planning_matrix: result.planningMatrix || null,
-            backend_attributes: result.backendAttributes || null,
+            title: confirmedTitle,
+            bullet_points: confirmedBullets,
+            description: confirmedDescription,
+            search_terms: confirmedSearchTerms,
+            subject_matter: (backendResult.result.subjectMatter || []).map((s) => s[0] || ''),
+            backend_keywords: confirmedSearchTerms,
+            planning_matrix: bulletsResult.result.planningMatrix || null,
+            backend_attributes: backendResult.result.backendAttributes || null,
+            keyword_coverage: keywordCov,
+            generation_phase: 'complete',
             status: 'draft',
             generation_context: {
               categoryId: category_id,
@@ -268,8 +303,8 @@ export async function POST(request: Request) {
               attributes: parsedAttributes,
               analysisTypes: analyses.map((a) => a.analysis_type),
             },
-            model_used: model,
-            tokens_used: tokensUsed,
+            model_used: modelUsed,
+            tokens_used: totalTokens,
             created_by: lbUser.id,
             batch_job_id: batchJob.id,
           })
@@ -280,39 +315,69 @@ export async function POST(request: Request) {
           throw new Error(listingError?.message || 'Failed to save listing')
         }
 
-        // Insert listing sections
-        const sectionRows = SECTION_TYPES.map((sectionType) => {
-          let variations: string[] = []
+        // Build section rows from all 4 phases
+        const sectionRows: Array<{
+          listing_id: string
+          section_type: string
+          variations: string[]
+          selected_variation: number
+          is_approved: boolean
+          final_text: string
+        }> = []
 
-          if (sectionType === 'title') {
-            variations = result.title
-          } else if (sectionType.startsWith('bullet_')) {
-            const bulletIndex = parseInt(sectionType.split('_')[1]) - 1
-            variations = flattenBullet(result.bullets[bulletIndex])
-          } else if (sectionType === 'description') {
-            variations = result.description
-          } else if (sectionType === 'search_terms') {
-            variations = result.searchTerms
-          } else if (sectionType === 'subject_matter') {
-            const sm = result.subjectMatter || []
-            variations = [0, 1, 2].map((varIdx) =>
-              sm.map((field) => field[varIdx] || '').join('; ')
-            )
-          } else if (sectionType === 'backend_attributes') {
-            const attrs = result.backendAttributes || {}
-            const formatted = Object.entries(attrs)
-              .map(([key, values]) => `${key.replace(/_/g, ' ')}: ${(values || []).join(', ')}`)
-              .join('\n')
-            variations = [formatted]
-          }
+        // Title section
+        sectionRows.push({
+          listing_id: listing.id,
+          section_type: 'title',
+          variations: titleResult.result.titles,
+          selected_variation: 0,
+          is_approved: true,
+          final_text: confirmedTitle,
+        })
 
-          return {
+        // Bullet sections (5 bullets × 9 variations each)
+        for (let b = 0; b < bulletsResult.result.bullets.length; b++) {
+          sectionRows.push({
             listing_id: listing.id,
-            section_type: sectionType,
-            variations,
+            section_type: `bullet_${b + 1}`,
+            variations: flattenBullet(bulletsResult.result.bullets[b]),
             selected_variation: 0,
-            is_approved: false,
-          }
+            is_approved: true,
+            final_text: confirmedBullets[b] || '',
+          })
+        }
+
+        // Description section
+        sectionRows.push({
+          listing_id: listing.id,
+          section_type: 'description',
+          variations: descResult.result.descriptions,
+          selected_variation: 0,
+          is_approved: true,
+          final_text: confirmedDescription,
+        })
+
+        // Search terms section
+        sectionRows.push({
+          listing_id: listing.id,
+          section_type: 'search_terms',
+          variations: descResult.result.searchTerms,
+          selected_variation: 0,
+          is_approved: true,
+          final_text: confirmedSearchTerms,
+        })
+
+        // Subject matter section
+        const sm = backendResult.result.subjectMatter || []
+        sectionRows.push({
+          listing_id: listing.id,
+          section_type: 'subject_matter',
+          variations: [0, 1, 2].map((varIdx) =>
+            sm.map((field) => field[varIdx] || '').join('; ')
+          ),
+          selected_variation: 0,
+          is_approved: true,
+          final_text: sm.map((field) => field[0] || '').join('; '),
         })
 
         const { error: sectionsError } = await adminClient

@@ -900,6 +900,706 @@ export async function generateListing(
   return { result, model, tokensUsed }
 }
 
+// --- Phased Generation (Cascading Keyword Waterfall) ---
+
+import type { KeywordCoverage } from '@/types/database'
+import type {
+  TitlePhaseResult,
+  BulletsPhaseResult,
+  DescriptionPhaseResult,
+  BackendPhaseResult,
+} from '@/types/api'
+
+/**
+ * Extracts the shared context block (product info + research data) used by all 4 phases.
+ * This is the full, untruncated research data — no cost optimization.
+ */
+function buildSharedContext(input: ListingGenerationInput): string {
+  const {
+    productName, brand, asin, attributes, categoryName, countryName, language,
+    charLimits, keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    optimizationMode, existingListingText,
+  } = input
+
+  const attrStr = Object.entries(attributes)
+    .filter(([k, v]) => k && v)
+    .map(([k, v]) => `  - ${k}: ${v}`)
+    .join('\n') || '  (none provided)'
+
+  let keywordSection = 'No keyword data available. Use general best practices for Amazon listings in this category.'
+  if (keywordAnalysis) {
+    const titleKw = keywordAnalysis.titleKeywords?.join(', ') || 'N/A'
+    const bulletKw = keywordAnalysis.bulletKeywords?.join(', ') || 'N/A'
+    const searchKw = keywordAnalysis.searchTermKeywords?.join(', ') || 'N/A'
+    const intents = keywordAnalysis.customerIntentPatterns
+      ?.map((p) => `${p.category} (${p.priority})${p.painPoints ? ` — Pain points: ${p.painPoints}` : ''}`)
+      .join('\n  ') || 'N/A'
+    const features = keywordAnalysis.featureDemand
+      ?.map((f) => `${f.feature} (${f.priority})`)
+      .join(', ') || 'N/A'
+
+    const execSummary = keywordAnalysis.executiveSummary ? `\nExecutive Summary: ${keywordAnalysis.executiveSummary}` : ''
+    const bulletMap = keywordAnalysis.bulletKeywordMap
+      ?.map((b) => `Bullet ${b.bulletNumber}: ${b.keywords.join(', ')} — Focus: ${b.focus}`)
+      .join('\n  ') || ''
+    const bulletMapStr = bulletMap ? `\nPer-bullet keyword mapping:\n  ${bulletMap}` : ''
+    const competitive = keywordAnalysis.competitiveIntelligence
+    const competitiveStr = competitive
+      ? `\nCompetitive gaps to exploit: ${competitive.marketGaps?.join('; ') || 'N/A'}\nFeature differentiators: ${competitive.featureDifferentiation?.join('; ') || 'N/A'}`
+      : ''
+    const rufusQs = keywordAnalysis.rufusQuestionAnticipation
+      ?.slice(0, 6)
+      .join('\n  ') || ''
+    const rufusStr = rufusQs ? `\nRufus AI questions to preemptively answer:\n  ${rufusQs}` : ''
+
+    keywordSection = `${execSummary}
+Must-include title keywords (by search volume priority): ${titleKw}
+Bullet point keywords to weave in: ${bulletKw}
+Backend search term keywords: ${searchKw}
+Customer intent patterns:
+  ${intents}
+Key feature demand signals: ${features}${bulletMapStr}${competitiveStr}${rufusStr}`
+  }
+
+  let reviewSection = 'No review data available. Focus on general product benefits.'
+  if (reviewAnalysis) {
+    const execSummary = reviewAnalysis.executiveSummary ? `Executive Summary: ${reviewAnalysis.executiveSummary}\n` : ''
+    const strengths = reviewAnalysis.strengths
+      ?.slice(0, 8)
+      .map((s) => `${s.strength} (${s.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    const useCases = reviewAnalysis.useCases
+      ?.slice(0, 6)
+      .map((u) => `${u.useCase} (${u.priority})`)
+      .join(', ') || 'N/A'
+    const posLang = reviewAnalysis.positiveLanguage
+      ?.slice(0, 8)
+      .map((w) => `${w.word}${w.optimizationValue ? ` [${w.optimizationValue}]` : ''}`)
+      .join(', ') || 'N/A'
+    const weaknesses = reviewAnalysis.weaknesses
+      ?.slice(0, 4)
+      .map((w) => `${w.weakness} (${w.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    const bulletStrat = reviewAnalysis.bulletStrategy
+      ?.map((b) => `Bullet ${b.bulletNumber}: Focus on "${b.focus}" — Evidence: ${b.evidence}${b.customerPainPoint ? ` — Addresses: ${b.customerPainPoint}` : ''}`)
+      .join('\n  ') || 'N/A'
+
+    const voicePhrases = reviewAnalysis.customerVoicePhrases
+    const voiceParts: string[] = []
+    if (voicePhrases?.positiveEmotional?.length) voiceParts.push(...voicePhrases.positiveEmotional.slice(0, 4))
+    if (voicePhrases?.functional?.length) voiceParts.push(...voicePhrases.functional.slice(0, 3))
+    if (voicePhrases?.useCaseLanguage?.length) voiceParts.push(...voicePhrases.useCaseLanguage.slice(0, 3))
+    const voiceStr = voiceParts.length > 0 ? `\nCustomer voice phrases to echo in copy: ${voiceParts.map((p) => `"${p}"`).join(', ')}` : ''
+    const profiles = reviewAnalysis.customerProfiles
+      ?.map((p) => `${p.profile}: ${p.description}`)
+      .join('; ') || ''
+    const profileStr = profiles ? `\nKey customer profiles: ${profiles}` : ''
+    const messaging = reviewAnalysis.competitivePositioning?.messagingFramework
+    const msgStr = messaging
+      ? `\nMessaging framework — Primary: "${messaging.primaryMessage}" | Supporting: ${messaging.supportPoints?.join('; ') || 'N/A'} | Proof: ${messaging.proofPoints?.join('; ') || 'N/A'}`
+      : ''
+
+    reviewSection = `${execSummary}Product strengths to highlight: ${strengths}
+Top use cases to emphasize: ${useCases}
+Customer language that resonates: ${posLang}
+Weaknesses to preemptively address: ${weaknesses}
+Bullet strategy from review analysis:
+  ${bulletStrat}${voiceStr}${profileStr}${msgStr}`
+  }
+
+  let qnaSection = 'No Q&A data available.'
+  if (qnaAnalysis) {
+    const execSummary = qnaAnalysis.executiveSummary ? `Executive Summary: ${qnaAnalysis.executiveSummary}\n` : ''
+    const concerns = qnaAnalysis.customerConcerns
+      ?.slice(0, 6)
+      .map((c) => `${c.concern} — Suggested: ${c.suggestedResponse}`)
+      .join('\n  ') || 'N/A'
+    const gaps = qnaAnalysis.contentGaps
+      ?.map((g) => `${g.gap} (${g.importance})${g.priorityScore ? ` [priority: ${g.priorityScore}]` : ''}`)
+      .join(', ') || 'N/A'
+    const faqs = qnaAnalysis.faqForDescription
+      ?.slice(0, 4)
+      .map((f) => `Q: ${f.question} / A: ${f.answer}`)
+      .join('\n  ') || 'N/A'
+
+    const contradictions = qnaAnalysis.contradictions
+      ?.slice(0, 3)
+      .map((c) => `"${c.topic}": ${c.resolution}`)
+      .join('; ') || ''
+    const contradStr = contradictions ? `\nContradictions to resolve in listing: ${contradictions}` : ''
+    const highRisk = qnaAnalysis.highRiskQuestions
+      ?.slice(0, 4)
+      .map((q) => `${q.question} → ${q.defensiveAction}`)
+      .join('\n  ') || ''
+    const riskStr = highRisk ? `\nHigh-risk questions to preemptively address:\n  ${highRisk}` : ''
+    const specs = qnaAnalysis.productSpecsConfirmed
+      ?.slice(0, 8)
+      .map((s) => `${s.spec}: ${s.value}`)
+      .join('; ') || ''
+    const specStr = specs ? `\nConfirmed product specs: ${specs}` : ''
+    const defenseParts: string[] = []
+    if (qnaAnalysis.competitiveDefense?.brandProtectionOpportunities?.length) {
+      defenseParts.push(`Brand protection: ${qnaAnalysis.competitiveDefense.brandProtectionOpportunities.slice(0, 3).join('; ')}`)
+    }
+    if (qnaAnalysis.competitiveDefense?.informationGapAdvantages?.length) {
+      defenseParts.push(`Info gap advantages: ${qnaAnalysis.competitiveDefense.informationGapAdvantages.slice(0, 3).join('; ')}`)
+    }
+    const defenseStr = defenseParts.length > 0 ? `\nCompetitive defense: ${defenseParts.join(' | ')}` : ''
+
+    qnaSection = `${execSummary}Top customer concerns to address in listing:
+  ${concerns}
+Content gaps to fill: ${gaps}
+FAQ to weave into description:
+  ${faqs}${specStr}${contradStr}${riskStr}${defenseStr}`
+  }
+
+  let competitorSection = ''
+  if (competitorAnalysis) {
+    const titlePatterns = competitorAnalysis.titlePatterns
+      ?.slice(0, 5)
+      .map((p) => `"${p.pattern}" (${p.frequency}x) — e.g. "${p.example}"`)
+      .join('\n  ') || 'N/A'
+    const bulletThemes = competitorAnalysis.bulletThemes
+      ?.slice(0, 6)
+      .map((t) => `${t.theme} (${t.frequency}x)`)
+      .join(', ') || 'N/A'
+    const gaps = competitorAnalysis.differentiationGaps
+      ?.slice(0, 5)
+      .map((g) => `${g.gap}: ${g.opportunity} (${g.priority})`)
+      .join('\n  ') || 'N/A'
+    const usps = competitorAnalysis.usps
+      ?.slice(0, 4)
+      .map((u) => `${u.usp} — Competitor weakness: ${u.competitorWeakness}`)
+      .join('\n  ') || 'N/A'
+
+    competitorSection = `
+=== COMPETITOR INTELLIGENCE ===
+Executive Summary: ${competitorAnalysis.executiveSummary}
+Competitor title patterns to learn from (and differentiate against):
+  ${titlePatterns}
+Common bullet themes across competitors: ${bulletThemes}
+Differentiation gaps to exploit:
+  ${gaps}
+Our unique selling propositions:
+  ${usps}`
+  }
+
+  let existingListingSection = ''
+  if (optimizationMode === 'optimize_existing' && existingListingText) {
+    const bullets = existingListingText.bullets
+      .map((b, i) => `  Bullet ${i + 1}: ${b}`)
+      .join('\n')
+    existingListingSection = `
+
+=== EXISTING LISTING TO OPTIMIZE ===
+This is an OPTIMIZATION task. The customer has an existing listing they want improved. Analyze it first, then generate optimized versions.
+
+Current Title: ${existingListingText.title}
+Current Bullets:
+${bullets}
+Current Description: ${existingListingText.description}
+
+OPTIMIZATION INSTRUCTIONS:
+1. Score the existing listing 1-10 on: keyword coverage, benefit communication, readability, competitive positioning
+2. Identify missing high-volume keywords that should be added
+3. Identify weak/generic phrases that can be made more specific and compelling
+4. Preserve elements that are already strong (don't fix what isn't broken)
+5. Your generated variations should be OPTIMIZED versions of this listing, not entirely new listings
+6. Each variation strategy (SEO/Benefit/Balanced) should improve upon the original in its specific dimension`
+  }
+
+  return `=== PRODUCT INFO ===
+Product: ${productName}
+Brand: ${brand}
+ASIN: ${asin || 'Not provided'}
+Category: ${categoryName}
+Marketplace: ${countryName}
+Language: ALL content MUST be written in ${language}
+Attributes:
+${attrStr}
+
+=== CHARACTER LIMITS (STRICT — do not exceed) ===
+Title: ${charLimits.title} characters max
+Each Bullet Point: ${charLimits.bullet} characters max (${charLimits.bulletCount} bullets)
+Description: ${charLimits.description} characters max
+Search Terms: ${charLimits.searchTerms} characters max (backend only, not visible to customers)
+
+=== KEYWORD INTELLIGENCE ===
+${keywordSection}
+
+=== CUSTOMER REVIEW INSIGHTS ===
+${reviewSection}
+
+=== Q&A / CUSTOMER CONCERNS ===
+${qnaSection}${competitorSection}${existingListingSection}`
+}
+
+/**
+ * Format keyword coverage tracker for inclusion in prompts.
+ */
+function formatKeywordCoverage(coverage: KeywordCoverage | null): string {
+  if (!coverage) return ''
+
+  const placedLines = coverage.placed
+    .slice(0, 30)
+    .map((kw) => `  - "${kw.keyword}" → ${kw.placedIn}${kw.position ? ` (${kw.position})` : ''} [SV: ${kw.searchVolume}, rel: ${kw.relevancy}]`)
+    .join('\n')
+
+  const highPriority = coverage.remaining.filter((kw) => kw.relevancy >= 0.6)
+  const medPriority = coverage.remaining.filter((kw) => kw.relevancy >= 0.4 && kw.relevancy < 0.6)
+  const lowPriority = coverage.remaining.filter((kw) => kw.relevancy < 0.4)
+
+  let remainingLines = ''
+  if (highPriority.length > 0) {
+    remainingLines += `\n  HIGH PRIORITY (relevancy >= 0.6):\n${highPriority.map((kw) => `    - "${kw.keyword}" (SV: ${kw.searchVolume}, rel: ${kw.relevancy}) → ${kw.suggestedPlacement}`).join('\n')}`
+  }
+  if (medPriority.length > 0) {
+    remainingLines += `\n  MEDIUM PRIORITY (relevancy 0.4-0.6):\n${medPriority.map((kw) => `    - "${kw.keyword}" (SV: ${kw.searchVolume}, rel: ${kw.relevancy}) → ${kw.suggestedPlacement}`).join('\n')}`
+  }
+  if (lowPriority.length > 0) {
+    remainingLines += `\n  LOWER PRIORITY (relevancy < 0.4):\n${lowPriority.slice(0, 20).map((kw) => `    - "${kw.keyword}" (SV: ${kw.searchVolume}, rel: ${kw.relevancy}) → ${kw.suggestedPlacement}`).join('\n')}`
+  }
+
+  return `
+=== KEYWORD PLACEMENT TRACKER ===
+Current coverage score: ${coverage.coverageScore}/100
+
+Keywords already placed (DO NOT waste space repeating these unless natural):
+${placedLines || '  (none yet — this is the first phase)'}
+
+Keywords still needing placement (PRIORITIZE these):${remainingLines || '\n  (all keywords placed — great coverage!)'}
+`
+}
+
+// --- Phase 1: Title Generation ---
+
+function buildTitlePhasePrompt(input: ListingGenerationInput): string {
+  const shared = buildSharedContext(input)
+  const { brand, charLimits, language } = input
+
+  return `You are an expert Amazon listing copywriter specializing in title optimization for A9/A10 algorithm ranking.
+
+${shared}
+
+=== YOUR TASK: GENERATE 5 TITLE VARIATIONS ===
+
+Title is the HIGHEST WEIGHT element in Amazon's search algorithm. Place the most important, highest-volume keywords here.
+
+KEYWORD PLACEMENT PRIORITY FOR TITLES:
+- First 80 characters: Place the highest relevancy (0.8-1.0) and highest search volume keywords
+- Remaining characters: Place medium-high relevancy (0.6-0.8) keywords
+- All titles MUST start with "${brand}"
+
+Generate 5 DISTINCT title variations (each under ${charLimits.title} characters):
+1. **SEO-dense** — Maximum keyword coverage while readable. Pack in the most high-volume terms.
+2. **Benefit-focused** — Lead with customer benefits and desires, weave keywords naturally.
+3. **Balanced** — Keywords + benefits combined seamlessly.
+4. **Feature-rich** — Highlight specific product features and specifications.
+5. **Concise/clean** — Short, punchy, premium feel. Only the most critical keywords.
+
+=== OUTPUT FORMAT ===
+Return a JSON object with this EXACT structure:
+{
+  "titles": ["title 1", "title 2", "title 3", "title 4", "title 5"],
+  "keywordCoverage": {
+    "placed": [
+      { "keyword": "keyword text", "searchVolume": 18000, "relevancy": 0.95, "placedIn": "title", "position": "first 80 chars" }
+    ],
+    "remaining": [
+      { "keyword": "keyword text", "searchVolume": 5000, "relevancy": 0.7, "suggestedPlacement": "bullet_1" }
+    ],
+    "coverageScore": 25
+  }
+}
+
+=== KEYWORD COVERAGE TRACKING RULES ===
+1. In "placed": list EVERY keyword from the research data that appears in ANY of your 5 titles
+2. In "remaining": list ALL keywords from the research data that are NOT in any title, with suggested placement for the next phase (bullets)
+3. coverageScore: estimate 0-100 what % of total keyword value is covered by titles alone (typically 20-35%)
+4. Use the keyword data from research to fill searchVolume and relevancy accurately
+5. Be thorough — account for ALL keywords in the research data
+
+=== RULES ===
+1. ALL content in ${language}
+2. STRICT character limit: ${charLimits.title} characters max per title — count carefully
+3. Only return valid JSON, no markdown fences or explanation`
+}
+
+export async function generateTitlePhase(
+  input: ListingGenerationInput
+): Promise<{ result: TitlePhaseResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildTitlePhasePrompt(input)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 16384,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  if (response.stop_reason === 'max_tokens') {
+    throw new Error('Title generation was cut off due to token limit. This should not happen — please report this issue.')
+  }
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const jsonText = stripMarkdownFences(text)
+  const result = JSON.parse(jsonText) as TitlePhaseResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
+// --- Phase 2: Bullets Generation ---
+
+function buildBulletsPhasePrompt(
+  input: ListingGenerationInput,
+  confirmedTitle: string,
+  keywordCoverage: KeywordCoverage
+): string {
+  const shared = buildSharedContext(input)
+  const coverageBlock = formatKeywordCoverage(keywordCoverage)
+  const { charLimits, language } = input
+
+  return `You are an expert Amazon listing copywriter. Generate bullet points that maximize keyword coverage while providing compelling, benefit-driven content.
+
+${shared}
+
+=== CONFIRMED TITLE (already finalized — reference for consistency) ===
+${confirmedTitle}
+
+${coverageBlock}
+
+=== YOUR TASK: PLANNING MATRIX + ${charLimits.bulletCount} BULLET POINTS ===
+
+Bullet points have the SECOND HIGHEST weight in Amazon's search algorithm after title.
+
+STEP 1 — PLANNING MATRIX:
+BEFORE writing any content, create a planningMatrix. For each bullet (1-${charLimits.bulletCount}), decide:
+- What is the primary focus of this bullet?
+- Which Q&A gaps does it address?
+- Which review themes does it leverage?
+- Which priority keywords from the "remaining" list MUST be woven in?
+- What Rufus AI question types does it preemptively answer?
+
+KEYWORD PLACEMENT PRIORITY FOR BULLETS:
+- Bullets 1-2: High relevancy keywords (0.6-0.8) that didn't fit in title
+- Bullets 3-4: Medium relevancy keywords (0.4-0.6)
+- Bullet 5: Catch remaining medium keywords + address critical Q&A gaps
+
+STEP 2 — GENERATE BULLETS:
+For EACH bullet, generate 3 strategies × 3 lengths = 9 variations:
+- **SEO strategy**: keyword-dense, search-optimized
+- **Benefit strategy**: emotional, customer-focused, addresses pain points
+- **Balanced strategy**: keywords + benefits naturally combined
+- **Concise**: 110-140 characters
+- **Medium**: 140-180 characters
+- **Longer**: 180-${charLimits.bullet} characters (NEVER exceed)
+
+=== OUTPUT FORMAT ===
+Return a JSON object with this EXACT structure:
+{
+  "planningMatrix": [
+    {
+      "bulletNumber": 1,
+      "primaryFocus": "Main theme for this bullet",
+      "qnaGapsAddressed": ["gap 1", "gap 2"],
+      "reviewThemes": ["theme 1", "theme 2"],
+      "priorityKeywords": ["kw1", "kw2"],
+      "rufusQuestionTypes": ["question type 1"]
+    }
+  ],
+  "bullets": [
+    {
+      "seo": { "concise": "SEO bullet 110-140 chars", "medium": "SEO bullet 140-180 chars", "longer": "SEO bullet 180-${charLimits.bullet} chars" },
+      "benefit": { "concise": "...", "medium": "...", "longer": "..." },
+      "balanced": { "concise": "...", "medium": "...", "longer": "..." }
+    }
+  ],
+  "keywordCoverage": {
+    "placed": [
+      { "keyword": "kw", "searchVolume": 5000, "relevancy": 0.7, "placedIn": "bullet_1", "position": "opening phrase" }
+    ],
+    "remaining": [
+      { "keyword": "kw", "searchVolume": 1000, "relevancy": 0.3, "suggestedPlacement": "description" }
+    ],
+    "coverageScore": 65
+  }
+}
+
+=== KEYWORD COVERAGE TRACKING RULES ===
+1. In "placed": MERGE the previous placed keywords (from title) WITH new keywords placed in bullets. Include ALL previously placed keywords too.
+2. In "remaining": only keywords that are in NEITHER title NOR any bullet
+3. coverageScore: cumulative coverage (title + bullets), typically 55-70%
+4. Be thorough — every keyword from research must appear in either placed or remaining
+
+=== RULES ===
+1. Bullets should start with a CAPITALIZED benefit phrase followed by a dash or colon, then details
+2. Each bullet must serve its planningMatrix purpose — no two bullets should overlap in primary focus
+3. Generate exactly ${charLimits.bulletCount} bullets, each with all 9 variations
+4. STRICT character limits — count characters carefully
+5. ALL content in ${language}
+6. Only return valid JSON, no markdown fences or explanation`
+}
+
+export async function generateBulletsPhase(
+  input: ListingGenerationInput,
+  confirmedTitle: string,
+  keywordCoverage: KeywordCoverage
+): Promise<{ result: BulletsPhaseResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildBulletsPhasePrompt(input, confirmedTitle, keywordCoverage)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 32768,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  if (response.stop_reason === 'max_tokens') {
+    throw new Error('Bullet generation was cut off due to token limit. Please report this issue.')
+  }
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const jsonText = stripMarkdownFences(text)
+  const result = JSON.parse(jsonText) as BulletsPhaseResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
+// --- Phase 3: Description + Search Terms Generation ---
+
+function buildDescriptionPhasePrompt(
+  input: ListingGenerationInput,
+  confirmedTitle: string,
+  confirmedBullets: string[],
+  keywordCoverage: KeywordCoverage
+): string {
+  const shared = buildSharedContext(input)
+  const coverageBlock = formatKeywordCoverage(keywordCoverage)
+  const { charLimits, language } = input
+
+  const bulletsBlock = confirmedBullets
+    .map((b, i) => `  Bullet ${i + 1}: ${b}`)
+    .join('\n')
+
+  return `You are an expert Amazon listing copywriter. Generate descriptions and search terms that capture ALL remaining keyword value not covered by the title and bullets.
+
+${shared}
+
+=== CONFIRMED CONTENT (already finalized — reference for consistency and keyword tracking) ===
+Title: ${confirmedTitle}
+
+Bullets:
+${bulletsBlock}
+
+${coverageBlock}
+
+=== YOUR TASK: 3 DESCRIPTION VARIATIONS + 3 SEARCH TERM VARIATIONS ===
+
+Description has THIRD HIGHEST weight in Amazon's algorithm. Search terms are pure backend — invisible to customers but fully indexed.
+
+DESCRIPTION STRATEGY:
+- Weave ALL remaining medium-relevancy keywords naturally into flowing paragraphs
+- Address any Q&A gaps not yet covered by bullets
+- Include use cases, scenarios, and contextual details from review analysis
+- Make it readable and compelling — NOT keyword-stuffed
+- ${charLimits.description} characters max
+
+SEARCH TERMS STRATEGY:
+- This is the FINAL SWEEP — catch EVERYTHING still missing
+- No brand name, no ASINs, no commas (space-separated)
+- Include: misspellings, synonyms, long-tail variations, related terms
+- Include Spanish/foreign language variants if relevant to marketplace
+- ${charLimits.searchTerms} characters max
+
+=== OUTPUT FORMAT ===
+Return a JSON object with this EXACT structure:
+{
+  "descriptions": ["SEO variation", "Benefit variation", "Balanced variation"],
+  "searchTerms": ["variation 1", "variation 2", "variation 3"],
+  "keywordCoverage": {
+    "placed": [
+      { "keyword": "kw", "searchVolume": 1000, "relevancy": 0.3, "placedIn": "description", "position": "first paragraph" }
+    ],
+    "remaining": [
+      { "keyword": "kw", "searchVolume": 100, "relevancy": 0.1, "suggestedPlacement": "backend_attributes" }
+    ],
+    "coverageScore": 92
+  }
+}
+
+=== KEYWORD COVERAGE TRACKING RULES ===
+1. In "placed": MERGE all previously placed keywords (title + bullets) WITH new keywords placed in description + search terms
+2. In "remaining": only keywords that are genuinely not placed anywhere — this should be very few or zero
+3. coverageScore: cumulative (title + bullets + description + search terms), aim for 90%+
+4. Search terms should push coverage toward 95%+
+
+=== RULES ===
+1. Description: 3 distinct variations (SEO-focused, Benefit-focused, Balanced). ${charLimits.description} chars max each.
+2. Search terms: space-separated, no brand name, no ASINs, include misspellings and synonyms. ${charLimits.searchTerms} chars max each.
+3. ALL content in ${language}
+4. Only return valid JSON, no markdown fences or explanation`
+}
+
+export async function generateDescriptionPhase(
+  input: ListingGenerationInput,
+  confirmedTitle: string,
+  confirmedBullets: string[],
+  keywordCoverage: KeywordCoverage
+): Promise<{ result: DescriptionPhaseResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildDescriptionPhasePrompt(input, confirmedTitle, confirmedBullets, keywordCoverage)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 16384,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  if (response.stop_reason === 'max_tokens') {
+    throw new Error('Description generation was cut off due to token limit. Please report this issue.')
+  }
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const jsonText = stripMarkdownFences(text)
+  const result = JSON.parse(jsonText) as DescriptionPhaseResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
+// --- Phase 4: Backend (Subject Matter + Backend Attributes) ---
+
+function buildBackendPhasePrompt(
+  input: ListingGenerationInput,
+  confirmedTitle: string,
+  confirmedBullets: string[],
+  confirmedDescription: string,
+  confirmedSearchTerms: string,
+  keywordCoverage: KeywordCoverage
+): string {
+  const shared = buildSharedContext(input)
+  const coverageBlock = formatKeywordCoverage(keywordCoverage)
+  const { language } = input
+
+  const bulletsBlock = confirmedBullets
+    .map((b, i) => `  Bullet ${i + 1}: ${b}`)
+    .join('\n')
+
+  return `You are an expert Amazon listing optimizer specializing in backend attributes and product categorization.
+
+${shared}
+
+=== CONFIRMED CONTENT (all finalized sections) ===
+Title: ${confirmedTitle}
+
+Bullets:
+${bulletsBlock}
+
+Description: ${confirmedDescription}
+
+Search Terms: ${confirmedSearchTerms}
+
+${coverageBlock}
+
+=== YOUR TASK: SUBJECT MATTER + BACKEND ATTRIBUTES ===
+
+These are the final backend fields that help Amazon's systems categorize and surface your product.
+
+SUBJECT MATTER:
+- Short descriptive phrases for Amazon's subject matter fields
+- 3 fields, each under 50 characters
+- Generate 3 variations of each field
+
+BACKEND ATTRIBUTES:
+Based on ALL research data (keywords, reviews, Q&A, competitor analysis), recommend values for Amazon's backend fields:
+- material, target_audience, special_features, recommended_uses, included_components
+- Add more fields if relevant to this product category (e.g., surface_recommendation, style, theme, line_size)
+- Use natural language that matches how customers search
+- Multi-value fields: provide up to 5 values in priority order
+
+=== OUTPUT FORMAT ===
+Return a JSON object with this EXACT structure:
+{
+  "subjectMatter": [
+    ["field 1 var 1", "field 1 var 2", "field 1 var 3"],
+    ["field 2 var 1", "field 2 var 2", "field 2 var 3"],
+    ["field 3 var 1", "field 3 var 2", "field 3 var 3"]
+  ],
+  "backendAttributes": {
+    "material": ["value1", "value2"],
+    "target_audience": ["value1", "value2"],
+    "special_features": ["value1", "value2", "value3"],
+    "recommended_uses": ["value1", "value2", "value3"],
+    "included_components": ["value1"]
+  },
+  "keywordCoverage": {
+    "placed": [],
+    "remaining": [],
+    "coverageScore": 97
+  }
+}
+
+=== RULES ===
+1. Subject matter: 3 fields × 3 variations, each under 50 chars
+2. Backend attributes: data-driven recommendations based on research, at least 5 attribute categories
+3. keywordCoverage.placed: merge ALL previously placed keywords + any new ones captured in backend attributes
+4. keywordCoverage.remaining: should be minimal — only truly irrelevant keywords
+5. coverageScore: final cumulative score, aim for 95%+
+6. ALL content in ${language}
+7. Only return valid JSON, no markdown fences or explanation`
+}
+
+export async function generateBackendPhase(
+  input: ListingGenerationInput,
+  confirmedTitle: string,
+  confirmedBullets: string[],
+  confirmedDescription: string,
+  confirmedSearchTerms: string,
+  keywordCoverage: KeywordCoverage
+): Promise<{ result: BackendPhaseResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildBackendPhasePrompt(input, confirmedTitle, confirmedBullets, confirmedDescription, confirmedSearchTerms, keywordCoverage)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 8192,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  if (response.stop_reason === 'max_tokens') {
+    throw new Error('Backend attributes generation was cut off due to token limit. Please report this issue.')
+  }
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const jsonText = stripMarkdownFences(text)
+  const result = JSON.parse(jsonText) as BackendPhaseResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
 // --- Section Refinement (Phase 5: Modular Chats) ---
 
 import type { ChatMessage } from '@/types/api'

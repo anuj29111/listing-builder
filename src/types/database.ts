@@ -115,8 +115,31 @@ export interface LbListing {
   backend_attributes: Record<string, string[]> | null
   optimization_mode: 'new' | 'optimize_existing'
   existing_listing_text: ExistingListingText | null
+  generation_phase: GenerationPhase
+  keyword_coverage: KeywordCoverage | null
   created_at: string
   updated_at: string
+}
+
+export type GenerationPhase = 'pending' | 'title' | 'bullets' | 'description' | 'backend' | 'complete'
+
+export interface KeywordPlacement {
+  keyword: string
+  searchVolume: number
+  relevancy: number
+  placedIn: string
+  position?: string
+}
+
+export interface KeywordCoverage {
+  placed: KeywordPlacement[]
+  remaining: Array<{
+    keyword: string
+    searchVolume: number
+    relevancy: number
+    suggestedPlacement: string
+  }>
+  coverageScore: number
 }
 
 export interface BulletPlanningMatrixEntry {
@@ -137,7 +160,7 @@ export interface ExistingListingText {
 export interface LbListingSection {
   id: string
   listing_id: string
-  section_type: 'title' | 'bullet_1' | 'bullet_2' | 'bullet_3' | 'bullet_4' | 'bullet_5' | 'description' | 'search_terms' | 'subject_matter' | 'backend_attributes'
+  section_type: 'title' | 'bullet_1' | 'bullet_2' | 'bullet_3' | 'bullet_4' | 'bullet_5' | 'description' | 'search_terms' | 'subject_matter'
   variations: unknown[]
   selected_variation: number
   is_approved: boolean
