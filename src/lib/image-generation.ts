@@ -11,7 +11,7 @@ export interface GenerateAndStoreParams {
   modelId?: string
   listingId?: string | null
   workshopId?: string | null
-  imageType?: 'main' | 'secondary'
+  imageType?: 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
   position?: number | null
   createdBy: string
   adminClient: SupabaseClient

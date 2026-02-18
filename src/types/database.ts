@@ -166,7 +166,7 @@ export interface LbImageGeneration {
   full_url: string | null
   status: 'preview' | 'approved' | 'rejected'
   cost_cents: number
-  image_type: 'main' | 'secondary'
+  image_type: 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
   position: number | null
   created_by: string | null
   created_at: string
@@ -190,7 +190,7 @@ export interface LbImageWorkshop {
   selected_prompt_indices: number[]
   provider: 'dalle3' | 'gemini' | 'higgsfield'
   orientation: 'square' | 'portrait' | 'landscape'
-  image_type: 'main' | 'secondary'
+  image_type: 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
   created_by: string | null
   created_at: string
   updated_at: string

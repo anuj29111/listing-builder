@@ -179,7 +179,7 @@ export interface GenerateWorkshopPromptsRequest {
   country_id: string
   listing_id?: string
   name?: string
-  image_type?: 'main' | 'secondary'
+  image_type?: 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
 }
 
 export interface GenerateWorkshopPromptsResponse {
@@ -194,7 +194,7 @@ export interface BatchGenerateRequest {
   provider: 'dalle3' | 'gemini' | 'higgsfield'
   orientation: 'square' | 'portrait' | 'landscape'
   model_id?: string
-  image_type?: 'main' | 'secondary'
+  image_type?: 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
 }
 
 export interface BatchGenerateResponse {
@@ -246,6 +246,59 @@ export interface GenerateSecondaryPromptsRequest {
 export interface GenerateSecondaryPromptsResponse {
   workshop: import('./database').LbImageWorkshop
   concepts: SecondaryImageConcept[]
+}
+
+// --- Video Thumbnail Concepts ---
+
+export interface VideoThumbnailConcept {
+  position: number
+  title: string
+  approach: string
+  description: string
+  text_overlay: string
+  prompt: string
+}
+
+export interface GenerateThumbnailPromptsRequest {
+  product_name: string
+  brand: string
+  category_id: string
+  country_id: string
+  listing_id?: string
+}
+
+export interface GenerateThumbnailPromptsResponse {
+  workshop: import('./database').LbImageWorkshop
+  concepts: VideoThumbnailConcept[]
+}
+
+// --- Swatch Image Concepts ---
+
+export interface SwatchVariant {
+  name: string
+  color_hex?: string
+  material?: string
+  description?: string
+}
+
+export interface SwatchConcept {
+  position: number
+  variant_name: string
+  prompt: string
+}
+
+export interface GenerateSwatchPromptsRequest {
+  product_name: string
+  brand: string
+  category_id: string
+  country_id: string
+  listing_id?: string
+  variants: SwatchVariant[]
+}
+
+export interface GenerateSwatchPromptsResponse {
+  workshop: import('./database').LbImageWorkshop
+  concepts: SwatchConcept[]
 }
 
 // --- Phase 10: A+ Content ---

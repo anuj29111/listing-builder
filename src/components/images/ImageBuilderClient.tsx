@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { MainImageSection } from '@/components/listings/images/MainImageSection'
 import { SecondaryImageSection } from '@/components/listings/images/SecondaryImageSection'
+import { VideoThumbnailSection } from '@/components/listings/images/VideoThumbnailSection'
+import { SwatchImageSection } from '@/components/listings/images/SwatchImageSection'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -31,7 +33,7 @@ interface ImageBuilderClientProps {
   countries: LbCountry[]
 }
 
-type Tab = 'main' | 'secondary'
+type Tab = 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
 type ContextMode = 'listing' | 'research' | null
 
 interface ResolvedContext {
@@ -298,6 +300,8 @@ export function ImageBuilderClient({
   const TABS: { key: Tab; label: string }[] = [
     { key: 'main', label: 'Main Image' },
     { key: 'secondary', label: 'Secondary Images' },
+    { key: 'video_thumbnail', label: 'Video Thumbnails' },
+    { key: 'swatch', label: 'Swatches' },
   ]
 
   return (
@@ -334,7 +338,7 @@ export function ImageBuilderClient({
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b">
+      <div className="flex gap-1 mb-6 border-b overflow-x-auto">
         {TABS.map((tab) => (
           <button
             key={tab.key}
@@ -371,6 +375,30 @@ export function ImageBuilderClient({
 
           {activeTab === 'secondary' && (
             <SecondaryImageSection
+              listingId={resolvedContext.listingId}
+              categoryId={resolvedContext.categoryId}
+              countryId={resolvedContext.countryId}
+              productName={resolvedContext.productName}
+              brand={resolvedContext.brand}
+              workshops={workshops}
+              images={images}
+            />
+          )}
+
+          {activeTab === 'video_thumbnail' && (
+            <VideoThumbnailSection
+              listingId={resolvedContext.listingId}
+              categoryId={resolvedContext.categoryId}
+              countryId={resolvedContext.countryId}
+              productName={resolvedContext.productName}
+              brand={resolvedContext.brand}
+              workshops={workshops}
+              images={images}
+            />
+          )}
+
+          {activeTab === 'swatch' && (
+            <SwatchImageSection
               listingId={resolvedContext.listingId}
               categoryId={resolvedContext.categoryId}
               countryId={resolvedContext.countryId}

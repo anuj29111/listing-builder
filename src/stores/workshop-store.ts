@@ -11,7 +11,7 @@ interface WorkshopState {
   workshopId: string | null
   workshop: LbImageWorkshop | null
   step: 1 | 2 | 3 | 4
-  imageType: 'main' | 'secondary'
+  imageType: 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
 
   // Step 1: Setup
   generatedPrompts: WorkshopPrompt[]

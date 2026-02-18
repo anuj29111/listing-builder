@@ -1946,6 +1946,251 @@ export async function generateSecondaryImagePrompts(
   return { result, model, tokensUsed }
 }
 
+// --- Video Thumbnail Prompt Generation ---
+
+export interface ThumbnailPromptInput {
+  productName: string
+  brand: string
+  categoryName: string
+  listingTitle?: string | null
+  bulletPoints?: string[]
+  keywordAnalysis?: KeywordAnalysisResult | null
+  reviewAnalysis?: ReviewAnalysisResult | null
+  qnaAnalysis?: QnAAnalysisResult | null
+}
+
+export interface ThumbnailConceptResult {
+  concepts: Array<{
+    position: number
+    title: string
+    approach: string
+    description: string
+    text_overlay: string
+    prompt: string
+  }>
+}
+
+function buildThumbnailPromptsPrompt(input: ThumbnailPromptInput): string {
+  const { productName, brand, categoryName, listingTitle, bulletPoints, keywordAnalysis, reviewAnalysis, qnaAnalysis } = input
+
+  let researchContext = ''
+
+  if (keywordAnalysis) {
+    const topKeywords = keywordAnalysis.titleKeywords?.slice(0, 8).join(', ') || 'N/A'
+    const features = keywordAnalysis.featureDemand
+      ?.slice(0, 6)
+      .map((f) => `${f.feature} (${f.priority})`)
+      .join(', ') || 'N/A'
+    researchContext += `\n=== KEYWORD INTELLIGENCE ===
+Top keywords: ${topKeywords}
+Key feature demand: ${features}\n`
+  }
+
+  if (reviewAnalysis) {
+    const strengths = reviewAnalysis.strengths
+      ?.slice(0, 6)
+      .map((s) => `${s.strength} (${s.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    const useCases = reviewAnalysis.useCases
+      ?.slice(0, 6)
+      .map((u) => `${u.useCase} (${u.priority})`)
+      .join(', ') || 'N/A'
+    researchContext += `\n=== CUSTOMER REVIEW INSIGHTS ===
+Strengths: ${strengths}
+Use cases: ${useCases}\n`
+  }
+
+  if (qnaAnalysis) {
+    const concerns = qnaAnalysis.customerConcerns
+      ?.slice(0, 5)
+      .map((c) => c.concern)
+      .join(', ') || 'N/A'
+    researchContext += `\n=== CUSTOMER Q&A CONCERNS ===
+Top concerns: ${concerns}\n`
+  }
+
+  let listingContext = ''
+  if (listingTitle || (bulletPoints && bulletPoints.length > 0)) {
+    listingContext = `\n=== LISTING CONTENT ===
+Title: ${listingTitle || 'N/A'}
+Bullet points:\n${bulletPoints?.map((b, i) => `${i + 1}. ${b}`).join('\n') || 'N/A'}\n`
+  }
+
+  if (!researchContext && !listingContext) {
+    researchContext = '\nNo research data available. Use general best practices for Amazon product video thumbnails.\n'
+  }
+
+  return `You are an expert Amazon product video thumbnail designer. Generate 3 to 5 video thumbnail concepts for an Amazon product listing video.
+
+=== PRODUCT ===
+Product: ${productName}
+Brand: ${brand}
+Category: ${categoryName}
+${researchContext}${listingContext}
+=== TASK ===
+Generate 3 to 5 video thumbnail concepts. These are static images used as the thumbnail/cover frame for product videos on Amazon. They must be eye-catching, clickable, and communicate a clear value proposition in under 1 second of viewing.
+
+Each concept should use a DIFFERENT approach from this list:
+1. Hero Shot — Product front-and-center with bold benefit text. High contrast, clean background.
+2. Before/After — Split-screen showing transformation or problem-to-solution.
+3. Lifestyle Action — Product in use, mid-action, conveying energy and real-world context.
+4. Feature Callout — Close-up on 2-3 key features with annotation arrows or circles.
+5. Unboxing/What's Included — Everything laid out, showing value and completeness.
+
+Video thumbnail best practices:
+- Visually distinct from the main listing image (different angle, background, energy)
+- Text overlays are expected — suggest bold, short text (5-12 words)
+- Bright, high-contrast colors for clickability in search results
+- Show the product clearly but with MORE context/energy than the main image
+- Consider mobile viewing: large text, clear focal point, high contrast
+- 16:9 landscape orientation is standard for video thumbnails
+
+Use research data to pick the most compelling angles:
+- Feature demand → which features to spotlight
+- Customer concerns → what to address visually
+- Use cases → which scenario to show
+- Strengths → what emotional tone to convey
+
+=== OUTPUT FORMAT ===
+Return valid JSON only, no markdown fences:
+{
+  "concepts": [
+    {
+      "position": 1,
+      "title": "Short descriptive title (3-6 words)",
+      "approach": "one of: hero_shot, before_after, lifestyle_action, feature_callout, unboxing",
+      "description": "What this thumbnail communicates and why (1-2 sentences)",
+      "text_overlay": "Suggested bold text overlay for the thumbnail (5-12 words)",
+      "prompt": "Full image generation prompt (50-150 words). Describe scene, composition, lighting, colors, product placement. Do NOT include text in the prompt — text overlays are added separately."
+    }
+  ]
+}`
+}
+
+export async function generateVideoThumbnailPrompts(
+  input: ThumbnailPromptInput
+): Promise<{ result: ThumbnailConceptResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildThumbnailPromptsPrompt(input)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const result = JSON.parse(stripMarkdownFences(text)) as ThumbnailConceptResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
+// --- Swatch Image Prompt Generation ---
+
+export interface SwatchPromptInput {
+  productName: string
+  brand: string
+  categoryName: string
+  variants: Array<{
+    name: string
+    color_hex?: string
+    material?: string
+    description?: string
+  }>
+}
+
+export interface SwatchConceptResult {
+  concepts: Array<{
+    position: number
+    variant_name: string
+    prompt: string
+  }>
+}
+
+function buildSwatchPromptsPrompt(input: SwatchPromptInput): string {
+  const { productName, brand, categoryName, variants } = input
+
+  const variantList = variants
+    .map((v, i) => {
+      const parts = [`${i + 1}. "${v.name}"`]
+      if (v.color_hex) parts.push(`Hex: ${v.color_hex}`)
+      if (v.material) parts.push(`Material: ${v.material}`)
+      if (v.description) parts.push(`Description: ${v.description}`)
+      return parts.join(' | ')
+    })
+    .join('\n')
+
+  return `You are an expert Amazon product photography director specializing in swatch and variant images. Generate image prompts for product variant swatches.
+
+=== PRODUCT ===
+Product: ${productName}
+Brand: ${brand}
+Category: ${categoryName}
+
+=== VARIANTS ===
+${variantList}
+
+=== TASK ===
+Generate one image prompt per variant. Each swatch image should:
+- Show the product variant clearly with accurate color/material representation
+- Use a clean, consistent white background for uniformity across all swatches
+- Maintain the SAME camera angle, lighting, and composition across all variants
+- Focus on the variant-defining characteristic (color, material, pattern, texture)
+- Be suitable for a small swatch thumbnail (clear at 100x100px) AND full-size viewing
+- If hex color provided, describe that exact color using vivid natural language
+- If material provided, emphasize texture and material qualities in the prompt
+
+Swatch image best practices:
+- Consistent framing across all variants (same zoom, angle, crop)
+- Soft, even studio lighting for true-to-life colors
+- No text overlays on swatch images
+- Product fills 60-80% of the frame
+- Pure white (#FFFFFF) background
+- Square 1:1 aspect ratio
+
+=== OUTPUT FORMAT ===
+Return valid JSON only, no markdown fences:
+{
+  "concepts": [
+    {
+      "position": 1,
+      "variant_name": "The variant name from input",
+      "prompt": "Detailed image generation prompt (50-100 words). Describe exact color/material/texture, lighting setup, camera angle, background, and product presentation. Emphasize consistency with other variants."
+    }
+  ]
+}`
+}
+
+export async function generateSwatchPrompts(
+  input: SwatchPromptInput
+): Promise<{ result: SwatchConceptResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildSwatchPromptsPrompt(input)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const result = JSON.parse(stripMarkdownFences(text)) as SwatchConceptResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
 export async function generateImagePrompts(
   input: WorkshopPromptInput
 ): Promise<{ result: WorkshopPromptResult; model: string; tokensUsed: number }> {

@@ -12,6 +12,8 @@ import { BackendAttributesCard } from '@/components/listings/BackendAttributesCa
 import { QnAVerification } from '@/components/listings/QnAVerification'
 import { MainImageSection } from '@/components/listings/images/MainImageSection'
 import { SecondaryImageSection } from '@/components/listings/images/SecondaryImageSection'
+import { VideoThumbnailSection } from '@/components/listings/images/VideoThumbnailSection'
+import { SwatchImageSection } from '@/components/listings/images/SwatchImageSection'
 import { SECTION_TYPES, SECTION_TYPE_LABELS, SECTION_CHAR_LIMIT_MAP } from '@/lib/constants'
 import { Pencil, Save, Loader2, CheckCircle2, Tag, MapPin, ArrowLeft } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -39,7 +41,7 @@ interface ListingDetailClientProps {
   images: unknown[]
 }
 
-type Tab = 'content' | 'main' | 'secondary'
+type Tab = 'content' | 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
 
 export function ListingDetailClient({
   listing,
@@ -148,6 +150,8 @@ export function ListingDetailClient({
     { key: 'content', label: 'Content' },
     { key: 'main', label: 'Main Image' },
     { key: 'secondary', label: 'Secondary Images' },
+    { key: 'video_thumbnail', label: 'Video Thumbnails' },
+    { key: 'swatch', label: 'Swatches' },
   ]
 
   return (
@@ -202,7 +206,7 @@ export function ListingDetailClient({
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b">
+      <div className="flex gap-1 mb-6 border-b overflow-x-auto">
         {TABS.map((tab) => (
           <button
             key={tab.key}
@@ -297,6 +301,30 @@ export function ListingDetailClient({
 
       {activeTab === 'secondary' && (
         <SecondaryImageSection
+          listingId={listing.id}
+          categoryId={categoryId}
+          countryId={countryId}
+          productName={productName}
+          brand={brandName}
+          workshops={workshops}
+          images={images}
+        />
+      )}
+
+      {activeTab === 'video_thumbnail' && (
+        <VideoThumbnailSection
+          listingId={listing.id}
+          categoryId={categoryId}
+          countryId={countryId}
+          productName={productName}
+          brand={brandName}
+          workshops={workshops}
+          images={images}
+        />
+      )}
+
+      {activeTab === 'swatch' && (
+        <SwatchImageSection
           listingId={listing.id}
           categoryId={categoryId}
           countryId={countryId}
