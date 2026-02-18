@@ -180,8 +180,8 @@ export const CLAUDE_MODELS: ClaudeModelConfig[] = [
     tier: 'budget',
   },
   {
-    id: 'claude-sonnet-4-5-20250929',
-    name: 'Claude Sonnet 4.5',
+    id: 'claude-sonnet-4-6',
+    name: 'Claude Sonnet 4.6',
     description: 'Best balance of speed, quality, and cost.',
     inputPer1M: 3.00,
     outputPer1M: 15.00,
@@ -197,4 +197,4 @@ export const CLAUDE_MODELS: ClaudeModelConfig[] = [
   },
 ]
 
-export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-5-20250929'
+export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6'
