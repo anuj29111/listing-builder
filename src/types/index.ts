@@ -20,6 +20,7 @@ export type {
   GenerationPhase,
   KeywordCoverage,
   KeywordPlacement,
+  LbProduct,
 } from './database'
 
 export type {
@@ -61,7 +62,7 @@ export type {
 } from './api'
 
 export type Brand = 'Chalkola' | 'Spedalon' | 'Funcils' | 'Other'
-export type FileType = 'keywords' | 'reviews' | 'qna' | 'rufus_qna' | 'keywords_analysis' | 'reviews_analysis' | 'qna_analysis'
+export type FileType = 'keywords' | 'reviews' | 'qna' | 'rufus_qna' | 'keywords_analysis' | 'reviews_analysis' | 'qna_analysis' | 'sp_prompts'
 export type AnalysisType = 'keyword_analysis' | 'review_analysis' | 'qna_analysis' | 'competitor_analysis'
 export type AnalysisSource = 'csv' | 'file' | 'merged'
 export type ListingStatus = 'draft' | 'review' | 'approved' | 'exported'

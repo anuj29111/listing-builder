@@ -21,6 +21,8 @@ import type { LbCategory, LbCountry } from '@/types'
 
 // Analysis file types that don't need CSV parsing
 const ANALYSIS_FILE_TYPES = new Set(['keywords_analysis', 'reviews_analysis', 'qna_analysis'])
+// SP Prompts accepts xlsx + csv (xlsx is parsed server-side)
+const SP_PROMPTS_FILE_TYPES = new Set(['sp_prompts'])
 
 interface FileUploaderProps {
   categories: LbCategory[]
@@ -43,6 +45,7 @@ export function FileUploader({
   const [parsing, setParsing] = useState(false)
 
   const isAnalysisType = ANALYSIS_FILE_TYPES.has(fileType)
+  const isSpPrompts = SP_PROMPTS_FILE_TYPES.has(fileType)
 
   // Dynamic accept types based on selected file type
   const acceptTypes = useMemo((): Record<string, string[]> => {
@@ -53,8 +56,16 @@ export function FileUploader({
         'text/plain': ['.txt'],
       }
     }
+    if (isSpPrompts) {
+      return {
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+        'application/vnd.ms-excel': ['.xls'],
+        'text/csv': ['.csv'],
+        'text/plain': ['.txt'],
+      }
+    }
     return { 'text/csv': ['.csv'], 'text/plain': ['.txt'] }
-  }, [isAnalysisType])
+  }, [isAnalysisType, isSpPrompts])
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -82,6 +93,12 @@ export function FileUploader({
         return
       }
 
+      // For SP Prompts xlsx, skip client-side parsing (server handles it)
+      if (isSpPrompts && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
+        setTextPreview(`Excel file: ${file.name} (${formatFileSize(file.size)}) — will be parsed server-side on upload`)
+        return
+      }
+
       // For CSV files, parse normally
       setParsing(true)
       try {
@@ -102,7 +119,7 @@ export function FileUploader({
         setParsing(false)
       }
     },
-    [fileType, isAnalysisType]
+    [fileType, isAnalysisType, isSpPrompts]
   )
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -119,11 +136,13 @@ export function FileUploader({
     setTextPreview(null)
   }
 
-  // Clear file when switching between CSV and analysis file types
+  // Clear file when switching between incompatible file type groups
   function handleFileTypeChange(newType: string) {
     const wasAnalysis = ANALYSIS_FILE_TYPES.has(fileType)
     const isNowAnalysis = ANALYSIS_FILE_TYPES.has(newType)
-    if (wasAnalysis !== isNowAnalysis && selectedFile) {
+    const wasSp = SP_PROMPTS_FILE_TYPES.has(fileType)
+    const isNowSp = SP_PROMPTS_FILE_TYPES.has(newType)
+    if ((wasAnalysis !== isNowAnalysis || wasSp !== isNowSp) && selectedFile) {
       clearFile()
     }
     setFileType(newType)
@@ -177,11 +196,15 @@ export function FileUploader({
 
   const dropzoneLabel = isAnalysisType
     ? 'Drag & drop an MD, JSON, or TXT file'
-    : 'Drag & drop a CSV file, or click to browse'
+    : isSpPrompts
+      ? 'Drag & drop an XLSX or CSV file (Amazon Ads export)'
+      : 'Drag & drop a CSV file, or click to browse'
 
   const dropzoneHint = isAnalysisType
     ? 'MD, JSON, or TXT files up to 50MB'
-    : 'CSV or TXT files up to 50MB'
+    : isSpPrompts
+      ? 'XLSX or CSV files up to 50MB — parsed server-side'
+      : 'CSV or TXT files up to 50MB'
 
   return (
     <div className="rounded-lg border bg-card">

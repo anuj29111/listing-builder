@@ -41,7 +41,7 @@ export interface LbResearchFile {
   id: string
   category_id: string
   country_id: string
-  file_type: 'keywords' | 'reviews' | 'qna' | 'rufus_qna'
+  file_type: 'keywords' | 'reviews' | 'qna' | 'rufus_qna' | 'sp_prompts'
   file_name: string
   storage_path: string
   source: 'manual_upload' | 'google_drive' | 'apify' | 'datadive'
@@ -265,6 +265,18 @@ export interface LbAPlusModule {
   images: unknown[]
   status: 'draft' | 'review' | 'approved'
   created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface LbProduct {
+  id: string
+  asin: string
+  product_name: string
+  parent_name: string | null
+  parent_asin: string | null
+  category: string
+  brand: string | null
   created_at: string
   updated_at: string
 }

@@ -104,14 +104,49 @@ export async function POST(request: Request) {
 
     // Build storage path
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-    const storagePath = `${catResult.data.slug}/${countryResult.data.code.toLowerCase()}/${fileType}/${Date.now()}_${safeName}`
+    let finalStorageName = safeName
+    let fileBuffer = Buffer.from(await file.arrayBuffer())
+    let contentType = file.type || 'text/csv'
+    let parsedRowCount: number | null = null
+
+    // SP Prompts: parse xlsx server-side, convert to clean CSV before storage
+    if (fileType === 'sp_prompts' && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
+      const XLSX = await import('xlsx')
+      const Papa = await import('papaparse')
+      const workbook = XLSX.read(fileBuffer, { type: 'buffer' })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+
+      // Extract relevant columns (case-insensitive matching)
+      const SP_COLUMNS = [
+        'prompt details', 'country', 'advertised asin', 'advertised sku',
+        'impressions', 'clicks', 'click-thru rate (ctr)', 'spend',
+        '7 day total sales', 'total advertising cost of sales (acos)',
+        '7 day total orders (#)',
+      ]
+      const allKeys = rawRows.length > 0 ? Object.keys(rawRows[0]) : []
+      const selectedKeys = SP_COLUMNS.map((col) =>
+        allKeys.find((k) => k.toLowerCase().trim() === col) || null
+      ).filter((k): k is string => k !== null)
+
+      const cleanRows = rawRows.map((row) =>
+        Object.fromEntries(selectedKeys.map((k) => [k, row[k] ?? '']))
+      )
+
+      const csvContent = Papa.default.unparse(cleanRows, { header: true })
+      fileBuffer = Buffer.from(csvContent, 'utf-8')
+      finalStorageName = safeName.replace(/\.xlsx$/i, '.csv').replace(/\.xls$/i, '.csv')
+      contentType = 'text/csv'
+      parsedRowCount = rawRows.length
+    }
+
+    const storagePath = `${catResult.data.slug}/${countryResult.data.code.toLowerCase()}/${fileType}/${Date.now()}_${finalStorageName}`
 
     // Upload to Supabase Storage
-    const fileBuffer = Buffer.from(await file.arrayBuffer())
     const { error: uploadError } = await supabase.storage
       .from('lb-research-files')
       .upload(storagePath, fileBuffer, {
-        contentType: file.type || 'text/csv',
+        contentType,
         upsert: false,
       })
 
@@ -123,7 +158,7 @@ export async function POST(request: Request) {
     }
 
     // Insert DB record
-    const rowCount = rowCountStr ? parseInt(rowCountStr, 10) : null
+    const rowCount = parsedRowCount ?? (rowCountStr ? parseInt(rowCountStr, 10) : null)
     const { data, error: dbError } = await supabase
       .from('lb_research_files')
       .insert({

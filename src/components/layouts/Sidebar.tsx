@@ -10,6 +10,7 @@ import {
   FileText,
   Image,
   Sparkles,
+  Package,
   Settings,
   ChevronLeft,
   Shield,
@@ -21,6 +22,7 @@ const navItems = [
   { href: '/listings', label: 'Listings', icon: FileText },
   { href: '/images', label: 'Images', icon: Image },
   { href: '/aplus', label: 'A+ Content', icon: Sparkles },
+  { href: '/products', label: 'Products', icon: Package },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
 

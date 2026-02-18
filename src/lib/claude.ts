@@ -352,6 +352,29 @@ export interface QnAAnalysisResult {
     strengths: string[]
     improvements: string[]
   }
+  spPromptInsights?: {
+    totalPrompts: number
+    relevantPrompts: number
+    filteredOut: number
+    promptThemes: Array<{
+      theme: string
+      count: number
+      avgImpressions: number
+      hasClicks: boolean
+    }>
+    topPerformingPrompts: Array<{
+      prompt: string
+      impressions: number
+      clicks: number
+      ctr: number
+    }>
+    contentGapsFromPrompts: Array<{
+      prompt: string
+      addressed: boolean
+      recommendation: string
+    }>
+    suggestedListingImprovements: string[]
+  }
 }
 
 export type AnalysisResult =
@@ -474,18 +497,36 @@ CSV DATA:
 ${content}`
 }
 
-function buildQnAAnalysisPrompt(csvContent: string, categoryName: string, countryName: string, isRufus: boolean): string {
+function buildQnAAnalysisPrompt(csvContent: string, categoryName: string, countryName: string, isRufus: boolean, hasSpPrompts: boolean = false): string {
   const { content, truncated, originalRows, keptRows } = truncateCSVContent(csvContent)
   const source = isRufus ? 'Amazon Rufus AI' : 'Amazon customer'
   const truncationNote = truncated
     ? `\n\nIMPORTANT: This is a representative sample of ${keptRows.toLocaleString()} out of ${originalRows.toLocaleString()} total Q&A pairs, evenly sampled. Scale counts proportionally.\n`
     : ''
 
+  const spPromptsInstruction = hasSpPrompts ? `
+
+The data also includes SP Prompts (Sponsored Products Prompts) from Amazon Ads. SP Prompts are questions Amazon's Rufus AI shows to shoppers in sponsored product placements. The SP Prompts section is in CSV format with columns including: Prompt details, Impressions, Clicks, CTR, Sales, etc.
+
+CRITICAL — NICHE FILTERING: The SP Prompts file may contain prompts from MULTIPLE product categories. You MUST filter to ONLY those prompts relevant to the "${categoryName}" category/niche. Discard any prompts that are clearly about different product types (e.g., if analyzing chalk markers, discard prompts about canvas, toys, paints). Count and report how many were filtered out.
+
+Add this section to your JSON output:
+"spPromptInsights": {
+  "totalPrompts": <total SP prompt rows in data>,
+  "relevantPrompts": <count after niche filtering>,
+  "filteredOut": <count discarded as irrelevant to ${categoryName}>,
+  "promptThemes": [top 5 theme clusters from relevant prompts: {"theme":"tip variety/versatility/surface compatibility/etc","count":0,"avgImpressions":0,"hasClicks":true/false}],
+  "topPerformingPrompts": [top 5 relevant prompts by impressions: {"prompt":"Does Chalkola have...","impressions":0,"clicks":0,"ctr":0.0}],
+  "contentGapsFromPrompts": [gaps the SP prompts reveal that the listing should address: {"prompt":"sample prompt text","addressed":true/false,"recommendation":"specific listing improvement"}],
+  "suggestedListingImprovements": ["3-5 specific listing improvements based on what Rufus is asking shoppers about in ad placements"]
+}` : ''
+
   return `You are an expert Amazon listing optimization analyst conducting a COMPREHENSIVE Q&A analysis. Analyze the following ${source} Q&A data for the product category "${categoryName}" in the "${countryName}" marketplace.
 ${truncationNote}
-The data is formatted as Q&A pairs (Q1:, A1:, Q2:, A2:, etc.).
+The data is formatted as Q&A pairs (Q1:, A1:, Q2:, A2:, etc.).${hasSpPrompts ? ' The data also contains SP Prompts CSV data (see instructions below).' : ''}
 
 Produce a DEEP, COMPREHENSIVE analysis. Analyze every angle: product specs confirmed from Q&A, surface/feature compatibility, contradictions in answers, 10+ information gaps with priority scores, confirmed features (positive and limitations), question type breakdown with percentages, high-risk questions for competitor ad placement, competitive defense strategy, and a Rufus AI optimization score.
+${spPromptsInstruction}
 
 Return a JSON object with this EXACT structure:
 {
@@ -2076,11 +2117,12 @@ export async function analyzeQnA(
   csvContent: string,
   categoryName: string,
   countryName: string,
-  isRufus: boolean
+  isRufus: boolean,
+  hasSpPrompts: boolean = false
 ): Promise<{ result: QnAAnalysisResult; model: string; tokensUsed: number }> {
   const client = await getClient()
   const model = await getModel()
-  const prompt = buildQnAAnalysisPrompt(csvContent, categoryName, countryName, isRufus)
+  const prompt = buildQnAAnalysisPrompt(csvContent, categoryName, countryName, isRufus, hasSpPrompts)
 
   const response = await client.messages.create({
     model,

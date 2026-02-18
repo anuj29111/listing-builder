@@ -745,6 +745,145 @@ function ReviewAnalysisView({ data }: { data: ReviewAnalysisResult }) {
   )
 }
 
+// --- SP Prompts Insights Section ---
+
+function SpPromptInsightsSection({ insights }: { insights: NonNullable<QnAAnalysisResult['spPromptInsights']> }) {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50">
+      <div className="p-4 border-b border-amber-200">
+        <h4 className="font-semibold text-amber-900">Amz SP Prompts Analysis</h4>
+        <p className="text-xs text-amber-700 mt-1">
+          Rufus AI questions from Amazon Sponsored Products ad placements
+        </p>
+      </div>
+      <div className="p-4 space-y-4">
+        {/* Stats row */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded border bg-white p-3 text-center">
+            <p className="text-xs text-muted-foreground">Total Prompts</p>
+            <p className="text-xl font-bold">{fmt(insights.totalPrompts)}</p>
+          </div>
+          <div className="rounded border bg-green-50 border-green-200 p-3 text-center">
+            <p className="text-xs text-muted-foreground">Relevant (Niche)</p>
+            <p className="text-xl font-bold text-green-700">{fmt(insights.relevantPrompts)}</p>
+          </div>
+          <div className="rounded border bg-gray-50 p-3 text-center">
+            <p className="text-xs text-muted-foreground">Filtered Out</p>
+            <p className="text-xl font-bold text-muted-foreground">{fmt(insights.filteredOut)}</p>
+          </div>
+        </div>
+
+        {/* Top Performing Prompts */}
+        {insights.topPerformingPrompts && insights.topPerformingPrompts.length > 0 && (
+          <div className="rounded-lg border bg-white">
+            <div className="p-3 border-b">
+              <h5 className="text-sm font-semibold">Top Performing SP Prompts</h5>
+              <p className="text-xs text-muted-foreground">By impression volume — these questions have shopper demand</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="text-left p-3 font-medium">Prompt</th>
+                    <th className="text-right p-3 font-medium">Impressions</th>
+                    <th className="text-right p-3 font-medium">Clicks</th>
+                    <th className="text-right p-3 font-medium">CTR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {insights.topPerformingPrompts.map((p, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="p-3 text-sm italic">&ldquo;{p.prompt}&rdquo;</td>
+                      <td className="p-3 text-right">{fmt(p.impressions)}</td>
+                      <td className="p-3 text-right">{fmt(p.clicks)}</td>
+                      <td className="p-3 text-right">{typeof p.ctr === 'number' ? (p.ctr * 100).toFixed(1) + '%' : p.ctr}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Prompt Theme Clusters */}
+        {insights.promptThemes && insights.promptThemes.length > 0 && (
+          <div className="rounded-lg border bg-white">
+            <div className="p-3 border-b">
+              <h5 className="text-sm font-semibold">Prompt Theme Clusters</h5>
+            </div>
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {insights.promptThemes.map((t, i) => (
+                <div key={i} className="rounded border p-2">
+                  <div className="flex justify-between items-start">
+                    <p className="text-sm font-medium">{t.theme}</p>
+                    <span className="text-xs text-muted-foreground">{t.count} prompts</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Avg impressions: {fmt(Math.round(t.avgImpressions))}
+                    {t.hasClicks && <span className="ml-2 text-green-600 font-medium">Has clicks</span>}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Content Gaps from Prompts */}
+        {insights.contentGapsFromPrompts && insights.contentGapsFromPrompts.length > 0 && (
+          <div className="rounded-lg border bg-white">
+            <div className="p-3 border-b">
+              <h5 className="text-sm font-semibold">Content Gaps from SP Prompts</h5>
+              <p className="text-xs text-muted-foreground">Questions Rufus is asking that the listing may not address</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="text-left p-3 font-medium">Prompt</th>
+                    <th className="text-center p-3 font-medium">Addressed?</th>
+                    <th className="text-left p-3 font-medium">Recommendation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {insights.contentGapsFromPrompts.map((g, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="p-3 text-sm italic">&ldquo;{g.prompt}&rdquo;</td>
+                      <td className="p-3 text-center">
+                        <Badge variant={g.addressed ? 'success' : 'destructive'} className="text-xs">
+                          {g.addressed ? 'Yes' : 'No'}
+                        </Badge>
+                      </td>
+                      <td className="p-3 text-sm">{g.recommendation}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Suggested Listing Improvements */}
+        {insights.suggestedListingImprovements && insights.suggestedListingImprovements.length > 0 && (
+          <div className="rounded-lg border bg-white">
+            <div className="p-3 border-b">
+              <h5 className="text-sm font-semibold">Suggested Listing Improvements</h5>
+              <p className="text-xs text-muted-foreground">Based on what Rufus is asking shoppers in ad placements</p>
+            </div>
+            <div className="p-4 space-y-2">
+              {insights.suggestedListingImprovements.map((s, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <span className="text-amber-500 mt-0.5 flex-shrink-0 text-sm">&#9679;</span>
+                  <p className="text-sm">{s}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // --- Q&A Analysis View ---
 
 function QnAAnalysisView({ data }: { data: QnAAnalysisResult }) {
@@ -752,6 +891,9 @@ function QnAAnalysisView({ data }: { data: QnAAnalysisResult }) {
     <div className="space-y-6">
       {/* Executive Summary */}
       <ExecutiveSummary text={data.executiveSummary} />
+
+      {/* SP Prompts Insights */}
+      {data.spPromptInsights && <SpPromptInsightsSection insights={data.spPromptInsights} />}
 
       {/* Summary + Rufus Score */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

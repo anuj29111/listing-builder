@@ -89,7 +89,7 @@ const ANALYSIS_TO_PRE_ANALYZED: Record<string, string> = {
 const ANALYSIS_TO_RAW: Record<string, string[]> = {
   keyword_analysis: ['keywords'],
   review_analysis: ['reviews'],
-  qna_analysis: ['qna', 'rufus_qna'],
+  qna_analysis: ['qna', 'rufus_qna', 'sp_prompts'],
 }
 
 const FILE_TYPE_TO_ANALYSIS: Record<string, string> = {
@@ -97,6 +97,7 @@ const FILE_TYPE_TO_ANALYSIS: Record<string, string> = {
   reviews: 'review_analysis',
   qna: 'qna_analysis',
   rufus_qna: 'qna_analysis',
+  sp_prompts: 'qna_analysis',
   keywords_analysis: 'keyword_analysis',
   reviews_analysis: 'review_analysis',
   qna_analysis: 'qna_analysis',
@@ -273,8 +274,14 @@ export function AnalysisStatusPanel({
           if (at === 'qna_analysis') {
             const hasQna = availableFileTypes.includes('qna')
             const hasRufus = availableFileTypes.includes('rufus_qna')
-            if (hasQna && hasRufus) subtitle = 'Combines: Q&A + Rufus Q&A files'
-            else if (hasRufus) subtitle = 'Source: Rufus Q&A'
+            const hasSp = availableFileTypes.includes('sp_prompts')
+            const parts = [
+              hasQna && 'Q&A',
+              hasRufus && 'Rufus Q&A',
+              hasSp && 'SP Prompts',
+            ].filter(Boolean)
+            if (parts.length > 1) subtitle = `Combines: ${parts.join(' + ')} files`
+            else if (parts.length === 1 && parts[0] !== 'Q&A') subtitle = `Source: ${parts[0]}`
           }
 
           return (

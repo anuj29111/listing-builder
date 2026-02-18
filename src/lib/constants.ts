@@ -4,7 +4,7 @@ export const APP_VERSION = '0.0.0'
 
 export const BRANDS = ['Chalkola', 'Spedalon', 'Funcils', 'Other'] as const
 
-export const FILE_TYPES = ['keywords', 'reviews', 'qna', 'rufus_qna', 'keywords_analysis', 'reviews_analysis', 'qna_analysis'] as const
+export const FILE_TYPES = ['keywords', 'reviews', 'qna', 'rufus_qna', 'keywords_analysis', 'reviews_analysis', 'qna_analysis', 'sp_prompts'] as const
 
 export const ANALYSIS_TYPES = ['keyword_analysis', 'review_analysis', 'qna_analysis', 'competitor_analysis'] as const
 
@@ -73,6 +73,7 @@ export const FILE_TYPE_LABELS: Record<string, string> = {
   keywords_analysis: 'Keywords — Analysis File (MD/JSON)',
   reviews_analysis: 'Reviews — Analysis File (MD/JSON)',
   qna_analysis: 'Q&A — Analysis File (MD/JSON)',
+  sp_prompts: 'Amz SP Prompts — Amazon Ads (XLSX/CSV)',
 }
 
 // Short labels for file list badges (keeps the table clean)
@@ -84,6 +85,7 @@ export const FILE_TYPE_SHORT_LABELS: Record<string, string> = {
   keywords_analysis: 'Keywords — Analysis',
   reviews_analysis: 'Reviews — Analysis',
   qna_analysis: 'Q&A — Analysis',
+  sp_prompts: 'SP Prompts',
 }
 
 export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024 // 50MB

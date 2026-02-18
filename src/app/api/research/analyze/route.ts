@@ -8,7 +8,7 @@ import type { AnalysisType, AnalysisSource, FileType } from '@/types'
 const RAW_FILE_TYPES: Partial<Record<AnalysisType, FileType[]>> = {
   keyword_analysis: ['keywords'],
   review_analysis: ['reviews'],
-  qna_analysis: ['qna', 'rufus_qna'],
+  qna_analysis: ['qna', 'rufus_qna', 'sp_prompts'],
 }
 
 // Maps analysis_type → pre-analyzed file type
@@ -212,7 +212,8 @@ export async function POST(request: Request) {
           analysisOutput = { ...output, result: output.result as unknown as Record<string, unknown> }
         } else {
           const hasRufus = filesToProcess.some((f) => f.fileType === 'rufus_qna')
-          const output = await analyzeQnA(combinedContent, catResult.data.name, countryResult.data.name, hasRufus)
+          const hasSpPrompts = filesToProcess.some((f) => f.fileType === 'sp_prompts')
+          const output = await analyzeQnA(combinedContent, catResult.data.name, countryResult.data.name, hasRufus, hasSpPrompts)
           analysisOutput = { ...output, result: output.result as unknown as Record<string, unknown> }
         }
       }
