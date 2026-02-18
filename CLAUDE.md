@@ -108,17 +108,18 @@ npm run lint         # ESLint
 12. **Supabase Storage MIME types** — `lb-research-files` bucket allows: csv, excel, txt, markdown, json, octet-stream. Update if adding new file formats.
 13. **Large CSV analysis** — Reviews CSV can exceed 200K token limit. `truncateCSVContent()` in claude.ts handles this with even sampling.
 14. **Analysis source column** — `lb_research_analysis` has `source` column (`csv`/`file`/`merged`). UNIQUE on `(category_id, country_id, analysis_type, source)`. All consumers pick best source: merged > csv > file. Legacy `'primary'` was migrated out.
-15. **Stale processing detection** — Analysis stuck >5min in `processing` shows "Stuck — Retry" button. API route deletes+re-inserts on retry.
-16. **Workshop state loss (FIXED)** — Workshop POST now saves `generated_prompts` JSONB to DB. Store hydrates from DB on mount via `hydrateFromDB()`. DB is source of truth, Zustand is for in-page reactivity only.
-17. **Analysis source='primary' legacy (FIXED)** — Old `source='primary'` records migrated to `csv`. Code has defensive `normalizeSource()` mapping `primary` → `csv`. `AnalysisSource` type no longer includes `'primary'`.
-18. **Research page coordination** — `ResearchPageClient` wraps `ResearchStatusMatrix` + `ResearchClient`. Matrix click → sets selection → scrolls to research section. State lives in parent, passed as `externalCategoryId`/`externalCountryId`.
+15. **Research page coordination** — `ResearchPageClient` wraps `ResearchStatusMatrix` + `ResearchClient`. Matrix click → sets selection → scrolls to research section. State lives in parent, passed as `externalCategoryId`/`externalCountryId`.
 19. **Supabase join returns array** — `select('field:table(cols)')` returns array not object. Normalize with `Array.isArray(x) ? x[0] || null : x` before passing to components.
-20. **Image builder dual entry** — `/listings/[id]` (tabs: Content/Main/Secondary) and `/images` (standalone with context picker). Both use shared `MainImageSection` + `SecondaryImageSection` components.
-21. **Workshop image_type column** — `lb_image_workshops.image_type` is `'main'` or `'secondary'`. Filter workshops by `image_type` when loading for each tab.
+20. **Image builder dual entry** — `/listings/[id]` (tabs: Content/Main/Secondary/Video Thumbnails/Swatches) and `/images` (standalone with context picker + drafts panel). Both use shared section components.
+21. **Workshop image_type column** — `lb_image_workshops.image_type` supports `'main'`, `'secondary'`, `'video_thumbnail'`, `'swatch'`. Filter workshops by `image_type` when loading for each tab.
 22. **Bullet variations format** — New listings store 9 variations per bullet as flat array: `[seo_concise, seo_medium, seo_longer, benefit_concise, ..., balanced_longer]`. Old listings may have 3-element arrays. `flattenBullet()` in API route handles both.
 23. **SectionCard approval** — `final_text` replaces `is_approved` toggle. Section is "approved" when `final_text.trim()` is non-empty. `is_approved` DB column is derived from `final_text` on save.
-24. **Generation max_tokens** — Set to 32768 for the enhanced output format (5 titles, 9 bullet variations, planning matrix, backend attrs). If quality degrades, consider splitting into 2 calls.
+24. **Phased generation (cascading keyword waterfall)** — Listing generation uses 4 sequential API calls: Title (16384 tokens) → Bullets (32768) → Description+SearchTerms (16384) → Backend (8192). Each phase sees full research data + confirmed output from prior phases + keyword coverage tracker. API route: `/api/listings/generate` with `phase` parameter. Batch route auto-cascades all 4 phases. Never limit token budgets — full data in every phase.
 25. **Competitor analysis** — Stored as `analysis_type='competitor_analysis'` in `lb_research_analysis`. Max 5 competitors, 5000 chars each. Uses dedicated API route `/api/research/analyze/competitors`.
+26. **Admin settings keys are lowercase** — `lb_admin_settings.key` is case-sensitive. Always use lowercase: `anthropic_api_key`, `openai_api_key`, `google_ai_api_key`, `higgsfield_api_key`, `higgsfield_api_secret`. UI now has pre-filled slots.
+27. **Gemini model 404** — `gemini-2.0-flash-exp` returns 404. Needs updating to a valid model in `src/lib/gemini.ts`. Fix in next session.
+28. **Image builder 5 tabs** — Listing detail + standalone `/images` both show: Content, Main, Secondary, Video Thumbnails, Swatches. Tab bar has `overflow-x-auto` for mobile.
+29. **Image Builder drafts panel** — `/images` page shows saved workshops as clickable draft cards. Clicking resumes the draft by setting context + active tab.
 
 ---
 
@@ -142,20 +143,18 @@ npm run lint         # ESLint
 
 ## Pending Tasks
 
-- **Session 15 Enhancement Testing (Phases 1-6 built, needs e2e testing):**
-  1. Create new listing — verify 5 titles, 3x3 bullet variations, planning matrix, backend attributes all render
-  2. Test SectionCard — final text box, "Use" buttons, collapsible sections, char counters
-  3. Test Competitor Analysis — Research page → paste competitors → analyze → verify saved analysis
-  4. Test Optimize Existing mode — wizard toggle → paste listing → generate → verify optimized variations
-  5. Test Q&A Verification — listing detail page → "Verify Q&A Coverage" → coverage matrix
-  6. Test Image Stack Recommendations — secondary images tab → "Get Recommendations" panel
-- **Image Builder — End-to-end Testing:**
-  1. Test main image flow: context picker → AI prompt generation → edit prompts → batch generate → tag elements → combine
-  2. Test secondary image flow: 9 concepts generated from research → edit → generate individually or all
-  3. Verify DB persistence: navigate away and back, confirm workshops + images survive
-
-## Pending User Actions
-
-- Set `anthropic_api_key` in Admin Settings UI to enable Claude AI features
-- Set `openai_api_key` in Admin Settings UI for DALL-E 3 image generation
-- Set `google_ai_api_key` in Admin Settings UI for Gemini image generation
+- **Fix Gemini model** — Update `gemini-2.0-flash-exp` → valid model name in `src/lib/gemini.ts` (returns 404)
+- **Phased Generation e2e Testing:**
+  1. New listing wizard — verify 4-phase flow: Generate Titles → confirm → Generate Bullets → confirm → Description → Backend
+  2. Keyword coverage panel — verify score climbs across phases (30% → 60% → 85% → 95%+)
+  3. SectionCard in wizard — "Use" buttons copy to final text, confirm buttons advance phases
+  4. Re-generation — regenerate a phase, verify downstream phases reset
+- **Session 15 Enhancement Testing:**
+  1. Test Competitor Analysis — Research page → paste competitors → analyze → verify saved
+  2. Test Optimize Existing mode — wizard toggle → paste listing → verify optimized variations
+  3. Test Q&A Verification — listing detail → "Verify Q&A Coverage" → coverage matrix
+  4. Test Image Stack Recommendations — secondary images tab → "Get Recommendations"
+- **Image Builder e2e Testing:**
+  1. Test all 4 image flows: main, secondary, video thumbnails, swatch
+  2. Test drafts panel: generate → navigate away → return → click draft → verify resume
+  3. Verify DB persistence across navigation
