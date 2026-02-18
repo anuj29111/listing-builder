@@ -78,7 +78,7 @@ export function GenerationControls({ onGenerated }: GenerationControlsProps) {
   const costEstimate = provider === 'openai'
     ? '~3c'
     : provider === 'gemini'
-      ? (geminiModel === 'gemini-3-pro-image-preview' ? '~4c' : '~2c')
+      ? (geminiModel === 'gemini-2.5-flash-image' ? '~2c' : '~4c')
       : 'TBD'
 
   const handleGenerate = async () => {
@@ -98,7 +98,7 @@ export function GenerationControls({ onGenerated }: GenerationControlsProps) {
 
       // Add model_id for providers with sub-models
       if (provider === 'gemini') {
-        body.model_id = geminiModel || enabledModels[0]?.id || 'gemini-2.5-flash-image'
+        body.model_id = geminiModel || enabledModels[0]?.id || 'gemini-3-pro-image-preview'
       } else if (provider === 'higgsfield') {
         body.model_id = higgsFieldModel || enabledModels[0]?.id || 'higgsfield-ai/soul/standard'
       }

@@ -4,7 +4,11 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
-import { Check, ChevronDown, ChevronUp, Loader2, RefreshCw, ImageIcon } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+} from '@/components/ui/dialog'
+import { Check, ChevronDown, ChevronUp, Loader2, RefreshCw, ImageIcon, ZoomIn } from 'lucide-react'
 import type { LbImageGeneration } from '@/types/database'
 
 interface ConceptCardProps {
@@ -39,6 +43,7 @@ export function ConceptCard({
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editValue, setEditValue] = useState(prompt)
+  const [showPreview, setShowPreview] = useState(false)
 
   const handleSaveEdit = () => {
     onEditPrompt(editValue)
@@ -161,19 +166,27 @@ export function ConceptCard({
         </div>
 
         {/* Right: Image preview */}
-        <div className="w-48 h-48 flex-shrink-0 rounded-lg border bg-muted/30 overflow-hidden flex items-center justify-center">
+        <div className="w-48 h-48 flex-shrink-0 rounded-lg border bg-muted/30 overflow-hidden flex items-center justify-center relative group">
           {isGenerating ? (
             <div className="flex flex-col items-center gap-2 text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin" />
               <span className="text-xs">Generating...</span>
             </div>
           ) : image?.preview_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={image.preview_url}
-              alt={label}
-              className="w-full h-full object-cover"
-            />
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={image.preview_url}
+                alt={label}
+                className="w-full h-full object-cover"
+              />
+              <button
+                onClick={() => setShowPreview(true)}
+                className="absolute inset-0 bg-black/0 hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-zoom-in"
+              >
+                <ZoomIn className="h-6 w-6 text-white drop-shadow-lg" />
+              </button>
+            </>
           ) : (
             <div className="flex flex-col items-center gap-2 text-muted-foreground">
               <ImageIcon className="h-8 w-8" />
@@ -182,6 +195,26 @@ export function ConceptCard({
           )}
         </div>
       </div>
+
+      {/* Full-size preview dialog */}
+      {image?.preview_url && (
+        <Dialog open={showPreview} onOpenChange={setShowPreview}>
+          <DialogContent className="max-w-4xl w-auto p-2">
+            <div className="space-y-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={image.full_url || image.preview_url}
+                alt={label}
+                className="w-full max-h-[80vh] object-contain rounded-lg"
+              />
+              <div className="px-2 pb-2">
+                <p className="text-sm font-medium">{label}</p>
+                <p className="text-xs text-muted-foreground mt-1 line-clamp-3">{prompt}</p>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

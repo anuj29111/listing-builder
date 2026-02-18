@@ -7,8 +7,12 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
+import {
+  Dialog,
+  DialogContent,
+} from '@/components/ui/dialog'
 import { ProviderModelBar, getEffectiveModelId } from './ProviderModelBar'
-import { Loader2, Sparkles, ImageIcon, Tag, ArrowRight, X } from 'lucide-react'
+import { Loader2, Sparkles, ImageIcon, Tag, ArrowRight, X, ZoomIn } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbImageGeneration, LbImageWorkshop } from '@/types/database'
 import type { WorkshopPrompt } from '@/types/api'
@@ -34,6 +38,7 @@ export function MainImageSection({
 }: MainImageSectionProps) {
   const store = useWorkshopStore()
   const [tagInputs, setTagInputs] = useState<Record<string, string>>({})
+  const [showFinalPreview, setShowFinalPreview] = useState(false)
 
   // Find existing main workshop for this context
   const existingWorkshop = workshops.find((w) => w.image_type === 'main')
@@ -500,14 +505,22 @@ export function MainImageSection({
         <div className="border-2 border-primary rounded-lg p-6">
           <h3 className="text-lg font-semibold mb-4">Combined Final Image</h3>
           <div className="flex gap-6">
-            <div className="w-64 h-64 rounded-lg overflow-hidden border">
+            <div className="w-64 h-64 rounded-lg overflow-hidden border relative group">
               {store.finalImage.preview_url && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={store.finalImage.preview_url}
-                  alt="Final combined image"
-                  className="w-full h-full object-cover"
-                />
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={store.finalImage.preview_url}
+                    alt="Final combined image"
+                    className="w-full h-full object-cover"
+                  />
+                  <button
+                    onClick={() => setShowFinalPreview(true)}
+                    className="absolute inset-0 bg-black/0 hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-zoom-in"
+                  >
+                    <ZoomIn className="h-6 w-6 text-white drop-shadow-lg" />
+                  </button>
+                </>
               )}
             </div>
             <div className="flex-1">
@@ -515,6 +528,26 @@ export function MainImageSection({
               <Badge variant="default">Winner</Badge>
             </div>
           </div>
+
+          {/* Full-size preview dialog */}
+          <Dialog open={showFinalPreview} onOpenChange={setShowFinalPreview}>
+            <DialogContent className="max-w-4xl w-auto p-2">
+              <div className="space-y-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={store.finalImage.full_url || store.finalImage.preview_url || ''}
+                  alt="Final combined image"
+                  className="w-full max-h-[80vh] object-contain rounded-lg"
+                />
+                <div className="px-2 pb-2">
+                  <p className="text-sm font-medium">Combined Final Image</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {store.combinedPrompt || store.finalImage.prompt}
+                  </p>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
     </div>

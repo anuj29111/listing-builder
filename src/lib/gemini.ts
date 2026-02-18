@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { createAdminClient } from '@/lib/supabase/server'
 
-const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image'
+const DEFAULT_IMAGE_MODEL = 'gemini-3-pro-image-preview'
 
 async function getApiKey(): Promise<string> {
   try {

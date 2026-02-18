@@ -28,7 +28,7 @@ interface ProviderModelBarProps {
 function getCostPerImage(provider: string, geminiModel: string | null): number {
   if (provider === 'openai') return 3
   if (provider === 'gemini') {
-    return geminiModel === 'gemini-3-pro-image-preview' ? 4 : 2
+    return geminiModel === 'gemini-2.5-flash-image' ? 2 : 4
   }
   return 0 // higgsfield TBD
 }
@@ -178,7 +178,7 @@ export function getEffectiveModelId(
   geminiModel: string | null,
 ): string | undefined {
   if (provider === 'gemini') {
-    return geminiModel || 'gemini-2.5-flash-image'
+    return geminiModel || 'gemini-3-pro-image-preview'
   }
   return undefined
 }

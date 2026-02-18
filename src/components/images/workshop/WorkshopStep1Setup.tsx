@@ -27,7 +27,7 @@ interface Step1Props {
 
 function getCostPerImage(provider: string, geminiModel: string | null): number {
   if (provider === 'openai') return 3
-  if (provider === 'gemini') return geminiModel === 'gemini-3-pro-image-preview' ? 4 : 2
+  if (provider === 'gemini') return geminiModel === 'gemini-2.5-flash-image' ? 2 : 4
   return 0 // higgsfield TBD
 }
 
@@ -145,7 +145,7 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
           provider: store.provider,
           orientation: store.orientation,
           model_id: store.provider === 'gemini'
-            ? (store.geminiModel || enabledModels[0]?.id || 'gemini-2.5-flash-image')
+            ? (store.geminiModel || enabledModels[0]?.id || 'gemini-3-pro-image-preview')
             : undefined,
         }),
       })

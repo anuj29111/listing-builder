@@ -25,8 +25,8 @@ export const SECTION_TYPES = [
 export const IMAGE_PROVIDERS = ['openai', 'gemini', 'higgsfield'] as const
 
 export const GEMINI_MODELS = [
-  { id: 'gemini-2.5-flash-image', label: 'Nano Banana (Flash)', cost: 2 },
   { id: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', cost: 4 },
+  { id: 'gemini-2.5-flash-image', label: 'Nano Banana (Flash)', cost: 2 },
 ] as const
 
 export const HIGGSFIELD_MODELS = [
