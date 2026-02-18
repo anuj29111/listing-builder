@@ -5,19 +5,23 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Loader2, Save, ImageIcon } from 'lucide-react'
-import { HIGGSFIELD_MODELS } from '@/lib/constants'
+import { GEMINI_MODELS, HIGGSFIELD_MODELS } from '@/lib/constants'
 import toast from 'react-hot-toast'
 
 interface VisibilityConfig {
-  dalle3: boolean
+  openai: boolean
   gemini: boolean
+  gemini_models: Record<string, boolean>
   higgsfield: boolean
   higgsfield_models: Record<string, boolean>
 }
 
 const DEFAULT_CONFIG: VisibilityConfig = {
-  dalle3: true,
+  openai: true,
   gemini: true,
+  gemini_models: Object.fromEntries(
+    GEMINI_MODELS.map((m) => [m.id, true])
+  ),
   higgsfield: false,
   higgsfield_models: Object.fromEntries(
     HIGGSFIELD_MODELS.map((m) => [m.id, m.id === 'higgsfield-ai/soul/standard'])
@@ -46,8 +50,12 @@ export function ImageProviderSettings() {
           try {
             const parsed = JSON.parse(visibilitySetting.value) as Partial<VisibilityConfig>
             const merged: VisibilityConfig = {
-              dalle3: parsed.dalle3 !== false,
+              openai: parsed.openai !== false,
               gemini: parsed.gemini !== false,
+              gemini_models: {
+                ...DEFAULT_CONFIG.gemini_models,
+                ...(parsed.gemini_models || {}),
+              },
               higgsfield: parsed.higgsfield === true,
               higgsfield_models: {
                 ...DEFAULT_CONFIG.higgsfield_models,
@@ -94,8 +102,15 @@ export function ImageProviderSettings() {
     }
   }
 
-  function toggleProvider(key: 'dalle3' | 'gemini' | 'higgsfield', value: boolean) {
+  function toggleProvider(key: 'openai' | 'gemini' | 'higgsfield', value: boolean) {
     setConfig((prev) => ({ ...prev, [key]: value }))
+  }
+
+  function toggleGeminiModel(modelId: string, value: boolean) {
+    setConfig((prev) => ({
+      ...prev,
+      gemini_models: { ...prev.gemini_models, [modelId]: value },
+    }))
   }
 
   function toggleHiggsModel(modelId: string, value: boolean) {
@@ -139,32 +154,53 @@ export function ImageProviderSettings() {
       </div>
 
       <div className="divide-y">
-        {/* DALL-E 3 */}
+        {/* GPT Image 1.5 (OpenAI) */}
         <div className="flex items-center justify-between p-4">
           <div>
-            <Label className="text-sm font-medium">DALL-E 3 (OpenAI)</Label>
+            <Label className="text-sm font-medium">GPT Image 1.5 (OpenAI)</Label>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Standard: ~4c · HD: ~8c · 1024×1024, 1792×1024, 1024×1792
+              ~3c per image · 1024×1024, 1536×1024, 1024×1536
             </p>
           </div>
           <Switch
-            checked={config.dalle3}
-            onCheckedChange={(v) => toggleProvider('dalle3', v)}
+            checked={config.openai}
+            onCheckedChange={(v) => toggleProvider('openai', v)}
           />
         </div>
 
         {/* Gemini */}
-        <div className="flex items-center justify-between p-4">
-          <div>
-            <Label className="text-sm font-medium">Gemini (Google)</Label>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              ~2c per image · 1:1, 16:9, 9:16
-            </p>
+        <div className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm font-medium">Gemini (Google)</Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Flash ~2c · Pro ~4c · 1:1, 16:9, 9:16
+              </p>
+            </div>
+            <Switch
+              checked={config.gemini}
+              onCheckedChange={(v) => toggleProvider('gemini', v)}
+            />
           </div>
-          <Switch
-            checked={config.gemini}
-            onCheckedChange={(v) => toggleProvider('gemini', v)}
-          />
+
+          {/* Gemini sub-models */}
+          {config.gemini && (
+            <div className="ml-4 pl-4 border-l space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Models</p>
+              {GEMINI_MODELS.map((model) => (
+                <div key={model.id} className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-xs">{model.label}</Label>
+                    <span className="text-xs text-muted-foreground ml-2">~{model.cost}c</span>
+                  </div>
+                  <Switch
+                    checked={config.gemini_models[model.id] ?? true}
+                    onCheckedChange={(v) => toggleGeminiModel(model.id, v)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Higgsfield */}
@@ -201,7 +237,7 @@ export function ImageProviderSettings() {
       </div>
 
       {/* Warning if no providers enabled */}
-      {!config.dalle3 && !config.gemini && !config.higgsfield && (
+      {!config.openai && !config.gemini && !config.higgsfield && (
         <div className="p-4 border-t bg-yellow-50 dark:bg-yellow-900/20">
           <p className="text-xs text-yellow-700 dark:text-yellow-400">
             No providers are enabled. Users will not be able to generate images.

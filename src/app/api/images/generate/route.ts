@@ -15,8 +15,8 @@ export async function POST(request: Request) {
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length < 5) {
       return NextResponse.json({ error: 'Prompt must be at least 5 characters' }, { status: 400 })
     }
-    if (!provider || !['dalle3', 'gemini', 'higgsfield'].includes(provider)) {
-      return NextResponse.json({ error: 'Provider must be dalle3, gemini, or higgsfield' }, { status: 400 })
+    if (!provider || !['openai', 'gemini', 'higgsfield'].includes(provider)) {
+      return NextResponse.json({ error: 'Provider must be openai, gemini, or higgsfield' }, { status: 400 })
     }
 
     const image = await generateAndStoreImage({

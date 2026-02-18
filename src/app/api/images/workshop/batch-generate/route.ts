@@ -22,7 +22,7 @@ export async function POST(request: Request) {
       )
     }
 
-    if (!provider || !['dalle3', 'gemini', 'higgsfield'].includes(provider)) {
+    if (!provider || !['openai', 'gemini', 'higgsfield'].includes(provider)) {
       return NextResponse.json({ error: 'Invalid provider' }, { status: 400 })
     }
 

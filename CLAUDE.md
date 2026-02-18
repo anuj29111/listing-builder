@@ -64,7 +64,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://yawaopfqkkvdqtsagmng.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<from Supabase dashboard>
 SUPABASE_SERVICE_ROLE_KEY=<from Supabase dashboard>
 ANTHROPIC_API_KEY=              # Or set via Admin Settings UI
-OPENAI_API_KEY=                 # DALL-E 3 (Phase 9)
+OPENAI_API_KEY=                 # GPT Image 1.5 (Phase 9)
 GOOGLE_AI_API_KEY=              # Gemini (Phase 9)
 GOOGLE_SERVICE_ACCOUNT_EMAIL=   # Phase 8
 GOOGLE_PRIVATE_KEY=             # Phase 8
@@ -117,7 +117,7 @@ npm run lint         # ESLint
 24. **Phased generation (cascading keyword waterfall)** — Listing generation uses 4 sequential API calls: Title (16384 tokens) → Bullets (32768) → Description+SearchTerms (16384) → Backend (8192). Each phase sees full research data + confirmed output from prior phases + keyword coverage tracker. API route: `/api/listings/generate` with `phase` parameter. Batch route auto-cascades all 4 phases. Never limit token budgets — full data in every phase.
 25. **Competitor analysis** — Stored as `analysis_type='competitor_analysis'` in `lb_research_analysis`. Max 5 competitors, 5000 chars each. Uses dedicated API route `/api/research/analyze/competitors`.
 26. **Admin settings keys are lowercase** — `lb_admin_settings.key` is case-sensitive. Always use lowercase: `anthropic_api_key`, `openai_api_key`, `google_ai_api_key`, `higgsfield_api_key`, `higgsfield_api_secret`. UI now has pre-filled slots.
-27. **Gemini model 404** — `gemini-2.0-flash-exp` returns 404. Needs updating to a valid model in `src/lib/gemini.ts`. Fix in next session.
+27. **Image providers renamed** — Provider IDs: `openai` (GPT Image 1.5), `gemini` (Flash + Nano Banana Pro), `higgsfield`. Old `dalle3` ID removed. Providers route has legacy `dalle3` config compat. Gemini supports sub-model selection via `modelId`.
 28. **Image builder 5 tabs** — Listing detail + standalone `/images` both show: Content, Main, Secondary, Video Thumbnails, Swatches. Tab bar has `overflow-x-auto` for mobile.
 29. **Image Builder drafts panel** — `/images` page shows saved workshops as clickable draft cards. Clicking resumes the draft by setting context + active tab.
 30. **SP Prompts xlsx parsing** — `sp_prompts` file type accepts xlsx/csv. xlsx is parsed server-side (dynamic `import('xlsx')`) → converted to clean CSV before Supabase storage. Wired into Q&A analysis pipeline with niche-filtering (Claude filters prompts by category).
@@ -145,7 +145,6 @@ npm run lint         # ESLint
 
 ## Pending Tasks
 
-- **Fix Gemini model** — Update `gemini-2.0-flash-exp` → valid model name in `src/lib/gemini.ts` (returns 404)
 - **Phased Generation e2e Testing:**
   1. New listing wizard — verify 4-phase flow: Generate Titles → confirm → Generate Bullets → confirm → Description → Backend
   2. Keyword coverage panel — verify score climbs across phases (30% → 60% → 85% → 95%+)

@@ -3,12 +3,13 @@
 import { create } from 'zustand'
 import type { LbImageGeneration } from '@/types/database'
 
-type ImageProvider = 'dalle3' | 'gemini' | 'higgsfield'
+type ImageProvider = 'openai' | 'gemini' | 'higgsfield'
 
 interface ImageState {
   // Prompt & controls
   prompt: string
   provider: ImageProvider
+  geminiModel: string | null
   higgsFieldModel: string | null
   orientation: 'square' | 'portrait' | 'landscape'
   listingId: string | null
@@ -25,6 +26,7 @@ interface ImageState {
   // Actions
   setPrompt: (prompt: string) => void
   setProvider: (provider: ImageProvider) => void
+  setGeminiModel: (model: string | null) => void
   setHiggsFieldModel: (model: string | null) => void
   setOrientation: (orientation: 'square' | 'portrait' | 'landscape') => void
   setListingId: (id: string | null) => void
@@ -41,7 +43,8 @@ interface ImageState {
 
 const initialState = {
   prompt: '',
-  provider: 'dalle3' as ImageProvider,
+  provider: 'openai' as ImageProvider,
+  geminiModel: null as string | null,
   higgsFieldModel: null as string | null,
   orientation: 'square' as const,
   listingId: null,
@@ -57,6 +60,7 @@ export const useImageStore = create<ImageState>((set) => ({
 
   setPrompt: (prompt) => set({ prompt }),
   setProvider: (provider) => set({ provider }),
+  setGeminiModel: (geminiModel) => set({ geminiModel }),
   setHiggsFieldModel: (higgsFieldModel) => set({ higgsFieldModel }),
   setOrientation: (orientation) => set({ orientation }),
   setListingId: (listingId) => set({ listingId }),

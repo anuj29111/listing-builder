@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { createAdminClient } from '@/lib/supabase/server'
 
-const IMAGE_MODEL = 'gemini-2.0-flash-exp'
+const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image'
 
 async function getApiKey(): Promise<string> {
   try {
@@ -32,6 +32,7 @@ export type GeminiAspectRatio = '1:1' | '9:16' | '16:9'
 export interface GeminiGenerateInput {
   prompt: string
   aspectRatio?: GeminiAspectRatio
+  modelId?: string
 }
 
 export interface GeminiGenerateResult {
@@ -53,7 +54,7 @@ export async function generateGeminiImage(input: GeminiGenerateInput): Promise<G
   const genAI = await getClient()
 
   const model = genAI.getGenerativeModel({
-    model: IMAGE_MODEL,
+    model: input.modelId || DEFAULT_IMAGE_MODEL,
     generationConfig: {
       // @ts-expect-error — Gemini image generation uses responseModalities
       responseModalities: ['image', 'text'],

@@ -25,8 +25,8 @@ const API_KEY_SLOTS = [
   },
   {
     key: 'openai_api_key',
-    label: 'OpenAI (DALL-E 3)',
-    description: 'Used for DALL-E 3 image generation',
+    label: 'OpenAI (GPT Image)',
+    description: 'Used for GPT Image generation',
     placeholder: 'sk-...',
   },
   {

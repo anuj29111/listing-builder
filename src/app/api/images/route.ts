@@ -22,7 +22,7 @@ export async function GET(request: Request) {
     if (status && ['preview', 'approved', 'rejected'].includes(status)) {
       query = query.eq('status', status)
     }
-    if (provider && ['dalle3', 'gemini'].includes(provider)) {
+    if (provider && ['openai', 'gemini'].includes(provider)) {
       query = query.eq('provider', provider)
     }
 

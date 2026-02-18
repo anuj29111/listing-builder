@@ -131,7 +131,7 @@ export interface BatchExportResponse {
 
 export interface GenerateImageRequest {
   prompt: string
-  provider: 'dalle3' | 'gemini' | 'higgsfield'
+  provider: 'openai' | 'gemini' | 'higgsfield'
   model_id?: string
   orientation: 'square' | 'portrait' | 'landscape'
   listing_id?: string
@@ -191,7 +191,7 @@ export interface GenerateWorkshopPromptsResponse {
 export interface BatchGenerateRequest {
   workshop_id: string
   prompts: Array<{ prompt: string; label: string; position?: number }>
-  provider: 'dalle3' | 'gemini' | 'higgsfield'
+  provider: 'openai' | 'gemini' | 'higgsfield'
   orientation: 'square' | 'portrait' | 'landscape'
   model_id?: string
   image_type?: 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
@@ -216,7 +216,7 @@ export interface UpdateWorkshopRequest {
   competitor_urls?: string[]
   generated_prompts?: unknown[]
   selected_prompt_indices?: number[]
-  provider?: 'dalle3' | 'gemini' | 'higgsfield'
+  provider?: 'openai' | 'gemini' | 'higgsfield'
   orientation?: 'square' | 'portrait' | 'landscape'
 }
 

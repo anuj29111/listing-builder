@@ -25,10 +25,10 @@ interface Step1Props {
   countries: Array<{ id: string; name: string; code: string; flag_emoji: string | null }>
 }
 
-const COST_PER_IMAGE: Record<string, number> = {
-  dalle3: 4,
-  gemini: 2,
-  higgsfield: 0,
+function getCostPerImage(provider: string, geminiModel: string | null): number {
+  if (provider === 'openai') return 3
+  if (provider === 'gemini') return geminiModel === 'gemini-3-pro-image-preview' ? 4 : 2
+  return 0 // higgsfield TBD
 }
 
 export function WorkshopStep1Setup({ listings, categories, countries }: Step1Props) {
@@ -53,7 +53,7 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
         }
       } catch {
         setProviders([
-          { id: 'dalle3', label: 'DALL-E 3', enabled: true, models: [] },
+          { id: 'openai', label: 'GPT Image 1.5', enabled: true, models: [] },
           { id: 'gemini', label: 'Gemini', enabled: true, models: [] },
         ])
       }
@@ -82,8 +82,12 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
   }
 
   const selectedCount = store.selectedPromptIndices.length
-  const costPerImage = COST_PER_IMAGE[store.provider] || 0
+  const costPerImage = getCostPerImage(store.provider, store.geminiModel)
   const totalCost = selectedCount * costPerImage
+
+  const currentProviderInfo = providers.find((p) => p.id === store.provider)
+  const enabledModels = currentProviderInfo?.models.filter((m) => m.enabled) || []
+  const showGeminiModelSelector = store.provider === 'gemini' && enabledModels.length > 1
 
   // Step 1a: Generate AI Prompts
   const handleGeneratePrompts = async () => {
@@ -140,6 +144,9 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
           prompts: selectedPrompts.map((p) => ({ prompt: p.prompt, label: p.label })),
           provider: store.provider,
           orientation: store.orientation,
+          model_id: store.provider === 'gemini'
+            ? (store.geminiModel || enabledModels[0]?.id || 'gemini-2.5-flash-image')
+            : undefined,
         }),
       })
 
@@ -298,12 +305,15 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
           </div>
 
           {/* Provider & Orientation */}
-          <div className="flex items-center gap-4 p-4 border rounded-lg bg-muted/30">
-            <div className="flex-1">
+          <div className="flex items-center gap-4 p-4 border rounded-lg bg-muted/30 flex-wrap">
+            <div className="flex-1 min-w-[140px]">
               <Label className="text-xs">Provider</Label>
               <Select
                 value={store.provider}
-                onValueChange={(v) => store.setProvider(v as 'dalle3' | 'gemini' | 'higgsfield')}
+                onValueChange={(v) => {
+                  store.setProvider(v as 'openai' | 'gemini' | 'higgsfield')
+                  if (v !== 'gemini') store.setGeminiModel(null)
+                }}
               >
                 <SelectTrigger className="h-9">
                   <SelectValue />
@@ -315,7 +325,25 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1">
+            {showGeminiModelSelector && (
+              <div className="flex-1 min-w-[140px]">
+                <Label className="text-xs">Model</Label>
+                <Select
+                  value={store.geminiModel || enabledModels[0]?.id || ''}
+                  onValueChange={(v) => store.setGeminiModel(v)}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {enabledModels.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="flex-1 min-w-[140px]">
               <Label className="text-xs">Orientation</Label>
               <Select
                 value={store.orientation}

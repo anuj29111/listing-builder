@@ -1,12 +1,12 @@
 import { SupabaseClient } from '@supabase/supabase-js'
-import { generateDalleImage, orientationToSize } from '@/lib/openai'
+import { generateOpenAIImage, orientationToSize } from '@/lib/openai'
 import { generateGeminiImage, orientationToAspect } from '@/lib/gemini'
 import { generateHiggsFieldImage, orientationToHiggsfield } from '@/lib/higgsfield'
 import type { LbImageGeneration } from '@/types/database'
 
 export interface GenerateAndStoreParams {
   prompt: string
-  provider: 'dalle3' | 'gemini' | 'higgsfield'
+  provider: 'openai' | 'gemini' | 'higgsfield'
   orientation: 'square' | 'portrait' | 'landscape'
   modelId?: string
   listingId?: string | null
@@ -31,16 +31,15 @@ export async function generateAndStoreImage(
   let storagePath: string
   let costCents = 0
 
-  if (provider === 'dalle3') {
-    const result = await generateDalleImage({
+  if (provider === 'openai') {
+    const result = await generateOpenAIImage({
       prompt: prompt.trim(),
       size: orientationToSize(orientation),
-      quality: 'standard',
+      quality: 'medium',
     })
 
-    const imageResponse = await fetch(result.url)
-    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer())
-    const fileName = `dalle3/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
+    const imageBuffer = Buffer.from(result.base64Data, 'base64')
+    const fileName = `openai/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
 
     const { error: uploadError } = await adminClient.storage
       .from('lb-images')
@@ -51,11 +50,12 @@ export async function generateAndStoreImage(
     const { data: publicUrl } = adminClient.storage.from('lb-images').getPublicUrl(fileName)
     previewUrl = publicUrl.publicUrl
     storagePath = fileName
-    costCents = 4
+    costCents = 3
   } else if (provider === 'gemini') {
     const result = await generateGeminiImage({
       prompt: prompt.trim(),
       aspectRatio: orientationToAspect(orientation),
+      modelId: modelId || undefined,
     })
 
     const imageBuffer = Buffer.from(result.base64Data, 'base64')
@@ -71,7 +71,7 @@ export async function generateAndStoreImage(
     const { data: publicUrl } = adminClient.storage.from('lb-images').getPublicUrl(fileName)
     previewUrl = publicUrl.publicUrl
     storagePath = fileName
-    costCents = 2
+    costCents = modelId === 'gemini-3-pro-image-preview' ? 4 : 2
   } else {
     const result = await generateHiggsFieldImage({
       prompt: prompt.trim(),

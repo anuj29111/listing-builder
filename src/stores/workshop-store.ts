@@ -4,7 +4,7 @@ import { create } from 'zustand'
 import type { LbImageGeneration, LbImageWorkshop } from '@/types/database'
 import type { WorkshopPrompt } from '@/types/api'
 
-type ImageProvider = 'dalle3' | 'gemini' | 'higgsfield'
+type ImageProvider = 'openai' | 'gemini' | 'higgsfield'
 
 interface WorkshopState {
   // Session
@@ -18,6 +18,7 @@ interface WorkshopState {
   calloutSuggestions: Array<{ type: 'keyword' | 'benefit' | 'usp'; text: string }>
   selectedPromptIndices: number[]
   provider: ImageProvider
+  geminiModel: string | null
   orientation: 'square' | 'portrait' | 'landscape'
   isGeneratingPrompts: boolean
 
@@ -45,6 +46,7 @@ interface WorkshopState {
   togglePromptSelection: (index: number) => void
   selectAllPrompts: () => void
   setProvider: (provider: ImageProvider) => void
+  setGeminiModel: (model: string | null) => void
   setOrientation: (orientation: 'square' | 'portrait' | 'landscape') => void
   setIsGeneratingPrompts: (v: boolean) => void
   setWorkshopImages: (images: LbImageGeneration[]) => void
@@ -71,6 +73,7 @@ const initialState = {
   calloutSuggestions: [] as Array<{ type: 'keyword' | 'benefit' | 'usp'; text: string }>,
   selectedPromptIndices: [] as number[],
   provider: 'gemini' as ImageProvider,
+  geminiModel: null as string | null,
   orientation: 'square' as const,
   isGeneratingPrompts: false,
   workshopImages: [] as LbImageGeneration[],
@@ -143,6 +146,7 @@ export const useWorkshopStore = create<WorkshopState>((set) => ({
     })),
 
   setProvider: (provider) => set({ provider }),
+  setGeminiModel: (geminiModel) => set({ geminiModel }),
   setOrientation: (orientation) => set({ orientation }),
   setIsGeneratingPrompts: (isGeneratingPrompts) => set({ isGeneratingPrompts }),
 

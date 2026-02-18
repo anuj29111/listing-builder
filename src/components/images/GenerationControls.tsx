@@ -24,11 +24,13 @@ interface GenerationControlsProps {
 export function GenerationControls({ onGenerated }: GenerationControlsProps) {
   const prompt = useImageStore((s) => s.prompt)
   const provider = useImageStore((s) => s.provider)
+  const geminiModel = useImageStore((s) => s.geminiModel)
   const higgsFieldModel = useImageStore((s) => s.higgsFieldModel)
   const orientation = useImageStore((s) => s.orientation)
   const listingId = useImageStore((s) => s.listingId)
   const isGenerating = useImageStore((s) => s.isGenerating)
   const setProvider = useImageStore((s) => s.setProvider)
+  const setGeminiModel = useImageStore((s) => s.setGeminiModel)
   const setHiggsFieldModel = useImageStore((s) => s.setHiggsFieldModel)
   const setOrientation = useImageStore((s) => s.setOrientation)
   const setIsGenerating = useImageStore((s) => s.setIsGenerating)
@@ -49,13 +51,13 @@ export function GenerationControls({ onGenerated }: GenerationControlsProps) {
           // If current provider is not enabled, switch to first enabled
           const currentEnabled = enabled.find((p) => p.id === provider)
           if (!currentEnabled && enabled.length > 0) {
-            setProvider(enabled[0].id as 'dalle3' | 'gemini' | 'higgsfield')
+            setProvider(enabled[0].id as 'openai' | 'gemini' | 'higgsfield')
           }
         }
       } catch {
-        // Fallback: show dalle3 and gemini
+        // Fallback: show openai and gemini
         setProviders([
-          { id: 'dalle3', label: 'DALL-E 3 (OpenAI)', enabled: true, models: [] },
+          { id: 'openai', label: 'GPT Image 1.5 (OpenAI)', enabled: true, models: [] },
           { id: 'gemini', label: 'Gemini (Google)', enabled: true, models: [] },
         ])
       } finally {
@@ -67,12 +69,17 @@ export function GenerationControls({ onGenerated }: GenerationControlsProps) {
   }, [])
 
   const currentProviderInfo = providers.find((p) => p.id === provider)
-  const enabledHiggsModels = currentProviderInfo?.models.filter((m) => m.enabled) || []
+  const enabledModels = currentProviderInfo?.models.filter((m) => m.enabled) || []
 
-  // Show Higgsfield model selector when higgsfield is selected and has multiple enabled models
-  const showModelSelector = provider === 'higgsfield' && enabledHiggsModels.length > 1
+  // Show model sub-selector for providers with multiple enabled models
+  const showGeminiModelSelector = provider === 'gemini' && enabledModels.length > 1
+  const showHiggsModelSelector = provider === 'higgsfield' && enabledModels.length > 1
 
-  const costEstimate = provider === 'dalle3' ? '~4c' : provider === 'gemini' ? '~2c' : 'TBD'
+  const costEstimate = provider === 'openai'
+    ? '~3c'
+    : provider === 'gemini'
+      ? (geminiModel === 'gemini-3-pro-image-preview' ? '~4c' : '~2c')
+      : 'TBD'
 
   const handleGenerate = async () => {
     if (!prompt || prompt.trim().length < 5) {
@@ -89,9 +96,11 @@ export function GenerationControls({ onGenerated }: GenerationControlsProps) {
         listing_id: listingId || undefined,
       }
 
-      // Add model_id for Higgsfield
-      if (provider === 'higgsfield') {
-        body.model_id = higgsFieldModel || enabledHiggsModels[0]?.id || 'higgsfield-ai/soul/standard'
+      // Add model_id for providers with sub-models
+      if (provider === 'gemini') {
+        body.model_id = geminiModel || enabledModels[0]?.id || 'gemini-2.5-flash-image'
+      } else if (provider === 'higgsfield') {
+        body.model_id = higgsFieldModel || enabledModels[0]?.id || 'higgsfield-ai/soul/standard'
       }
 
       const res = await fetch('/api/images/generate', {
@@ -124,11 +133,9 @@ export function GenerationControls({ onGenerated }: GenerationControlsProps) {
           <Select
             value={provider}
             onValueChange={(v) => {
-              setProvider(v as 'dalle3' | 'gemini' | 'higgsfield')
-              // Reset higgsfield model when switching providers
-              if (v !== 'higgsfield') {
-                setHiggsFieldModel(null)
-              }
+              setProvider(v as 'openai' | 'gemini' | 'higgsfield')
+              if (v !== 'gemini') setGeminiModel(null)
+              if (v !== 'higgsfield') setHiggsFieldModel(null)
             }}
           >
             <SelectTrigger className="mt-1">
@@ -143,19 +150,19 @@ export function GenerationControls({ onGenerated }: GenerationControlsProps) {
         )}
       </div>
 
-      {/* Higgsfield model sub-selector */}
-      {showModelSelector && (
+      {/* Gemini model sub-selector */}
+      {showGeminiModelSelector && (
         <div>
-          <Label className="text-xs">Higgsfield Model</Label>
+          <Label className="text-xs">Gemini Model</Label>
           <Select
-            value={higgsFieldModel || enabledHiggsModels[0]?.id || ''}
-            onValueChange={(v) => setHiggsFieldModel(v)}
+            value={geminiModel || enabledModels[0]?.id || ''}
+            onValueChange={(v) => setGeminiModel(v)}
           >
             <SelectTrigger className="mt-1">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {enabledHiggsModels.map((m) => (
+              {enabledModels.map((m) => (
                 <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
               ))}
             </SelectContent>
@@ -163,10 +170,37 @@ export function GenerationControls({ onGenerated }: GenerationControlsProps) {
         </div>
       )}
 
-      {/* Show single model name when only one is enabled */}
-      {provider === 'higgsfield' && enabledHiggsModels.length === 1 && (
+      {/* Gemini single model name */}
+      {provider === 'gemini' && enabledModels.length === 1 && (
         <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2">
-          Model: {enabledHiggsModels[0].label}
+          Model: {enabledModels[0].label}
+        </div>
+      )}
+
+      {/* Higgsfield model sub-selector */}
+      {showHiggsModelSelector && (
+        <div>
+          <Label className="text-xs">Higgsfield Model</Label>
+          <Select
+            value={higgsFieldModel || enabledModels[0]?.id || ''}
+            onValueChange={(v) => setHiggsFieldModel(v)}
+          >
+            <SelectTrigger className="mt-1">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {enabledModels.map((m) => (
+                <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* Higgsfield single model name */}
+      {provider === 'higgsfield' && enabledModels.length === 1 && (
+        <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2">
+          Model: {enabledModels[0].label}
         </div>
       )}
 

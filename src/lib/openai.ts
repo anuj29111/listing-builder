@@ -25,54 +25,55 @@ async function getClient(): Promise<OpenAI> {
   return new OpenAI({ apiKey })
 }
 
-export type DalleSize = '1024x1024' | '1792x1024' | '1024x1792'
-export type DalleQuality = 'standard' | 'hd'
+const DEFAULT_MODEL = 'gpt-image-1.5'
 
-export interface DalleGenerateInput {
+export type OpenAIImageSize = '1024x1024' | '1536x1024' | '1024x1536'
+export type OpenAIImageQuality = 'low' | 'medium' | 'high'
+
+export interface OpenAIGenerateInput {
   prompt: string
-  size?: DalleSize
-  quality?: DalleQuality
+  size?: OpenAIImageSize
+  quality?: OpenAIImageQuality
 }
 
-export interface DalleGenerateResult {
-  url: string
-  revisedPrompt: string
+export interface OpenAIGenerateResult {
+  base64Data: string
 }
 
-const ORIENTATION_TO_SIZE: Record<string, DalleSize> = {
+const ORIENTATION_TO_SIZE: Record<string, OpenAIImageSize> = {
   square: '1024x1024',
-  landscape: '1792x1024',
-  portrait: '1024x1792',
+  landscape: '1536x1024',
+  portrait: '1024x1536',
 }
 
-export function orientationToSize(orientation: string): DalleSize {
+export function orientationToSize(orientation: string): OpenAIImageSize {
   return ORIENTATION_TO_SIZE[orientation] || '1024x1024'
 }
 
-export async function generateDalleImage(input: DalleGenerateInput): Promise<DalleGenerateResult> {
+export async function generateOpenAIImage(input: OpenAIGenerateInput): Promise<OpenAIGenerateResult> {
   const client = await getClient()
 
   const response = await client.images.generate({
-    model: 'dall-e-3',
+    model: DEFAULT_MODEL,
     prompt: input.prompt,
     n: 1,
     size: input.size || '1024x1024',
-    quality: input.quality || 'standard',
-    response_format: 'url',
+    quality: input.quality || 'medium',
+    response_format: 'b64_json',
   })
 
   const image = response.data?.[0]
-  if (!image || !image.url) {
-    throw new Error('DALL-E 3 returned no image')
+  if (!image || !image.b64_json) {
+    throw new Error('GPT Image returned no image data')
   }
 
   return {
-    url: image.url,
-    revisedPrompt: image.revised_prompt || input.prompt,
+    base64Data: image.b64_json,
   }
 }
 
-export function estimateDalleCost(count: number, quality: DalleQuality = 'standard'): number {
-  const costPerImage = quality === 'hd' ? 8 : 4
-  return count * costPerImage
+export function estimateOpenAICost(count: number, quality: OpenAIImageQuality = 'medium'): number {
+  // Approximate costs in cents: low ~1c, medium ~3c, high ~8c
+  const costMap: Record<OpenAIImageQuality, number> = { low: 1, medium: 3, high: 8 }
+  return count * costMap[quality]
 }

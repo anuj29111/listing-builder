@@ -22,7 +22,12 @@ export const SECTION_TYPES = [
   'subject_matter',
 ] as const
 
-export const IMAGE_PROVIDERS = ['dalle3', 'gemini', 'higgsfield'] as const
+export const IMAGE_PROVIDERS = ['openai', 'gemini', 'higgsfield'] as const
+
+export const GEMINI_MODELS = [
+  { id: 'gemini-2.5-flash-image', label: 'Nano Banana (Flash)', cost: 2 },
+  { id: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', cost: 4 },
+] as const
 
 export const HIGGSFIELD_MODELS = [
   { id: 'higgsfield-ai/soul/standard', label: 'Soul Standard' },
@@ -31,7 +36,7 @@ export const HIGGSFIELD_MODELS = [
 ] as const
 
 export const IMAGE_PROVIDER_LABELS: Record<string, string> = {
-  dalle3: 'DALL-E 3 (OpenAI)',
+  openai: 'GPT Image (OpenAI)',
   gemini: 'Gemini (Google)',
   higgsfield: 'Higgsfield AI',
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
-import { HIGGSFIELD_MODELS } from '@/lib/constants'
+import { GEMINI_MODELS, HIGGSFIELD_MODELS } from '@/lib/constants'
 
 export interface ProviderModel {
   id: string
@@ -17,24 +17,31 @@ export interface ProviderInfo {
 }
 
 interface VisibilityConfig {
+  openai?: boolean
+  // Legacy: read dalle3 for backward compat with existing saved configs
   dalle3?: boolean
   gemini?: boolean
+  gemini_models?: Record<string, boolean>
   higgsfield?: boolean
   higgsfield_models?: Record<string, boolean>
 }
 
 const DEFAULT_PROVIDERS: ProviderInfo[] = [
   {
-    id: 'dalle3',
-    label: 'DALL-E 3 (OpenAI)',
+    id: 'openai',
+    label: 'GPT Image 1.5 (OpenAI)',
     enabled: true,
-    models: [{ id: 'dall-e-3', label: 'DALL-E 3', enabled: true }],
+    models: [{ id: 'gpt-image-1.5', label: 'GPT Image 1.5', enabled: true }],
   },
   {
     id: 'gemini',
     label: 'Gemini (Google)',
     enabled: true,
-    models: [{ id: 'gemini-2.0-flash-exp', label: 'Gemini Flash', enabled: true }],
+    models: GEMINI_MODELS.map((m) => ({
+      id: m.id,
+      label: m.label,
+      enabled: true,
+    })),
   },
   {
     id: 'higgsfield',
@@ -72,18 +79,25 @@ export async function GET() {
       return NextResponse.json({ data: { providers: DEFAULT_PROVIDERS } })
     }
 
+    // Support both new 'openai' key and legacy 'dalle3' key
+    const openaiEnabled = config.openai !== undefined ? config.openai !== false : config.dalle3 !== false
+
     const providers: ProviderInfo[] = [
       {
-        id: 'dalle3',
-        label: 'DALL-E 3 (OpenAI)',
-        enabled: config.dalle3 !== false, // default true
-        models: [{ id: 'dall-e-3', label: 'DALL-E 3', enabled: true }],
+        id: 'openai',
+        label: 'GPT Image 1.5 (OpenAI)',
+        enabled: openaiEnabled,
+        models: [{ id: 'gpt-image-1.5', label: 'GPT Image 1.5', enabled: true }],
       },
       {
         id: 'gemini',
         label: 'Gemini (Google)',
         enabled: config.gemini !== false, // default true
-        models: [{ id: 'gemini-2.0-flash-exp', label: 'Gemini Flash', enabled: true }],
+        models: GEMINI_MODELS.map((m) => ({
+          id: m.id,
+          label: m.label,
+          enabled: config.gemini_models?.[m.id] !== false,
+        })),
       },
       {
         id: 'higgsfield',

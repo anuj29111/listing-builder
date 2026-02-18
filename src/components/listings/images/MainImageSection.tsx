@@ -33,7 +33,7 @@ interface MainImageSectionProps {
 }
 
 const COST_PER_IMAGE: Record<string, number> = {
-  dalle3: 4,
+  openai: 3,
   gemini: 2,
   higgsfield: 0,
 }
@@ -78,7 +78,7 @@ export function MainImageSection({
         }
       } catch {
         setProviders([
-          { id: 'dalle3', label: 'DALL-E 3', enabled: true, models: [] },
+          { id: 'openai', label: 'GPT Image 1.5', enabled: true, models: [] },
           { id: 'gemini', label: 'Gemini', enabled: true, models: [] },
         ])
       }
@@ -158,7 +158,7 @@ export function MainImageSection({
   }
 
   // Provider/orientation change with DB persist
-  const handleProviderChange = async (provider: 'dalle3' | 'gemini' | 'higgsfield') => {
+  const handleProviderChange = async (provider: 'openai' | 'gemini' | 'higgsfield') => {
     store.setProvider(provider)
     if (store.workshopId) {
       await patchWorkshop(store.workshopId, { provider })

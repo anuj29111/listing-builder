@@ -184,7 +184,7 @@ export interface LbImageGeneration {
   listing_id: string | null
   workshop_id: string | null
   prompt: string
-  provider: 'dalle3' | 'gemini' | 'higgsfield'
+  provider: 'openai' | 'gemini' | 'higgsfield'
   preview_url: string | null
   full_url: string | null
   status: 'preview' | 'approved' | 'rejected'
@@ -211,7 +211,7 @@ export interface LbImageWorkshop {
   competitor_urls: string[]
   generated_prompts: unknown[]
   selected_prompt_indices: number[]
-  provider: 'dalle3' | 'gemini' | 'higgsfield'
+  provider: 'openai' | 'gemini' | 'higgsfield'
   orientation: 'square' | 'portrait' | 'landscape'
   image_type: 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
   created_by: string | null

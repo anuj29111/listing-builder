@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
-import { generateDalleImage, orientationToSize } from '@/lib/openai'
+import { generateOpenAIImage, orientationToSize } from '@/lib/openai'
 import { generateGeminiImage, orientationToAspect } from '@/lib/gemini'
 import type { ChatMessage } from '@/types/api'
 
@@ -69,16 +69,15 @@ export async function POST(
     let storagePath: string
     let costCents = 0
 
-    if (image.provider === 'dalle3') {
-      const result = await generateDalleImage({
+    if (image.provider === 'openai') {
+      const result = await generateOpenAIImage({
         prompt: refinedPrompt,
         size: orientationToSize('square'),
-        quality: 'standard',
+        quality: 'medium',
       })
 
-      const imageResponse = await fetch(result.url)
-      const imageBuffer = Buffer.from(await imageResponse.arrayBuffer())
-      const fileName = `dalle3/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
+      const imageBuffer = Buffer.from(result.base64Data, 'base64')
+      const fileName = `openai/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
 
       const { error: uploadError } = await adminClient.storage
         .from('lb-images')

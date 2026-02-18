@@ -31,7 +31,7 @@ interface VideoThumbnailSectionProps {
 }
 
 const COST_PER_IMAGE: Record<string, number> = {
-  dalle3: 4,
+  openai: 3,
   gemini: 2,
   higgsfield: 0,
 }
@@ -53,7 +53,7 @@ export function VideoThumbnailSection({
   const [generatingPositions, setGeneratingPositions] = useState<Set<number>>(new Set())
   const [isBatchGenerating, setIsBatchGenerating] = useState(false)
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 })
-  const [provider, setProvider] = useState<'dalle3' | 'gemini' | 'higgsfield'>('gemini')
+  const [provider, setProvider] = useState<'openai' | 'gemini' | 'higgsfield'>('gemini')
   const [orientation, setOrientation] = useState<'square' | 'portrait' | 'landscape'>('landscape')
 
   // Find existing video thumbnail workshop
@@ -92,7 +92,7 @@ export function VideoThumbnailSection({
         }
       } catch {
         setProviders([
-          { id: 'dalle3', label: 'DALL-E 3', enabled: true, models: [] },
+          { id: 'openai', label: 'GPT Image 1.5', enabled: true, models: [] },
           { id: 'gemini', label: 'Gemini', enabled: true, models: [] },
         ])
       }
@@ -247,7 +247,7 @@ export function VideoThumbnailSection({
   }
 
   const handleProviderChange = async (p: string) => {
-    const val = p as 'dalle3' | 'gemini' | 'higgsfield'
+    const val = p as 'openai' | 'gemini' | 'higgsfield'
     setProvider(val)
     if (workshopId) await patchWorkshop(workshopId, { provider: val })
   }

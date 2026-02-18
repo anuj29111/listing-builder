@@ -149,13 +149,13 @@ export function WorkshopStep3Combine() {
           <Label className="text-xs">Provider</Label>
           <Select
             value={store.provider}
-            onValueChange={(v) => store.setProvider(v as 'dalle3' | 'gemini' | 'higgsfield')}
+            onValueChange={(v) => store.setProvider(v as 'openai' | 'gemini' | 'higgsfield')}
           >
             <SelectTrigger className="h-9">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="dalle3">DALL-E 3</SelectItem>
+              <SelectItem value="openai">GPT Image 1.5</SelectItem>
               <SelectItem value="gemini">Gemini</SelectItem>
               <SelectItem value="higgsfield">Higgsfield</SelectItem>
             </SelectContent>
