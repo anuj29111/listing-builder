@@ -10,7 +10,7 @@ export async function POST(request: Request) {
     const adminClient = createAdminClient()
     const body = (await request.json()) as GenerateImageRequest
 
-    const { prompt, provider, model_id, orientation, listing_id, position } = body
+    const { prompt, provider, model_id, orientation, listing_id, position, hf_model, hf_aspect_ratio, hf_resolution } = body
 
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length < 5) {
       return NextResponse.json({ error: 'Prompt must be at least 5 characters' }, { status: 400 })
@@ -27,6 +27,9 @@ export async function POST(request: Request) {
       listingId: listing_id,
       createdBy: lbUser.id,
       adminClient,
+      hfModel: hf_model,
+      hfAspectRatio: hf_aspect_ratio,
+      hfResolution: hf_resolution,
     })
 
     return NextResponse.json({

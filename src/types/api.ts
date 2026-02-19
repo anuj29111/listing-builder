@@ -136,6 +136,10 @@ export interface GenerateImageRequest {
   orientation: 'square' | 'portrait' | 'landscape'
   listing_id?: string
   position?: string
+  // Higgsfield-specific (when provider='higgsfield')
+  hf_model?: import('./database').HfModel
+  hf_aspect_ratio?: string
+  hf_resolution?: string
 }
 
 export interface GenerateImageResponse {

@@ -1,8 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { generateOpenAIImage, orientationToSize } from '@/lib/openai'
 import { generateGeminiImage, orientationToAspect } from '@/lib/gemini'
-import { generateHiggsFieldImage, orientationToHiggsfield } from '@/lib/higgsfield'
-import type { LbImageGeneration } from '@/types/database'
+import type { LbImageGeneration, HfModel } from '@/types/database'
 
 export interface GenerateAndStoreParams {
   prompt: string
@@ -15,20 +14,26 @@ export interface GenerateAndStoreParams {
   position?: number | null
   createdBy: string
   adminClient: SupabaseClient
+  // Higgsfield-specific
+  hfModel?: HfModel
+  hfAspectRatio?: string
+  hfResolution?: string
 }
 
 /**
  * Generate an image via the selected provider, upload to Supabase Storage,
  * and insert a record into lb_image_generations.
- * Shared by single-generate and batch-generate routes.
+ *
+ * For Higgsfield: inserts into hf_prompt_queue instead of calling the API directly.
+ * The Python push_prompts.py script handles actual submission to Higgsfield's internal API.
  */
 export async function generateAndStoreImage(
   params: GenerateAndStoreParams
 ): Promise<LbImageGeneration> {
   const { prompt, provider, orientation, modelId, listingId, workshopId, imageType, position, createdBy, adminClient } = params
 
-  let previewUrl: string
-  let storagePath: string
+  let previewUrl: string | null = null
+  let storagePath: string | null = null
   let costCents = 0
 
   if (provider === 'openai') {
@@ -73,30 +78,61 @@ export async function generateAndStoreImage(
     storagePath = fileName
     costCents = modelId === 'gemini-3-pro-image-preview' ? 4 : 2
   } else {
-    const result = await generateHiggsFieldImage({
-      prompt: prompt.trim(),
-      modelId: modelId || undefined,
-      aspectRatio: orientationToHiggsfield(orientation),
-    })
+    // Higgsfield: queue-based flow via hf_prompt_queue
+    // Instead of calling the API directly, we insert into the queue.
+    // The Python push_prompts.py script submits to Higgsfield's internal API.
+    const hfModel = params.hfModel || 'nano-banana-pro'
+    const hfAspectRatio = params.hfAspectRatio || '1:1'
+    const hfResolution = params.hfResolution || '2k'
 
-    const imageResponse = await fetch(result.url)
-    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer())
-    const contentType = imageResponse.headers.get('content-type') || 'image/png'
-    const ext = contentType.includes('webp') ? 'webp' : contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg' : 'png'
-    const fileName = `higgsfield/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+    const { data: queueItem, error: queueError } = await adminClient
+      .from('hf_prompt_queue')
+      .insert({
+        prompt: prompt.trim(),
+        model: hfModel,
+        settings: {
+          aspect_ratio: hfAspectRatio,
+          resolution: hfResolution,
+        },
+        status: 'pending',
+        source: 'listing-builder',
+        listing_id: listingId || null,
+        created_by: createdBy,
+      })
+      .select('id')
+      .single()
 
-    const { error: uploadError } = await adminClient.storage
-      .from('lb-images')
-      .upload(fileName, imageBuffer, { contentType, upsert: false })
+    if (queueError || !queueItem) {
+      throw new Error(`Failed to queue Higgsfield prompt: ${queueError?.message || 'Unknown error'}`)
+    }
 
-    if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`)
+    // Insert image record with no preview yet — it will be updated when the prompt is processed
+    const { data: image, error: insertError } = await adminClient
+      .from('lb_image_generations')
+      .insert({
+        listing_id: listingId || null,
+        workshop_id: workshopId || null,
+        prompt: prompt.trim(),
+        provider: 'higgsfield',
+        preview_url: null,
+        full_url: null,
+        status: 'preview',
+        cost_cents: 0,
+        image_type: imageType || 'main',
+        position: position ?? null,
+        created_by: createdBy,
+      })
+      .select()
+      .single()
 
-    const { data: publicUrl } = adminClient.storage.from('lb-images').getPublicUrl(fileName)
-    previewUrl = publicUrl.publicUrl
-    storagePath = fileName
-    costCents = 0
+    if (insertError || !image) {
+      throw new Error(insertError?.message || 'Failed to save image record')
+    }
+
+    return image as LbImageGeneration
   }
 
+  // OpenAI / Gemini: image is ready immediately
   const { data: image, error: insertError } = await adminClient
     .from('lb_image_generations')
     .insert({
@@ -116,7 +152,9 @@ export async function generateAndStoreImage(
     .single()
 
   if (insertError || !image) {
-    await adminClient.storage.from('lb-images').remove([storagePath])
+    if (storagePath) {
+      await adminClient.storage.from('lb-images').remove([storagePath])
+    }
     throw new Error(insertError?.message || 'Failed to save image record')
   }
 

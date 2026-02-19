@@ -16,7 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ImageIcon, ArrowRight, X, Clock, Palette, Video, Image } from 'lucide-react'
+import { HfQueuePanel } from '@/components/images/HfQueuePanel'
+import { ImageIcon, ArrowRight, X, Clock, Palette, Video, Image, Zap } from 'lucide-react'
 import type { LbCategory, LbCountry, LbImageWorkshop, LbImageGeneration } from '@/types/database'
 
 interface ListingOption {
@@ -33,7 +34,7 @@ interface ImageBuilderClientProps {
   countries: LbCountry[]
 }
 
-type Tab = 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
+type Tab = 'main' | 'secondary' | 'video_thumbnail' | 'swatch' | 'hf_queue'
 type ContextMode = 'listing' | 'research' | null
 
 interface ResolvedContext {
@@ -455,6 +456,7 @@ export function ImageBuilderClient({
     { key: 'secondary', label: 'Secondary Images' },
     { key: 'video_thumbnail', label: 'Video Thumbnails' },
     { key: 'swatch', label: 'Swatches' },
+    { key: 'hf_queue', label: 'HF Queue' },
   ]
 
   return (
@@ -560,6 +562,10 @@ export function ImageBuilderClient({
               workshops={workshops}
               images={images}
             />
+          )}
+
+          {activeTab === 'hf_queue' && (
+            <HfQueuePanel listingId={resolvedContext.listingId} />
           )}
         </>
       )}

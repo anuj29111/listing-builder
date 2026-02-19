@@ -280,3 +280,65 @@ export interface LbProduct {
   created_at: string
   updated_at: string
 }
+
+// Higgsfield prompt queue (shared table with higgsfield-automator)
+export type HfModel = 'nano-banana-pro' | 'chatgpt' | 'seedream' | 'soul'
+
+export interface HfPromptQueueSettings {
+  aspect_ratio?: string
+  resolution?: string
+  batch_size?: number
+  use_unlim?: boolean
+}
+
+export interface HfPromptQueue {
+  id: string
+  prompt: string
+  model: HfModel
+  settings: HfPromptQueueSettings
+  status: 'pending' | 'submitted' | 'failed' | 'skipped'
+  error: string | null
+  source: 'manual' | 'listing-builder' | 'batch'
+  listing_id: string | null
+  created_at: string
+  submitted_at: string | null
+  created_by: string | null
+}
+
+// Model config for UI (mirrors MODELS dict in Python api.py)
+export const HF_MODELS: Record<HfModel, {
+  label: string
+  slug: string
+  resolutions: string[]
+  aspectRatios: string[]
+  defaultResolution: string
+}> = {
+  'nano-banana-pro': {
+    label: 'Nano Banana Pro',
+    slug: 'nano-banana-2',
+    resolutions: ['1k', '2k', '4k'],
+    aspectRatios: ['1:1', '3:4', '4:3', '2:3', '3:2', '9:16', '16:9', '5:4', '4:5', '21:9'],
+    defaultResolution: '2k',
+  },
+  'chatgpt': {
+    label: 'ChatGPT',
+    slug: 'openai_hazel',
+    resolutions: ['low', 'medium', 'high'],
+    aspectRatios: ['1:1', '2:3', '3:2'],
+    defaultResolution: 'medium',
+  },
+  'seedream': {
+    label: 'Seedream 4.5',
+    slug: 'seedream_v4_5',
+    resolutions: ['2k', '4k'],
+    aspectRatios: ['1:1', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '21:9'],
+    defaultResolution: '2k',
+  },
+  'soul': {
+    label: 'Soul',
+    slug: 'soul',
+    resolutions: ['1.5k', '2k'],
+    aspectRatios: ['9:16', '3:4', '2:3', '1:1', '4:3', '16:9', '3:2'],
+    defaultResolution: '2k',
+  },
+}
