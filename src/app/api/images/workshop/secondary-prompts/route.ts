@@ -7,7 +7,7 @@ import {
   type ReviewAnalysisResult,
   type QnAAnalysisResult,
 } from '@/lib/claude'
-import type { GenerateSecondaryPromptsRequest } from '@/types/api'
+import type { GenerateSecondaryPromptsRequest, CompetitorAnalysisResult } from '@/types/api'
 
 export async function POST(request: Request) {
   try {
@@ -74,9 +74,11 @@ export async function POST(request: Request) {
     const keywordRow = pickBest('keyword_analysis')
     const reviewRow = pickBest('review_analysis')
     const qnaRow = pickBest('qna_analysis')
+    const competitorRow = pickBest('competitor_analysis')
 
-    // Extract bullet points from listing sections if available
+    // Extract bullet points + description from listing sections if available
     const bulletPoints: string[] = []
+    let listingDescription: string | null = null
     if (listingSections?.data) {
       for (const section of listingSections.data) {
         if (section.section_type.startsWith('bullet_')) {
@@ -84,6 +86,10 @@ export async function POST(request: Request) {
           if (variations?.[section.selected_variation]) {
             bulletPoints.push(variations[section.selected_variation])
           }
+        }
+        if (section.section_type === 'description') {
+          const variations = section.variations as string[]
+          listingDescription = variations?.[section.selected_variation] || null
         }
       }
     }
@@ -94,6 +100,7 @@ export async function POST(request: Request) {
       categoryName: category.name,
       listingTitle: listingResult?.data?.title || null,
       bulletPoints,
+      listingDescription,
       keywordAnalysis: keywordRow
         ? (keywordRow.analysis_result as unknown as KeywordAnalysisResult)
         : null,
@@ -102,6 +109,9 @@ export async function POST(request: Request) {
         : null,
       qnaAnalysis: qnaRow
         ? (qnaRow.analysis_result as unknown as QnAAnalysisResult)
+        : null,
+      competitorAnalysis: competitorRow
+        ? (competitorRow.analysis_result as unknown as CompetitorAnalysisResult)
         : null,
     })
 

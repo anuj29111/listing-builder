@@ -7,6 +7,7 @@ import {
   type ReviewAnalysisResult,
   type QnAAnalysisResult,
 } from '@/lib/claude'
+import type { CompetitorAnalysisResult } from '@/types/api'
 
 export async function POST(request: Request) {
   try {
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
     const keywordRow = pickBest('keyword_analysis')
     const reviewRow = pickBest('review_analysis')
     const qnaRow = pickBest('qna_analysis')
+    const competitorRow = pickBest('competitor_analysis')
 
     const keywordAnalysis = keywordRow
       ? (keywordRow.analysis_result as unknown as KeywordAnalysisResult)
@@ -69,12 +71,16 @@ export async function POST(request: Request) {
     const qnaAnalysis = qnaRow
       ? (qnaRow.analysis_result as unknown as QnAAnalysisResult)
       : null
+    const competitorAnalysis = competitorRow
+      ? (competitorRow.analysis_result as unknown as CompetitorAnalysisResult)
+      : null
 
     const { result, model, tokensUsed } = await generateImageStackRecommendations(
       cat.name,
       keywordAnalysis,
       reviewAnalysis,
-      qnaAnalysis
+      qnaAnalysis,
+      competitorAnalysis
     )
 
     return NextResponse.json({

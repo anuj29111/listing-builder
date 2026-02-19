@@ -7,7 +7,7 @@ import {
   type ReviewAnalysisResult,
   type QnAAnalysisResult,
 } from '@/lib/claude'
-import type { GenerateWorkshopPromptsRequest } from '@/types/api'
+import type { GenerateWorkshopPromptsRequest, CompetitorAnalysisResult } from '@/types/api'
 
 export async function POST(request: Request) {
   try {
@@ -63,6 +63,7 @@ export async function POST(request: Request) {
     const keywordRow = pickBest('keyword_analysis')
     const reviewRow = pickBest('review_analysis')
     const qnaRow = pickBest('qna_analysis')
+    const competitorRow = pickBest('competitor_analysis')
 
     const keywordAnalysis = keywordRow
       ? (keywordRow.analysis_result as unknown as KeywordAnalysisResult)
@@ -73,8 +74,37 @@ export async function POST(request: Request) {
     const qnaAnalysis = qnaRow
       ? (qnaRow.analysis_result as unknown as QnAAnalysisResult)
       : null
+    const competitorAnalysis = competitorRow
+      ? (competitorRow.analysis_result as unknown as CompetitorAnalysisResult)
+      : null
 
-    // Generate AI image prompts using research data
+    // Fetch listing content when listing_id is provided (for full context)
+    let listingTitle: string | null = null
+    const bulletPoints: string[] = []
+    let listingDescription: string | null = null
+    if (listing_id) {
+      const [lr, sr] = await Promise.all([
+        supabase.from('lb_listings').select('title').eq('id', listing_id).single(),
+        supabase.from('lb_listing_sections').select('section_type, variations, selected_variation').eq('listing_id', listing_id),
+      ])
+      listingTitle = lr?.data?.title || null
+      if (sr?.data) {
+        for (const section of sr.data) {
+          if (section.section_type.startsWith('bullet_')) {
+            const variations = section.variations as string[]
+            if (variations?.[section.selected_variation]) {
+              bulletPoints.push(variations[section.selected_variation])
+            }
+          }
+          if (section.section_type === 'description') {
+            const variations = section.variations as string[]
+            listingDescription = variations?.[section.selected_variation] || null
+          }
+        }
+      }
+    }
+
+    // Generate AI image prompts using full research + listing data
     const { result } = await generateImagePrompts({
       productName: product_name,
       brand,
@@ -82,6 +112,10 @@ export async function POST(request: Request) {
       keywordAnalysis,
       reviewAnalysis,
       qnaAnalysis,
+      competitorAnalysis,
+      listingTitle,
+      bulletPoints,
+      listingDescription,
     })
 
     // Create workshop record — save prompts to DB for persistence

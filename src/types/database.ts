@@ -302,7 +302,84 @@ export interface LbAsinLookup {
   variations: unknown[]
   is_prime_eligible: boolean | null
   stock: string | null
+  // New expanded fields
+  price_upper: number | null
+  price_sns: number | null
+  price_initial: number | null
+  price_shipping: number | null
+  deal_type: string | null
+  coupon: string | null
+  coupon_discount_percentage: number | null
+  discount_percentage: number | null
+  amazon_choice: boolean
+  parent_asin: string | null
+  answered_questions_count: number | null
+  has_videos: boolean
+  sales_volume: string | null
+  max_quantity: number | null
+  pricing_count: number | null
+  product_dimensions: string | null
+  product_details: Record<string, unknown> | null
+  product_overview: Array<{ title: string; description: string }> | null
+  delivery: unknown[] | null
+  buybox: unknown[] | null
+  lightning_deal: Record<string, unknown> | null
+  rating_stars_distribution: Array<{ rating: number; percentage: string }> | null
+  sns_discounts: unknown[] | null
+  top_reviews: Array<{
+    id: string
+    title: string
+    author: string
+    rating: number
+    content: string
+    timestamp: string
+    is_verified: boolean
+    helpful_count: number
+  }> | null
   lookup_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface LbKeywordSearch {
+  id: string
+  keyword: string
+  country_id: string
+  marketplace_domain: string
+  total_results_count: number | null
+  pages_fetched: number
+  organic_results: Array<{
+    asin: string
+    url: string
+    title: string
+    price: number | null
+    currency: string | null
+    rating: number | null
+    reviews_count: number | null
+    pos: number
+    url_image: string | null
+    is_prime: boolean
+    is_amazons_choice: boolean
+    best_seller: boolean
+    manufacturer: string | null
+    sales_volume: string | null
+  }>
+  sponsored_results: Array<{
+    asin: string
+    url: string
+    title: string
+    price: number | null
+    currency: string | null
+    rating: number | null
+    reviews_count: number | null
+    pos: number
+    url_image: string | null
+    manufacturer: string | null
+  }>
+  amazons_choices: unknown[]
+  suggested_results: unknown[]
+  raw_response: Record<string, unknown> | null
+  searched_by: string | null
   created_at: string
   updated_at: string
 }

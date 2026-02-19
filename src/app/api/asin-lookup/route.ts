@@ -68,7 +68,7 @@ export async function POST(request: Request) {
 
       const data = result.data
 
-      // Upsert into lb_asin_lookups
+      // Upsert into lb_asin_lookups — extract all available fields
       const { data: saved, error: saveErr } = await supabase
         .from('lb_asin_lookups')
         .upsert(
@@ -77,8 +77,9 @@ export async function POST(request: Request) {
             country_id,
             marketplace_domain: country.amazon_domain,
             raw_response: data,
+            // Core fields
             title: data.title || null,
-            brand: data.manufacturer || null,
+            brand: data.manufacturer || data.brand || null,
             price: data.price || data.price_buybox || null,
             currency: data.currency || null,
             rating: data.rating || null,
@@ -92,6 +93,31 @@ export async function POST(request: Request) {
             variations: data.variation || [],
             is_prime_eligible: data.is_prime_eligible ?? null,
             stock: data.stock || null,
+            // New expanded fields
+            price_upper: data.price_upper ?? null,
+            price_sns: data.price_sns ?? null,
+            price_initial: data.price_initial ?? null,
+            price_shipping: data.price_shipping ?? null,
+            deal_type: data.deal_type || null,
+            coupon: data.coupon || null,
+            coupon_discount_percentage: data.coupon_discount_percentage ?? null,
+            discount_percentage: data.discount?.percentage ?? null,
+            amazon_choice: data.amazon_choice ?? false,
+            parent_asin: data.parent_asin || null,
+            answered_questions_count: data.answered_questions_count ?? null,
+            has_videos: data.has_videos ?? false,
+            sales_volume: data.sales_volume || null,
+            max_quantity: data.max_quantity ?? null,
+            pricing_count: data.pricing_count ?? null,
+            product_dimensions: data.product_dimensions || null,
+            product_details: data.product_details || null,
+            product_overview: data.product_overview || null,
+            delivery: data.delivery || null,
+            buybox: data.buybox || null,
+            lightning_deal: data.lightning_deal || null,
+            rating_stars_distribution: data.rating_stars_distribution || null,
+            sns_discounts: data.sns_discounts || null,
+            top_reviews: data.reviews || null,
             lookup_by: lbUser.id,
             updated_at: new Date().toISOString(),
           },
@@ -134,7 +160,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from('lb_asin_lookups')
       .select(
-        'id, asin, country_id, marketplace_domain, title, brand, price, currency, rating, reviews_count, images, sales_rank, is_prime_eligible, created_at, updated_at'
+        'id, asin, country_id, marketplace_domain, title, brand, price, price_initial, currency, rating, reviews_count, images, sales_rank, is_prime_eligible, amazon_choice, sales_volume, deal_type, coupon, parent_asin, created_at, updated_at'
       )
       .order('updated_at', { ascending: false })
       .limit(100)

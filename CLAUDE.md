@@ -124,14 +124,17 @@ npm run lint         # ESLint
 30. **SP Prompts xlsx parsing** — `sp_prompts` file type accepts xlsx/csv. xlsx is parsed server-side (dynamic `import('xlsx')`) → converted to clean CSV before Supabase storage. Wired into Q&A analysis pipeline with niche-filtering (Claude filters prompts by category).
 31. **Product Mapper** — `lb_products` table (ASIN unique key). `/products` page with search, category filter, CRUD, xlsx/csv import. Import upserts on ASIN in batches of 100.
 32. **Railway worktrees** — `railway up` uploads ALL worktrees. If any worktree has stale code with build errors, deploy fails. Always `git merge main --ff-only` in all worktrees before deploying.
+34. **`.railwayignore`** — Created to exclude worktrees/non-code dirs from `railway up` uploads. Without it, upload times out.
+35. **ASIN Lookup via Oxylabs** — `/asin-lookup` page uses Oxylabs E-Commerce Scraper API (`realtime.oxylabs.io/v1/queries`). Credentials stored as `oxylabs_username`/`oxylabs_password` in `lb_admin_settings`. `source: "amazon_product"`, `domain` derived from `lb_countries.amazon_domain` by stripping `amazon.` prefix. Free tier: 2,000 results. Paid: $0.50/1K.
+36. **`lb_asin_lookups` table** — Stores fetched ASIN data. UNIQUE on `(asin, country_id)` — re-lookups upsert. `raw_response` JSONB preserves full Oxylabs payload. Extracted fields: title, brand, price, currency, rating, reviews_count, bullet_points, description, images, sales_rank, category, featured_merchant, variations, is_prime_eligible, stock.
 
 ---
 
 ## Database
 
-18 tables prefixed `lb_`. Full DDL in `docs/SCHEMA.md`.
+19 tables prefixed `lb_`. Full DDL in `docs/SCHEMA.md`.
 
-**Key tables:** `lb_users`, `lb_categories`, `lb_countries`, `lb_research_files`, `lb_research_analysis`, `lb_product_types`, `lb_products`, `lb_listings`, `lb_listing_sections`, `lb_listing_chats`, `lb_image_generations`, `lb_image_chats`, `lb_image_workshops`, `lb_batch_jobs`, `lb_admin_settings`, `lb_sync_logs`, `lb_export_logs`, `lb_aplus_modules`
+**Key tables:** `lb_users`, `lb_categories`, `lb_countries`, `lb_research_files`, `lb_research_analysis`, `lb_product_types`, `lb_products`, `lb_listings`, `lb_listing_sections`, `lb_listing_chats`, `lb_image_generations`, `lb_image_chats`, `lb_image_workshops`, `lb_batch_jobs`, `lb_admin_settings`, `lb_sync_logs`, `lb_export_logs`, `lb_aplus_modules`, `lb_asin_lookups`
 
 **RLS pattern:** All authenticated users can CRUD (except `lb_admin_settings` = admin only). All policies use `(SELECT auth.uid())` wrapper.
 
@@ -160,3 +163,7 @@ npm run lint         # ESLint
   1. Test all 4 image flows: main, secondary, video thumbnails, swatch
   2. Test drafts panel: generate → navigate away → return → click draft → verify resume
   3. Verify DB persistence across navigation
+- **ASIN Lookup — Expand data & add keyword search:**
+  1. Audit what else Oxylabs returns (A+ content, coupons, buybox info, etc.) and extract more fields
+  2. Add keyword search support — enter keyword → get search results (top ASINs, search volume, etc.)
+  3. Oxylabs `amazon_search` source: `source: "amazon_search"`, `query: "keyword"`, `domain`, `parse: true`

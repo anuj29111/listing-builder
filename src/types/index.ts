@@ -22,6 +22,7 @@ export type {
   KeywordPlacement,
   LbProduct,
   LbAsinLookup,
+  LbKeywordSearch,
 } from './database'
 
 export type {

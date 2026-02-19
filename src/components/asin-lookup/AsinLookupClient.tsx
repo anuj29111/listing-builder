@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Loader2, Search, ScanSearch, Star, TrendingUp, Clock, RefreshCw } from 'lucide-react'
+import { Loader2, Search, Star, TrendingUp, Clock, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCountry, LbAsinLookup } from '@/types'
 import type { OxylabsProductResult } from '@/lib/oxylabs'
@@ -125,17 +125,6 @@ export function AsinLookupClient({
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <ScanSearch className="h-6 w-6" />
-          ASIN Lookup
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Fetch product data from any Amazon marketplace via Oxylabs
-        </p>
-      </div>
-
       {/* Input Form */}
       <div className="rounded-lg border bg-card p-4">
         <div className="grid grid-cols-1 md:grid-cols-[1fr_200px_auto] gap-3 items-end">

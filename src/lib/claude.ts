@@ -1926,76 +1926,19 @@ function buildImageStackRecommendationPrompt(
   categoryName: string,
   keywordAnalysis?: KeywordAnalysisResult | null,
   reviewAnalysis?: ReviewAnalysisResult | null,
-  qnaAnalysis?: QnAAnalysisResult | null
+  qnaAnalysis?: QnAAnalysisResult | null,
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
 ): string {
-  let researchContext = ''
-
-  if (keywordAnalysis) {
-    const features = keywordAnalysis.featureDemand
-      ?.slice(0, 8)
-      .map((f) => `${f.feature} (${f.priority}, SV: ${f.totalSearchVolume})`)
-      .join('\n  ') || 'N/A'
-    const surfaces = keywordAnalysis.surfaceDemand
-      ?.slice(0, 6)
-      .map((s) => `${s.surfaceType} (SV: ${s.totalSearchVolume})`)
-      .join(', ') || 'N/A'
-    const intents = keywordAnalysis.customerIntentPatterns
-      ?.slice(0, 6)
-      .map((p) => `${p.category} (${p.priority})`)
-      .join(', ') || 'N/A'
-    researchContext += `\n=== KEYWORD INTELLIGENCE ===
-Feature demand:\n  ${features}
-Surface/application demand: ${surfaces}
-Customer intents: ${intents}\n`
-  }
-
-  if (reviewAnalysis) {
-    const strengths = reviewAnalysis.strengths
-      ?.slice(0, 6)
-      .map((s) => `${s.strength} (${s.mentions} mentions, ${s.impact})`)
-      .join('\n  ') || 'N/A'
-    const useCases = reviewAnalysis.useCases
-      ?.slice(0, 8)
-      .map((u) => `${u.useCase} (${u.priority})`)
-      .join(', ') || 'N/A'
-    const weaknesses = reviewAnalysis.weaknesses
-      ?.slice(0, 4)
-      .map((w) => `${w.weakness} (${w.mentions} mentions)`)
-      .join(', ') || 'N/A'
-    const imageOps = reviewAnalysis.imageOptimizationOpportunities
-      ?.map((o) => `${o.imageType}: ${o.rationale} (Evidence: ${o.reviewEvidence})`)
-      .join('\n  ') || ''
-    const imageOpsStr = imageOps ? `\nImage optimization opportunities from reviews:\n  ${imageOps}` : ''
-    researchContext += `\n=== CUSTOMER REVIEW INSIGHTS ===
-Strengths:\n  ${strengths}
-Use cases: ${useCases}
-Weaknesses to address: ${weaknesses}${imageOpsStr}\n`
-  }
-
-  if (qnaAnalysis) {
-    const concerns = qnaAnalysis.customerConcerns
-      ?.slice(0, 6)
-      .map((c) => `${c.concern} (frequency: ${c.frequency})`)
-      .join(', ') || 'N/A'
-    const gaps = qnaAnalysis.contentGaps
-      ?.slice(0, 5)
-      .map((g) => `${g.gap} (${g.importance})`)
-      .join(', ') || 'N/A'
-    researchContext += `\n=== Q&A CUSTOMER CONCERNS ===
-Top concerns: ${concerns}
-Content gaps: ${gaps}\n`
-  }
-
-  if (!researchContext) {
-    researchContext = '\nNo research data available. Use general Amazon secondary image best practices.\n'
-  }
+  const researchContext = buildImageResearchContext({
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+  })
 
   return `You are an expert Amazon listing image strategist. Based on research data, recommend the optimal 9 secondary image types for position 2-10 of an Amazon listing.
 
 Category: ${categoryName}
 ${researchContext}
 === TASK ===
-Recommend exactly 9 image types for secondary image positions (2-10). Each recommendation should be data-driven — backed by keyword demand, review insights, or customer Q&A patterns.
+Recommend exactly 9 image types for secondary image positions (2-10). Each recommendation should be data-driven — backed by keyword demand, review insights, customer Q&A patterns, and competitor intelligence.
 
 Standard secondary image types to consider (adapt and prioritize based on data):
 - Lifestyle/In-Use, Key Features Infographic, How-To/Usage Guide
@@ -2036,11 +1979,12 @@ export async function generateImageStackRecommendations(
   categoryName: string,
   keywordAnalysis?: KeywordAnalysisResult | null,
   reviewAnalysis?: ReviewAnalysisResult | null,
-  qnaAnalysis?: QnAAnalysisResult | null
+  qnaAnalysis?: QnAAnalysisResult | null,
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
 ): Promise<{ result: import('@/types/api').ImageStackRecommendationsResult; model: string; tokensUsed: number }> {
   const client = await getClient()
   const model = await getModel()
-  const prompt = buildImageStackRecommendationPrompt(categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis)
+  const prompt = buildImageStackRecommendationPrompt(categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis)
 
   const response = await client.messages.create({
     model,
@@ -2393,6 +2337,212 @@ Return ONLY the JSON object, no markdown, no explanation.`
 
 // --- Workshop: AI Image Prompt Generation ---
 
+export interface ImageResearchContext {
+  keywordAnalysis?: KeywordAnalysisResult | null
+  reviewAnalysis?: ReviewAnalysisResult | null
+  qnaAnalysis?: QnAAnalysisResult | null
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  listingTitle?: string | null
+  bulletPoints?: string[]
+  listingDescription?: string | null
+}
+
+/**
+ * Builds the full research context block for image prompt builders.
+ * Mirrors buildSharedContext() depth — NO .slice() caps on research data.
+ * Used by main, secondary, thumbnail, and recommendation builders.
+ * If you add fields to buildSharedContext(), add them here too.
+ */
+function buildImageResearchContext(ctx: ImageResearchContext): string {
+  const { keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+          listingTitle, bulletPoints, listingDescription } = ctx
+
+  // === KEYWORD SECTION (mirrors buildSharedContext) ===
+  let keywordSection = ''
+  if (keywordAnalysis) {
+    const titleKw = keywordAnalysis.titleKeywords?.join(', ') || 'N/A'
+    const bulletKw = keywordAnalysis.bulletKeywords?.join(', ') || 'N/A'
+    const searchKw = keywordAnalysis.searchTermKeywords?.join(', ') || 'N/A'
+    const intents = keywordAnalysis.customerIntentPatterns
+      ?.map((p) => `${p.category} (${p.priority})${p.painPoints ? ` — Pain points: ${p.painPoints}` : ''}`)
+      .join('\n  ') || 'N/A'
+    const features = keywordAnalysis.featureDemand
+      ?.map((f) => `${f.feature} (${f.priority})`)
+      .join(', ') || 'N/A'
+    const surfaces = keywordAnalysis.surfaceDemand
+      ?.map((s) => `${s.surfaceType} (${s.totalSearchVolume} SV)`)
+      .join(', ') || 'N/A'
+
+    const execSummary = keywordAnalysis.executiveSummary
+      ? `Executive Summary: ${keywordAnalysis.executiveSummary}\n` : ''
+    const bulletMap = keywordAnalysis.bulletKeywordMap
+      ?.map((b) => `Bullet ${b.bulletNumber}: ${b.keywords.join(', ')} — Focus: ${b.focus}`)
+      .join('\n  ') || ''
+    const bulletMapStr = bulletMap ? `\nPer-bullet keyword mapping:\n  ${bulletMap}` : ''
+    const competitive = keywordAnalysis.competitiveIntelligence
+    const competitiveStr = competitive
+      ? `\nCompetitive gaps to exploit: ${competitive.marketGaps?.join('; ') || 'N/A'}\nFeature differentiators: ${competitive.featureDifferentiation?.join('; ') || 'N/A'}`
+      : ''
+    const rufusQs = keywordAnalysis.rufusQuestionAnticipation
+      ?.slice(0, 6)
+      .join('\n  ') || ''
+    const rufusStr = rufusQs ? `\nRufus AI questions to preemptively answer:\n  ${rufusQs}` : ''
+
+    keywordSection = `\n=== KEYWORD INTELLIGENCE ===
+${execSummary}Must-include title keywords: ${titleKw}
+Bullet point keywords: ${bulletKw}
+Backend search term keywords: ${searchKw}
+Customer intent patterns:
+  ${intents}
+Key feature demand signals: ${features}
+Surface/context demand: ${surfaces}${bulletMapStr}${competitiveStr}${rufusStr}\n`
+  }
+
+  // === REVIEW SECTION (mirrors buildSharedContext + imageOptimizationOpportunities) ===
+  let reviewSection = ''
+  if (reviewAnalysis) {
+    const execSummary = reviewAnalysis.executiveSummary
+      ? `Executive Summary: ${reviewAnalysis.executiveSummary}\n` : ''
+    const strengths = reviewAnalysis.strengths
+      ?.map((s) => `${s.strength} (${s.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    const useCases = reviewAnalysis.useCases
+      ?.map((u) => `${u.useCase} (${u.priority})`)
+      .join(', ') || 'N/A'
+    const posLang = reviewAnalysis.positiveLanguage
+      ?.map((w) => `${w.word}${w.optimizationValue ? ` [${w.optimizationValue}]` : ''}`)
+      .join(', ') || 'N/A'
+    const weaknesses = reviewAnalysis.weaknesses
+      ?.map((w) => `${w.weakness} (${w.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    const bulletStrat = reviewAnalysis.bulletStrategy
+      ?.map((b) => `Bullet ${b.bulletNumber}: Focus on "${b.focus}" — Evidence: ${b.evidence}${b.customerPainPoint ? ` — Addresses: ${b.customerPainPoint}` : ''}`)
+      .join('\n  ') || 'N/A'
+
+    const voicePhrases = reviewAnalysis.customerVoicePhrases
+    const voiceParts: string[] = []
+    if (voicePhrases?.positiveEmotional?.length) voiceParts.push(...voicePhrases.positiveEmotional.slice(0, 4))
+    if (voicePhrases?.functional?.length) voiceParts.push(...voicePhrases.functional.slice(0, 3))
+    if (voicePhrases?.useCaseLanguage?.length) voiceParts.push(...voicePhrases.useCaseLanguage.slice(0, 3))
+    const voiceStr = voiceParts.length > 0
+      ? `\nCustomer voice phrases to echo: ${voiceParts.map((p) => `"${p}"`).join(', ')}` : ''
+
+    const profiles = reviewAnalysis.customerProfiles
+      ?.map((p) => `${p.profile}: ${p.description}`)
+      .join('; ') || ''
+    const profileStr = profiles ? `\nKey customer profiles: ${profiles}` : ''
+
+    const messaging = reviewAnalysis.competitivePositioning?.messagingFramework
+    const msgStr = messaging
+      ? `\nMessaging framework — Primary: "${messaging.primaryMessage}" | Supporting: ${messaging.supportPoints?.join('; ') || 'N/A'} | Proof: ${messaging.proofPoints?.join('; ') || 'N/A'}`
+      : ''
+
+    // IMAGE-SPECIFIC: imageOptimizationOpportunities (not in listing buildSharedContext)
+    const imageOps = reviewAnalysis.imageOptimizationOpportunities
+      ?.map((o) => `${o.imageType}: ${o.rationale} (Evidence: ${o.reviewEvidence})`)
+      .join('\n  ') || ''
+    const imageOpsStr = imageOps
+      ? `\nImage optimization opportunities from reviews:\n  ${imageOps}` : ''
+
+    reviewSection = `\n=== CUSTOMER REVIEW INSIGHTS ===
+${execSummary}Product strengths to highlight: ${strengths}
+Top use cases to emphasize: ${useCases}
+Customer language that resonates: ${posLang}
+Weaknesses to avoid showing / preemptively address: ${weaknesses}
+Bullet strategy from review analysis:
+  ${bulletStrat}${voiceStr}${profileStr}${msgStr}${imageOpsStr}\n`
+  }
+
+  // === Q&A SECTION (mirrors buildSharedContext) ===
+  let qnaSection = ''
+  if (qnaAnalysis) {
+    const execSummary = qnaAnalysis.executiveSummary
+      ? `Executive Summary: ${qnaAnalysis.executiveSummary}\n` : ''
+    const concerns = qnaAnalysis.customerConcerns
+      ?.map((c) => `${c.concern} — Suggested: ${c.suggestedResponse}`)
+      .join('\n  ') || 'N/A'
+    const gaps = qnaAnalysis.contentGaps
+      ?.map((g) => `${g.gap} (${g.importance})${g.priorityScore ? ` [priority: ${g.priorityScore}]` : ''}`)
+      .join(', ') || 'N/A'
+    const faqs = qnaAnalysis.faqForDescription
+      ?.map((f) => `Q: ${f.question} / A: ${f.answer}`)
+      .join('\n  ') || 'N/A'
+    const specs = qnaAnalysis.productSpecsConfirmed
+      ?.map((s) => `${s.spec}: ${s.value}`)
+      .join('; ') || ''
+    const specStr = specs ? `\nConfirmed product specs: ${specs}` : ''
+    const contradictions = qnaAnalysis.contradictions
+      ?.map((c) => `"${c.topic}": ${c.resolution}`)
+      .join('; ') || ''
+    const contradStr = contradictions
+      ? `\nContradictions to resolve visually: ${contradictions}` : ''
+    const highRisk = qnaAnalysis.highRiskQuestions
+      ?.map((q) => `${q.question} → ${q.defensiveAction}`)
+      .join('\n  ') || ''
+    const riskStr = highRisk
+      ? `\nHigh-risk questions to preemptively address:\n  ${highRisk}` : ''
+    const defenseParts: string[] = []
+    if (qnaAnalysis.competitiveDefense?.brandProtectionOpportunities?.length) {
+      defenseParts.push(`Brand protection: ${qnaAnalysis.competitiveDefense.brandProtectionOpportunities.join('; ')}`)
+    }
+    if (qnaAnalysis.competitiveDefense?.informationGapAdvantages?.length) {
+      defenseParts.push(`Info gap advantages: ${qnaAnalysis.competitiveDefense.informationGapAdvantages.join('; ')}`)
+    }
+    const defenseStr = defenseParts.length > 0
+      ? `\nCompetitive defense: ${defenseParts.join(' | ')}` : ''
+
+    qnaSection = `\n=== Q&A / CUSTOMER CONCERNS ===
+${execSummary}Top customer concerns to address:
+  ${concerns}
+Content gaps to fill: ${gaps}
+FAQ insights:
+  ${faqs}${specStr}${contradStr}${riskStr}${defenseStr}\n`
+  }
+
+  // === COMPETITOR SECTION (mirrors buildSharedContext) ===
+  let competitorSection = ''
+  if (competitorAnalysis) {
+    const titlePatterns = competitorAnalysis.titlePatterns
+      ?.map((p) => `"${p.pattern}" (${p.frequency}x) — e.g. "${p.example}"`)
+      .join('\n  ') || 'N/A'
+    const bulletThemes = competitorAnalysis.bulletThemes
+      ?.map((t) => `${t.theme} (${t.frequency}x)`)
+      .join(', ') || 'N/A'
+    const gaps = competitorAnalysis.differentiationGaps
+      ?.map((g) => `${g.gap}: ${g.opportunity} (${g.priority})`)
+      .join('\n  ') || 'N/A'
+    const usps = competitorAnalysis.usps
+      ?.map((u) => `${u.usp} — Competitor weakness: ${u.competitorWeakness}`)
+      .join('\n  ') || 'N/A'
+
+    competitorSection = `\n=== COMPETITOR INTELLIGENCE ===
+Executive Summary: ${competitorAnalysis.executiveSummary}
+Competitor title patterns:
+  ${titlePatterns}
+Common bullet themes: ${bulletThemes}
+Differentiation gaps to exploit:
+  ${gaps}
+Our unique selling propositions:
+  ${usps}\n`
+  }
+
+  // === LISTING CONTENT (when available — from listing context) ===
+  let listingSection = ''
+  if (listingTitle || (bulletPoints && bulletPoints.length > 0) || listingDescription) {
+    listingSection = `\n=== LISTING CONTENT ===
+Title: ${listingTitle || 'N/A'}
+Bullet points:
+${bulletPoints?.map((b, i) => `${i + 1}. ${b}`).join('\n') || 'N/A'}
+Description: ${listingDescription || 'N/A'}\n`
+  }
+
+  if (!keywordSection && !reviewSection && !qnaSection && !competitorSection && !listingSection) {
+    return '\nNo research data available. Use general best practices for Amazon product photography.\n'
+  }
+
+  return `${keywordSection}${reviewSection}${qnaSection}${competitorSection}${listingSection}`
+}
+
 export interface WorkshopPromptInput {
   productName: string
   brand: string
@@ -2400,6 +2550,10 @@ export interface WorkshopPromptInput {
   keywordAnalysis?: KeywordAnalysisResult | null
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  listingTitle?: string | null
+  bulletPoints?: string[]
+  listingDescription?: string | null
 }
 
 export interface WorkshopPromptResult {
@@ -2415,67 +2569,13 @@ export interface WorkshopPromptResult {
 }
 
 function buildWorkshopPromptsPrompt(input: WorkshopPromptInput): string {
-  const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis } = input
+  const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis,
+          competitorAnalysis, listingTitle, bulletPoints, listingDescription } = input
 
-  let researchContext = ''
-
-  if (keywordAnalysis) {
-    const topKeywords = keywordAnalysis.titleKeywords?.slice(0, 8).join(', ') || 'N/A'
-    const features = keywordAnalysis.featureDemand
-      ?.slice(0, 6)
-      .map((f) => `${f.feature} (${f.priority})`)
-      .join(', ') || 'N/A'
-    const surfaces = keywordAnalysis.surfaceDemand
-      ?.slice(0, 5)
-      .map((s) => `${s.surfaceType} (${s.totalSearchVolume} SV)`)
-      .join(', ') || 'N/A'
-    researchContext += `\n=== KEYWORD INTELLIGENCE ===
-Top keywords customers search: ${topKeywords}
-Key feature demand: ${features}
-Surface/context demand: ${surfaces}\n`
-  }
-
-  if (reviewAnalysis) {
-    const strengths = reviewAnalysis.strengths
-      ?.slice(0, 6)
-      .map((s) => `${s.strength} (${s.mentions} mentions)`)
-      .join(', ') || 'N/A'
-    const useCases = reviewAnalysis.useCases
-      ?.slice(0, 6)
-      .map((u) => `${u.useCase} (${u.priority})`)
-      .join(', ') || 'N/A'
-    const posLang = reviewAnalysis.positiveLanguage
-      ?.slice(0, 6)
-      .map((w) => w.word)
-      .join(', ') || 'N/A'
-    const weaknesses = reviewAnalysis.weaknesses
-      ?.slice(0, 4)
-      .map((w) => `${w.weakness} (${w.mentions} mentions)`)
-      .join(', ') || 'N/A'
-    researchContext += `\n=== CUSTOMER REVIEW INSIGHTS ===
-Product strengths: ${strengths}
-Top use cases: ${useCases}
-Positive language: ${posLang}
-Weaknesses to avoid showing: ${weaknesses}\n`
-  }
-
-  if (qnaAnalysis) {
-    const concerns = qnaAnalysis.customerConcerns
-      ?.slice(0, 5)
-      .map((c) => c.concern)
-      .join(', ') || 'N/A'
-    const gaps = qnaAnalysis.contentGaps
-      ?.slice(0, 3)
-      .map((g) => g.gap)
-      .join(', ') || 'N/A'
-    researchContext += `\n=== CUSTOMER Q&A CONCERNS ===
-Top concerns: ${concerns}
-Content gaps: ${gaps}\n`
-  }
-
-  if (!researchContext) {
-    researchContext = '\nNo research data available. Use general best practices for Amazon product photography.\n'
-  }
+  const researchContext = buildImageResearchContext({
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    listingTitle, bulletPoints, listingDescription,
+  })
 
   return `You are an expert Amazon product photography director. Generate 12 diverse main image prompts for an Amazon listing.
 
@@ -2497,12 +2597,15 @@ Each prompt MUST be meaningfully different — not just rephrased. Vary these di
 5. Visual storytelling (clean minimal, premium/luxury feel, practical/functional, colorful/vibrant)
 6. Props/context hints (if allowed — e.g., the product resting on a surface that suggests use, hands holding it)
 
-Use the research data to inform your prompts:
-- Feature demand → emphasize those features visually
+Use ALL the research data to inform your prompts:
+- Feature demand + surface demand → emphasize those features and contexts visually
 - Use cases → suggest compositions that hint at those use cases
 - Strengths → make them visually obvious
-- Customer concerns → address them visually (e.g., if "durability" is a concern, show robust construction)
-- Positive language → inform the mood/feeling of the image
+- Customer concerns + high-risk questions → address them visually (e.g., if "durability" is a concern, show robust construction)
+- Positive language + messaging framework → inform the mood/feeling of the image
+- Competitor differentiation gaps → visually demonstrate our USPs
+- Image optimization opportunities from reviews → directly follow review-driven image suggestions
+- Listing content (if available) → ensure visual consistency with copy claims
 
 Also generate 3 callout text suggestions (these are text badges/overlays that go ON TOP of the image in post-production, NOT in the AI prompt):
 1. A keyword-focused callout (most-searched term)
@@ -2535,9 +2638,11 @@ export interface SecondaryPromptInput {
   categoryName: string
   listingTitle?: string | null
   bulletPoints?: string[]
+  listingDescription?: string | null
   keywordAnalysis?: KeywordAnalysisResult | null
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
 }
 
 export interface SecondaryConceptResult {
@@ -2556,59 +2661,13 @@ export interface SecondaryConceptResult {
 }
 
 function buildSecondaryPromptsPrompt(input: SecondaryPromptInput): string {
-  const { productName, brand, categoryName, listingTitle, bulletPoints, keywordAnalysis, reviewAnalysis, qnaAnalysis } = input
+  const { productName, brand, categoryName, listingTitle, bulletPoints, listingDescription,
+          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis } = input
 
-  let researchContext = ''
-
-  if (keywordAnalysis) {
-    const topKeywords = keywordAnalysis.titleKeywords?.slice(0, 8).join(', ') || 'N/A'
-    const features = keywordAnalysis.featureDemand
-      ?.slice(0, 6)
-      .map((f) => `${f.feature} (${f.priority})`)
-      .join(', ') || 'N/A'
-    researchContext += `\n=== KEYWORD INTELLIGENCE ===
-Top keywords: ${topKeywords}
-Key feature demand: ${features}\n`
-  }
-
-  if (reviewAnalysis) {
-    const strengths = reviewAnalysis.strengths
-      ?.slice(0, 6)
-      .map((s) => `${s.strength} (${s.mentions} mentions)`)
-      .join(', ') || 'N/A'
-    const useCases = reviewAnalysis.useCases
-      ?.slice(0, 6)
-      .map((u) => `${u.useCase} (${u.priority})`)
-      .join(', ') || 'N/A'
-    const weaknesses = reviewAnalysis.weaknesses
-      ?.slice(0, 4)
-      .map((w) => `${w.weakness} (${w.mentions} mentions)`)
-      .join(', ') || 'N/A'
-    researchContext += `\n=== CUSTOMER REVIEW INSIGHTS ===
-Strengths: ${strengths}
-Use cases: ${useCases}
-Weaknesses to address: ${weaknesses}\n`
-  }
-
-  if (qnaAnalysis) {
-    const concerns = qnaAnalysis.customerConcerns
-      ?.slice(0, 5)
-      .map((c) => c.concern)
-      .join(', ') || 'N/A'
-    researchContext += `\n=== CUSTOMER Q&A CONCERNS ===
-Top concerns: ${concerns}\n`
-  }
-
-  let listingContext = ''
-  if (listingTitle || (bulletPoints && bulletPoints.length > 0)) {
-    listingContext = `\n=== LISTING CONTENT ===
-Title: ${listingTitle || 'N/A'}
-Bullet points:\n${bulletPoints?.map((b, i) => `${i + 1}. ${b}`).join('\n') || 'N/A'}\n`
-  }
-
-  if (!researchContext && !listingContext) {
-    researchContext = '\nNo research data available. Use general best practices for Amazon secondary images.\n'
-  }
+  const researchContext = buildImageResearchContext({
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    listingTitle, bulletPoints, listingDescription,
+  })
 
   return `You are an expert Amazon listing image strategist. Generate 9 secondary image concepts for an Amazon product listing.
 
@@ -2616,7 +2675,7 @@ Bullet points:\n${bulletPoints?.map((b, i) => `${i + 1}. ${b}`).join('\n') || 'N
 Product: ${productName}
 Brand: ${brand}
 Category: ${categoryName}
-${researchContext}${listingContext}
+${researchContext}
 === TASK ===
 Generate exactly 9 secondary image concepts. These are the supporting images (positions 2-10) in an Amazon listing after the main image. Each concept should tell a different part of the product story.
 
@@ -2642,7 +2701,14 @@ For each concept, provide:
 - Unique selling point this image communicates
 - Full image generation prompt (50-150 words, suitable for DALL-E 3 / Gemini)
 
-Use the research data to decide which features, benefits, and concerns to emphasize in each image.
+Use ALL the research data to decide which features, benefits, and concerns to emphasize in each image:
+- Feature demand + surface demand → which features to highlight in infographics
+- Strengths + use cases → lifestyle and benefit images
+- Weaknesses + concerns + high-risk questions → address proactively in comparison/trust images
+- Competitor differentiation gaps → comparison chart and "why choose us" images
+- Image optimization opportunities from reviews → directly follow review-driven image suggestions
+- Messaging framework → inform headlines and sub-headlines
+- Listing content (if available) → ensure visual story aligns with copy claims
 
 === OUTPUT FORMAT ===
 Return valid JSON only, no markdown fences:
@@ -2696,9 +2762,11 @@ export interface ThumbnailPromptInput {
   categoryName: string
   listingTitle?: string | null
   bulletPoints?: string[]
+  listingDescription?: string | null
   keywordAnalysis?: KeywordAnalysisResult | null
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
 }
 
 export interface ThumbnailConceptResult {
@@ -2713,54 +2781,13 @@ export interface ThumbnailConceptResult {
 }
 
 function buildThumbnailPromptsPrompt(input: ThumbnailPromptInput): string {
-  const { productName, brand, categoryName, listingTitle, bulletPoints, keywordAnalysis, reviewAnalysis, qnaAnalysis } = input
+  const { productName, brand, categoryName, listingTitle, bulletPoints, listingDescription,
+          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis } = input
 
-  let researchContext = ''
-
-  if (keywordAnalysis) {
-    const topKeywords = keywordAnalysis.titleKeywords?.slice(0, 8).join(', ') || 'N/A'
-    const features = keywordAnalysis.featureDemand
-      ?.slice(0, 6)
-      .map((f) => `${f.feature} (${f.priority})`)
-      .join(', ') || 'N/A'
-    researchContext += `\n=== KEYWORD INTELLIGENCE ===
-Top keywords: ${topKeywords}
-Key feature demand: ${features}\n`
-  }
-
-  if (reviewAnalysis) {
-    const strengths = reviewAnalysis.strengths
-      ?.slice(0, 6)
-      .map((s) => `${s.strength} (${s.mentions} mentions)`)
-      .join(', ') || 'N/A'
-    const useCases = reviewAnalysis.useCases
-      ?.slice(0, 6)
-      .map((u) => `${u.useCase} (${u.priority})`)
-      .join(', ') || 'N/A'
-    researchContext += `\n=== CUSTOMER REVIEW INSIGHTS ===
-Strengths: ${strengths}
-Use cases: ${useCases}\n`
-  }
-
-  if (qnaAnalysis) {
-    const concerns = qnaAnalysis.customerConcerns
-      ?.slice(0, 5)
-      .map((c) => c.concern)
-      .join(', ') || 'N/A'
-    researchContext += `\n=== CUSTOMER Q&A CONCERNS ===
-Top concerns: ${concerns}\n`
-  }
-
-  let listingContext = ''
-  if (listingTitle || (bulletPoints && bulletPoints.length > 0)) {
-    listingContext = `\n=== LISTING CONTENT ===
-Title: ${listingTitle || 'N/A'}
-Bullet points:\n${bulletPoints?.map((b, i) => `${i + 1}. ${b}`).join('\n') || 'N/A'}\n`
-  }
-
-  if (!researchContext && !listingContext) {
-    researchContext = '\nNo research data available. Use general best practices for Amazon product video thumbnails.\n'
-  }
+  const researchContext = buildImageResearchContext({
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    listingTitle, bulletPoints, listingDescription,
+  })
 
   return `You are an expert Amazon product video thumbnail designer. Generate 3 to 5 video thumbnail concepts for an Amazon product listing video.
 
@@ -2768,7 +2795,7 @@ Bullet points:\n${bulletPoints?.map((b, i) => `${i + 1}. ${b}`).join('\n') || 'N
 Product: ${productName}
 Brand: ${brand}
 Category: ${categoryName}
-${researchContext}${listingContext}
+${researchContext}
 === TASK ===
 Generate 3 to 5 video thumbnail concepts. These are static images used as the thumbnail/cover frame for product videos on Amazon. They must be eye-catching, clickable, and communicate a clear value proposition in under 1 second of viewing.
 
@@ -2787,11 +2814,14 @@ Video thumbnail best practices:
 - Consider mobile viewing: large text, clear focal point, high contrast
 - 16:9 landscape orientation is standard for video thumbnails
 
-Use research data to pick the most compelling angles:
-- Feature demand → which features to spotlight
-- Customer concerns → what to address visually
+Use ALL research data to pick the most compelling angles:
+- Feature demand + surface demand → which features to spotlight
+- Customer concerns + high-risk questions → what to address visually
 - Use cases → which scenario to show
-- Strengths → what emotional tone to convey
+- Strengths + messaging framework → what emotional tone to convey
+- Competitor differentiation gaps → visually demonstrate our USPs
+- Image optimization opportunities → follow review-driven image suggestions
+- Listing content (if available) → ensure thumbnail aligns with listing claims
 
 === OUTPUT FORMAT ===
 Return valid JSON only, no markdown fences:
