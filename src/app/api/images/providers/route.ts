@@ -50,7 +50,7 @@ const DEFAULT_PROVIDERS: ProviderInfo[] = [
     models: HIGGSFIELD_MODELS.map((m) => ({
       id: m.id,
       label: m.label,
-      enabled: m.id === 'higgsfield-ai/soul/standard',
+      enabled: m.id === 'nano-banana-pro',
     })),
   },
 ]
@@ -107,7 +107,7 @@ export async function GET() {
           id: m.id,
           label: m.label,
           enabled: config.higgsfield_models?.[m.id] !== false
-            && (config.higgsfield_models?.[m.id] === true || m.id === 'higgsfield-ai/soul/standard'),
+            && (config.higgsfield_models?.[m.id] === true || m.id === 'nano-banana-pro'),
         })),
       },
     ]

@@ -19,6 +19,7 @@ interface WorkshopState {
   selectedPromptIndices: number[]
   provider: ImageProvider
   geminiModel: string | null
+  hfModel: string | null
   orientation: 'square' | 'portrait' | 'landscape'
   isGeneratingPrompts: boolean
 
@@ -47,6 +48,7 @@ interface WorkshopState {
   selectAllPrompts: () => void
   setProvider: (provider: ImageProvider) => void
   setGeminiModel: (model: string | null) => void
+  setHfModel: (model: string | null) => void
   setOrientation: (orientation: 'square' | 'portrait' | 'landscape') => void
   setIsGeneratingPrompts: (v: boolean) => void
   setWorkshopImages: (images: LbImageGeneration[]) => void
@@ -74,6 +76,7 @@ const initialState = {
   selectedPromptIndices: [] as number[],
   provider: 'gemini' as ImageProvider,
   geminiModel: null as string | null,
+  hfModel: null as string | null,
   orientation: 'square' as const,
   isGeneratingPrompts: false,
   workshopImages: [] as LbImageGeneration[],
@@ -147,6 +150,7 @@ export const useWorkshopStore = create<WorkshopState>((set) => ({
 
   setProvider: (provider) => set({ provider }),
   setGeminiModel: (geminiModel) => set({ geminiModel }),
+  setHfModel: (hfModel) => set({ hfModel }),
   setOrientation: (orientation) => set({ orientation }),
   setIsGeneratingPrompts: (isGeneratingPrompts) => set({ isGeneratingPrompts }),
 

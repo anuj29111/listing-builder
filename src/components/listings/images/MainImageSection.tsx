@@ -144,6 +144,10 @@ export function MainImageSection({
     store.setGeminiModel(model)
   }
 
+  const handleHfModelChange = (model: string | null) => {
+    store.setHfModel(model)
+  }
+
   // Batch generate images
   const handleBatchGenerate = async () => {
     if (!store.workshopId || selectedCount === 0) return
@@ -162,7 +166,7 @@ export function MainImageSection({
           prompts: selectedPrompts.map((p) => ({ prompt: p.prompt, label: p.label })),
           provider: store.provider,
           orientation: store.orientation,
-          model_id: getEffectiveModelId(store.provider, store.geminiModel),
+          model_id: getEffectiveModelId(store.provider, store.geminiModel, store.hfModel),
           image_type: 'main',
         }),
       })
@@ -202,7 +206,7 @@ export function MainImageSection({
           prompt: prompt.prompt,
           provider: store.provider,
           orientation: store.orientation,
-          model_id: getEffectiveModelId(store.provider, store.geminiModel),
+          model_id: getEffectiveModelId(store.provider, store.geminiModel, store.hfModel),
           listing_id: listingId || undefined,
         }),
       })
@@ -273,7 +277,7 @@ export function MainImageSection({
           prompt: combined,
           provider: store.provider,
           orientation: store.orientation,
-          model_id: getEffectiveModelId(store.provider, store.geminiModel),
+          model_id: getEffectiveModelId(store.provider, store.geminiModel, store.hfModel),
           listing_id: listingId || undefined,
         }),
       })
@@ -374,9 +378,11 @@ export function MainImageSection({
           provider={store.provider}
           orientation={store.orientation}
           geminiModel={store.geminiModel}
+          hfModel={store.hfModel}
           onProviderChange={handleProviderChange}
           onOrientationChange={handleOrientationChange}
           onGeminiModelChange={handleGeminiModelChange}
+          onHfModelChange={handleHfModelChange}
           imageCount={selectedCount}
           costLabel="Estimated Cost"
         />

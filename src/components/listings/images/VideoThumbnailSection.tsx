@@ -40,6 +40,7 @@ export function VideoThumbnailSection({
   const [provider, setProvider] = useState<'openai' | 'gemini' | 'higgsfield'>('gemini')
   const [orientation, setOrientation] = useState<'square' | 'portrait' | 'landscape'>('landscape')
   const [geminiModel, setGeminiModel] = useState<string | null>(null)
+  const [hfModel, setHfModel] = useState<string | null>(null)
 
   // Find existing video thumbnail workshop
   const existingWorkshop = workshops.find((w) => w.image_type === 'video_thumbnail')
@@ -130,7 +131,7 @@ export function VideoThumbnailSection({
           prompts: [{ prompt: concept.prompt, label: concept.title, position: concept.position }],
           provider,
           orientation,
-          model_id: getEffectiveModelId(provider, geminiModel),
+          model_id: getEffectiveModelId(provider, geminiModel, hfModel),
           image_type: 'video_thumbnail',
         }),
       })
@@ -182,7 +183,7 @@ export function VideoThumbnailSection({
           })),
           provider,
           orientation,
-          model_id: getEffectiveModelId(provider, geminiModel),
+          model_id: getEffectiveModelId(provider, geminiModel, hfModel),
           image_type: 'video_thumbnail',
         }),
       })
@@ -228,6 +229,10 @@ export function VideoThumbnailSection({
 
   const handleGeminiModelChange = (model: string | null) => {
     setGeminiModel(model)
+  }
+
+  const handleHfModelChange = (model: string | null) => {
+    setHfModel(model)
   }
 
   const generatedCount = Object.keys(conceptImages).length
@@ -285,9 +290,11 @@ export function VideoThumbnailSection({
         provider={provider}
         orientation={orientation}
         geminiModel={geminiModel}
+        hfModel={hfModel}
         onProviderChange={handleProviderChange}
         onOrientationChange={handleOrientationChange}
         onGeminiModelChange={handleGeminiModelChange}
+        onHfModelChange={handleHfModelChange}
       />
 
       {/* Concept Cards */}

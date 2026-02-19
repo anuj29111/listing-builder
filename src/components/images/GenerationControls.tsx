@@ -79,7 +79,7 @@ export function GenerationControls({ onGenerated }: GenerationControlsProps) {
     ? '~3c'
     : provider === 'gemini'
       ? (geminiModel === 'gemini-2.5-flash-image' ? '~2c' : '~4c')
-      : 'TBD'
+      : 'Free'
 
   const handleGenerate = async () => {
     if (!prompt || prompt.trim().length < 5) {
@@ -100,7 +100,7 @@ export function GenerationControls({ onGenerated }: GenerationControlsProps) {
       if (provider === 'gemini') {
         body.model_id = geminiModel || enabledModels[0]?.id || 'gemini-3-pro-image-preview'
       } else if (provider === 'higgsfield') {
-        body.model_id = higgsFieldModel || enabledModels[0]?.id || 'higgsfield-ai/soul/standard'
+        body.model_id = higgsFieldModel || enabledModels[0]?.id || 'nano-banana-pro'
       }
 
       const res = await fetch('/api/images/generate', {

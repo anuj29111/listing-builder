@@ -36,18 +36,6 @@ const API_KEY_SLOTS = [
     placeholder: 'AIza...',
   },
   {
-    key: 'higgsfield_api_key',
-    label: 'Higgsfield API Key',
-    description: 'Used for Higgsfield AI image generation',
-    placeholder: 'hf-...',
-  },
-  {
-    key: 'higgsfield_api_secret',
-    label: 'Higgsfield API Secret',
-    description: 'Paired with Higgsfield API Key above',
-    placeholder: 'Secret key',
-  },
-  {
     key: 'oxylabs_username',
     label: 'Oxylabs Username',
     description: 'Used for ASIN product data lookups via Oxylabs E-Commerce Scraper',

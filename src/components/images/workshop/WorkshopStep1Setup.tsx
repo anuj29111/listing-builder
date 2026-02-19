@@ -88,6 +88,7 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
   const currentProviderInfo = providers.find((p) => p.id === store.provider)
   const enabledModels = currentProviderInfo?.models.filter((m) => m.enabled) || []
   const showGeminiModelSelector = store.provider === 'gemini' && enabledModels.length > 1
+  const showHiggsModelSelector = store.provider === 'higgsfield' && enabledModels.length > 1
 
   // Step 1a: Generate AI Prompts
   const handleGeneratePrompts = async () => {
@@ -146,7 +147,9 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
           orientation: store.orientation,
           model_id: store.provider === 'gemini'
             ? (store.geminiModel || enabledModels[0]?.id || 'gemini-3-pro-image-preview')
-            : undefined,
+            : store.provider === 'higgsfield'
+              ? (store.hfModel || enabledModels[0]?.id || 'nano-banana-pro')
+              : undefined,
         }),
       })
 
@@ -313,6 +316,7 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
                 onValueChange={(v) => {
                   store.setProvider(v as 'openai' | 'gemini' | 'higgsfield')
                   if (v !== 'gemini') store.setGeminiModel(null)
+                  if (v !== 'higgsfield') store.setHfModel(null)
                 }}
               >
                 <SelectTrigger className="h-9">
@@ -331,6 +335,24 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
                 <Select
                   value={store.geminiModel || enabledModels[0]?.id || ''}
                   onValueChange={(v) => store.setGeminiModel(v)}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {enabledModels.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {showHiggsModelSelector && (
+              <div className="flex-1 min-w-[140px]">
+                <Label className="text-xs">Model</Label>
+                <Select
+                  value={store.hfModel || enabledModels[0]?.id || ''}
+                  onValueChange={(v) => store.setHfModel(v)}
                 >
                   <SelectTrigger className="h-9">
                     <SelectValue />

@@ -41,6 +41,7 @@ export function SecondaryImageSection({
   const [provider, setProvider] = useState<'openai' | 'gemini' | 'higgsfield'>('gemini')
   const [orientation, setOrientation] = useState<'square' | 'portrait' | 'landscape'>('square')
   const [geminiModel, setGeminiModel] = useState<string | null>(null)
+  const [hfModel, setHfModel] = useState<string | null>(null)
 
   // Find existing secondary workshop
   const existingWorkshop = workshops.find((w) => w.image_type === 'secondary')
@@ -132,7 +133,7 @@ export function SecondaryImageSection({
           prompts: [{ prompt: concept.prompt, label: concept.title, position: concept.position }],
           provider,
           orientation,
-          model_id: getEffectiveModelId(provider, geminiModel),
+          model_id: getEffectiveModelId(provider, geminiModel, hfModel),
           image_type: 'secondary',
         }),
       })
@@ -184,7 +185,7 @@ export function SecondaryImageSection({
           })),
           provider,
           orientation,
-          model_id: getEffectiveModelId(provider, geminiModel),
+          model_id: getEffectiveModelId(provider, geminiModel, hfModel),
           image_type: 'secondary',
         }),
       })
@@ -230,6 +231,10 @@ export function SecondaryImageSection({
 
   const handleGeminiModelChange = (model: string | null) => {
     setGeminiModel(model)
+  }
+
+  const handleHfModelChange = (model: string | null) => {
+    setHfModel(model)
   }
 
   const generatedCount = Object.keys(conceptImages).length
@@ -294,9 +299,11 @@ export function SecondaryImageSection({
         provider={provider}
         orientation={orientation}
         geminiModel={geminiModel}
+        hfModel={hfModel}
         onProviderChange={handleProviderChange}
         onOrientationChange={handleOrientationChange}
         onGeminiModelChange={handleGeminiModelChange}
+        onHfModelChange={handleHfModelChange}
       />
 
       {/* Concept Cards */}

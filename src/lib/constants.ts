@@ -30,9 +30,10 @@ export const GEMINI_MODELS = [
 ] as const
 
 export const HIGGSFIELD_MODELS = [
-  { id: 'higgsfield-ai/soul/standard', label: 'Soul Standard' },
-  { id: 'reve/text-to-image', label: 'Reve' },
-  { id: 'bytedance/seedream/v4/text-to-image', label: 'SeedReam v4' },
+  { id: 'nano-banana-pro', label: 'Nano Banana Pro' },
+  { id: 'chatgpt', label: 'ChatGPT (OpenAI Hazel)' },
+  { id: 'seedream', label: 'SeedReam v4.5' },
+  { id: 'soul', label: 'Soul' },
 ] as const
 
 export const IMAGE_PROVIDER_LABELS: Record<string, string> = {

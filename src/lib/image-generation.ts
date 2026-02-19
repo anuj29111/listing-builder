@@ -79,9 +79,9 @@ export async function generateAndStoreImage(
     costCents = modelId === 'gemini-3-pro-image-preview' ? 4 : 2
   } else {
     // Higgsfield: queue-based flow via hf_prompt_queue
-    // Instead of calling the API directly, we insert into the queue.
-    // The Python push_prompts.py script submits to Higgsfield's internal API.
-    const hfModel = params.hfModel || 'nano-banana-pro'
+    // Inserts into queue → Supabase Edge Function auto-submits to Higgsfield's internal API.
+    // modelId comes from the provider bar (e.g. 'nano-banana-pro', 'seedream', etc.)
+    const hfModel = (params.modelId as HfModel) || params.hfModel || 'nano-banana-pro'
     const hfAspectRatio = params.hfAspectRatio || '1:1'
     const hfResolution = params.hfResolution || '2k'
 

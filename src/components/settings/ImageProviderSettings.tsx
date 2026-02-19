@@ -24,7 +24,7 @@ const DEFAULT_CONFIG: VisibilityConfig = {
   ),
   higgsfield: false,
   higgsfield_models: Object.fromEntries(
-    HIGGSFIELD_MODELS.map((m) => [m.id, m.id === 'higgsfield-ai/soul/standard'])
+    HIGGSFIELD_MODELS.map((m) => [m.id, m.id === 'nano-banana-pro'])
   ),
 }
 
@@ -209,7 +209,7 @@ export function ImageProviderSettings() {
             <div>
               <Label className="text-sm font-medium">Higgsfield AI</Label>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Multiple models · Cost TBD · REST API
+                4 models · Free (Creator plan) · Queue-based
               </p>
             </div>
             <Switch

@@ -46,6 +46,7 @@ export function SwatchImageSection({
   const [provider, setProvider] = useState<'openai' | 'gemini' | 'higgsfield'>('gemini')
   const [orientation, setOrientation] = useState<'square' | 'portrait' | 'landscape'>('square')
   const [geminiModel, setGeminiModel] = useState<string | null>(null)
+  const [hfModel, setHfModel] = useState<string | null>(null)
 
   // Variant input state
   const [variants, setVariants] = useState<SwatchVariant[]>([{ ...EMPTY_VARIANT }])
@@ -166,7 +167,7 @@ export function SwatchImageSection({
           prompts: [{ prompt: concept.prompt, label: concept.variant_name, position: concept.position }],
           provider,
           orientation,
-          model_id: getEffectiveModelId(provider, geminiModel),
+          model_id: getEffectiveModelId(provider, geminiModel, hfModel),
           image_type: 'swatch',
         }),
       })
@@ -217,7 +218,7 @@ export function SwatchImageSection({
           })),
           provider,
           orientation,
-          model_id: getEffectiveModelId(provider, geminiModel),
+          model_id: getEffectiveModelId(provider, geminiModel, hfModel),
           image_type: 'swatch',
         }),
       })
@@ -273,6 +274,10 @@ export function SwatchImageSection({
 
   const handleGeminiModelChange = (model: string | null) => {
     setGeminiModel(model)
+  }
+
+  const handleHfModelChange = (model: string | null) => {
+    setHfModel(model)
   }
 
   const generatedCount = Object.keys(conceptImages).length
@@ -433,9 +438,11 @@ export function SwatchImageSection({
         provider={provider}
         orientation={orientation}
         geminiModel={geminiModel}
+        hfModel={hfModel}
         onProviderChange={handleProviderChange}
         onOrientationChange={handleOrientationChange}
         onGeminiModelChange={handleGeminiModelChange}
+        onHfModelChange={handleHfModelChange}
       />
 
       {/* Concept Cards */}

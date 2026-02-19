@@ -16,9 +16,11 @@ interface ProviderModelBarProps {
   provider: string
   orientation: string
   geminiModel: string | null
+  hfModel: string | null
   onProviderChange: (provider: string) => void
   onOrientationChange: (orientation: string) => void
   onGeminiModelChange: (model: string | null) => void
+  onHfModelChange: (model: string | null) => void
   /** Number of selected/remaining images for cost calculation */
   imageCount?: number
   /** Label for cost display, e.g. "Estimated Cost" or "Cost per Image" */
@@ -30,16 +32,18 @@ function getCostPerImage(provider: string, geminiModel: string | null): number {
   if (provider === 'gemini') {
     return geminiModel === 'gemini-2.5-flash-image' ? 2 : 4
   }
-  return 0 // higgsfield TBD
+  return 0 // higgsfield uses Creator plan credits (free)
 }
 
 export function ProviderModelBar({
   provider,
   orientation,
   geminiModel,
+  hfModel,
   onProviderChange,
   onOrientationChange,
   onGeminiModelChange,
+  onHfModelChange,
   imageCount,
   costLabel = 'Cost per Image',
 }: ProviderModelBarProps) {
@@ -68,13 +72,16 @@ export function ProviderModelBar({
   const showGeminiModelSelector = provider === 'gemini' && enabledModels.length > 1
   const showHiggsModelSelector = provider === 'higgsfield' && enabledModels.length > 1
 
-  // Auto-select first enabled model when switching to gemini with no model set
+  // Auto-select first enabled model when switching providers
   const handleProviderChange = useCallback((newProvider: string) => {
     onProviderChange(newProvider)
     if (newProvider !== 'gemini') {
       onGeminiModelChange(null)
     }
-  }, [onProviderChange, onGeminiModelChange])
+    if (newProvider !== 'higgsfield') {
+      onHfModelChange(null)
+    }
+  }, [onProviderChange, onGeminiModelChange, onHfModelChange])
 
   const costPerImage = getCostPerImage(provider, geminiModel)
   const totalCost = imageCount != null ? imageCount * costPerImage : costPerImage
@@ -131,8 +138,8 @@ export function ProviderModelBar({
         <div className="flex-1 min-w-[140px]">
           <Label className="text-xs">Model</Label>
           <Select
-            value={enabledModels[0]?.id || ''}
-            onValueChange={() => {}}
+            value={hfModel || enabledModels[0]?.id || ''}
+            onValueChange={(v) => onHfModelChange(v)}
           >
             <SelectTrigger className="h-9">
               <SelectValue />
@@ -176,9 +183,13 @@ export function ProviderModelBar({
 export function getEffectiveModelId(
   provider: string,
   geminiModel: string | null,
+  hfModel?: string | null,
 ): string | undefined {
   if (provider === 'gemini') {
     return geminiModel || 'gemini-3-pro-image-preview'
+  }
+  if (provider === 'higgsfield') {
+    return hfModel || 'nano-banana-pro'
   }
   return undefined
 }
