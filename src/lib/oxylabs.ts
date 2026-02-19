@@ -185,6 +185,33 @@ export interface OxylabsSearchResponse {
   parse_status_code: number
 }
 
+// --- Amazon Reviews types ---
+
+export interface OxylabsReviewItem {
+  id: string
+  title: string
+  author: string
+  rating: number
+  content: string
+  timestamp: string
+  is_verified: boolean
+  helpful_count: number
+  product_attributes: string | null
+  images: string[]
+}
+
+export interface OxylabsReviewsResponse {
+  url: string
+  asin: string
+  page: number
+  pages: number
+  reviews_count: number
+  rating: number
+  rating_stars_distribution: Array<{ rating: number; percentage: string }>
+  reviews: OxylabsReviewItem[]
+  parse_status_code: number
+}
+
 // --- API functions ---
 
 export async function lookupAsin(
@@ -266,4 +293,49 @@ export async function searchKeyword(
   }
 
   return { success: true, data: content as OxylabsSearchResponse }
+}
+
+export async function fetchReviews(
+  asin: string,
+  domain: string,
+  startPage: number = 1,
+  pages: number = 1,
+  sortBy: string = 'recent'
+): Promise<{ success: boolean; data?: OxylabsReviewsResponse; error?: string }> {
+  const { username, password } = await getCredentials()
+
+  const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization:
+        'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
+    },
+    body: JSON.stringify({
+      source: 'amazon_reviews',
+      domain,
+      query: asin,
+      start_page: startPage,
+      pages,
+      parse: true,
+      context: [{ key: 'sort_by', value: sortBy }],
+    }),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    return {
+      success: false,
+      error: `Oxylabs API error (${response.status}): ${text}`,
+    }
+  }
+
+  const json = await response.json()
+
+  const content = json.results?.[0]?.content
+  if (!content) {
+    return { success: false, error: 'No reviews returned from Oxylabs' }
+  }
+
+  return { success: true, data: content as OxylabsReviewsResponse }
 }

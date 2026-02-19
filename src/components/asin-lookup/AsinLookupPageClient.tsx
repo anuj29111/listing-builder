@@ -1,23 +1,26 @@
 'use client'
 
 import { useState } from 'react'
-import { ScanSearch, Search } from 'lucide-react'
-import type { LbCountry, LbAsinLookup, LbKeywordSearch } from '@/types'
+import { ScanSearch, Search, MessageSquare } from 'lucide-react'
+import type { LbCountry, LbAsinLookup, LbKeywordSearch, LbAsinReview } from '@/types'
 import { AsinLookupClient } from './AsinLookupClient'
 import { KeywordSearchClient } from './KeywordSearchClient'
+import { ReviewsClient } from './ReviewsClient'
 
 interface AsinLookupPageClientProps {
   countries: LbCountry[]
   initialLookups: Partial<LbAsinLookup>[]
   initialSearches: Partial<LbKeywordSearch>[]
+  initialReviews: Partial<LbAsinReview>[]
 }
 
 export function AsinLookupPageClient({
   countries,
   initialLookups,
   initialSearches,
+  initialReviews,
 }: AsinLookupPageClientProps) {
-  const [activeTab, setActiveTab] = useState<'asin' | 'keyword'>('asin')
+  const [activeTab, setActiveTab] = useState<'asin' | 'keyword' | 'reviews'>('asin')
 
   return (
     <div className="space-y-6">
@@ -28,7 +31,7 @@ export function AsinLookupPageClient({
           Amazon Product Intelligence
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Fetch product data by ASIN or search Amazon by keyword via Oxylabs
+          Fetch product data, search keywords, or pull reviews via Oxylabs
         </p>
       </div>
 
@@ -56,13 +59,26 @@ export function AsinLookupPageClient({
           <Search className="h-4 w-4" />
           Keyword Search
         </button>
+        <button
+          onClick={() => setActiveTab('reviews')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'reviews'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <MessageSquare className="h-4 w-4" />
+          Reviews
+        </button>
       </div>
 
       {/* Tab Content */}
       {activeTab === 'asin' ? (
         <AsinLookupClient countries={countries} initialLookups={initialLookups} />
-      ) : (
+      ) : activeTab === 'keyword' ? (
         <KeywordSearchClient countries={countries} initialSearches={initialSearches} />
+      ) : (
+        <ReviewsClient countries={countries} initialReviews={initialReviews} />
       )}
     </div>
   )

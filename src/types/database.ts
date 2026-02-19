@@ -384,6 +384,34 @@ export interface LbKeywordSearch {
   updated_at: string
 }
 
+export interface LbAsinReview {
+  id: string
+  asin: string
+  country_id: string
+  marketplace_domain: string
+  total_reviews: number | null
+  overall_rating: number | null
+  rating_stars_distribution: Array<{ rating: number; percentage: string }> | null
+  total_pages_fetched: number
+  reviews: Array<{
+    id: string
+    title: string
+    author: string
+    rating: number
+    content: string
+    timestamp: string
+    is_verified: boolean
+    helpful_count: number
+    product_attributes: string | null
+    images: string[]
+  }>
+  raw_response: Record<string, unknown> | null
+  sort_by: string
+  fetched_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 // Higgsfield prompt queue (shared table with higgsfield-automator)
 export type HfModel = 'nano-banana-pro' | 'chatgpt' | 'seedream' | 'soul'
 

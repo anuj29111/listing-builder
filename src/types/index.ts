@@ -23,6 +23,7 @@ export type {
   LbProduct,
   LbAsinLookup,
   LbKeywordSearch,
+  LbAsinReview,
 } from './database'
 
 export type {

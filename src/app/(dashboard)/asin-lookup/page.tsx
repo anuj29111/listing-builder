@@ -9,7 +9,7 @@ export default async function AsinLookupPage() {
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const [countriesResult, lookupsResult, searchesResult] = await Promise.all([
+  const [countriesResult, lookupsResult, searchesResult, reviewsResult] = await Promise.all([
     supabase
       .from('lb_countries')
       .select('id, name, code, language, amazon_domain, flag_emoji, currency, title_limit, bullet_limit, bullet_count, description_limit, search_terms_limit, is_active, created_at')
@@ -29,6 +29,13 @@ export default async function AsinLookupPage() {
       )
       .order('updated_at', { ascending: false })
       .limit(50),
+    supabase
+      .from('lb_asin_reviews')
+      .select(
+        'id, asin, country_id, marketplace_domain, total_reviews, overall_rating, total_pages_fetched, sort_by, created_at, updated_at'
+      )
+      .order('updated_at', { ascending: false })
+      .limit(50),
   ])
 
   return (
@@ -36,6 +43,7 @@ export default async function AsinLookupPage() {
       countries={countriesResult.data || []}
       initialLookups={lookupsResult.data || []}
       initialSearches={searchesResult.data || []}
+      initialReviews={reviewsResult.data || []}
     />
   )
 }

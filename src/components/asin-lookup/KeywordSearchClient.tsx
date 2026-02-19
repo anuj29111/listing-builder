@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Loader2, Search, Star, TrendingUp, Crown, Clock, RefreshCw, ExternalLink, Megaphone } from 'lucide-react'
+import { Loader2, Search, Star, TrendingUp, Crown, Clock, RefreshCw, ExternalLink, Megaphone, ChevronDown, ChevronUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCountry, LbKeywordSearch } from '@/types'
 import type { OxylabsSearchResultItem } from '@/lib/oxylabs'
@@ -28,6 +28,13 @@ interface SearchResultsData {
   organic: OxylabsSearchResultItem[]
   sponsored: OxylabsSearchResultItem[]
   amazons_choices: OxylabsSearchResultItem[]
+}
+
+function toAbsoluteAmazonUrl(url: string, marketplace: string): string {
+  if (!url) return ''
+  if (url.startsWith('http')) return url
+  const domain = marketplace || 'amazon.com'
+  return `https://www.${domain}${url.startsWith('/') ? '' : '/'}${url}`
 }
 
 export function KeywordSearchClient({
@@ -391,7 +398,7 @@ export function KeywordSearchClient({
                     {/* Link */}
                     {item.url && (
                       <a
-                        href={item.url}
+                        href={toAbsoluteAmazonUrl(item.url, results?.marketplace || '')}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-600 hover:text-blue-800"
@@ -468,7 +475,11 @@ export function KeywordSearchClient({
                     <span className="text-xs text-muted-foreground">
                       {formatTimeAgo(s.updated_at || s.created_at || '')}
                     </span>
-                    {isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                    {isLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                    )}
                   </div>
                 </div>
               )
