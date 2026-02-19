@@ -117,11 +117,13 @@ npm run lint         # ESLint
 24. **Phased generation (cascading keyword waterfall)** — Listing generation uses 4 sequential API calls: Title (16384 tokens) → Bullets (32768) → Description+SearchTerms (16384) → Backend (8192). Each phase sees full research data + confirmed output from prior phases + keyword coverage tracker. API route: `/api/listings/generate` with `phase` parameter. Batch route auto-cascades all 4 phases. Never limit token budgets — full data in every phase.
 25. **Competitor analysis** — Stored as `analysis_type='competitor_analysis'` in `lb_research_analysis`. Max 5 competitors, 5000 chars each. Uses dedicated API route `/api/research/analyze/competitors`.
 26. **Admin settings keys are lowercase** — `lb_admin_settings.key` is case-sensitive. Always use lowercase: `anthropic_api_key`, `openai_api_key`, `google_ai_api_key`, `higgsfield_api_key`, `higgsfield_api_secret`. UI now has pre-filled slots.
-27. **Image providers renamed** — Provider IDs: `openai` (GPT Image 1.5), `gemini` (Flash + Nano Banana Pro), `higgsfield`. Old `dalle3` ID removed. Providers route has legacy `dalle3` config compat. Gemini supports sub-model selection via `modelId`.
+27. **Image providers renamed** — Provider IDs: `openai` (GPT Image 1.5), `gemini` (Flash + Nano Banana Pro), `higgsfield` (queue-based). Old `dalle3` ID removed. Providers route has legacy `dalle3` config compat. Gemini supports sub-model selection via `modelId`.
+33. **Higgsfield queue-based flow** — Higgsfield provider inserts into `hf_prompt_queue` (status: pending) instead of calling API directly. Python `push_prompts.py` script submits to `fnf.higgsfield.ai`. HfQueuePanel component in Image Builder shows queue status with filters, retry/skip/delete. Auto-refreshes every 15s.
 28. **Image builder 5 tabs** — Listing detail + standalone `/images` both show: Content, Main, Secondary, Video Thumbnails, Swatches. Tab bar has `overflow-x-auto` for mobile.
 29. **Image Builder drafts panel** — `/images` page shows saved workshops as clickable draft cards. Clicking resumes the draft by setting context + active tab.
 30. **SP Prompts xlsx parsing** — `sp_prompts` file type accepts xlsx/csv. xlsx is parsed server-side (dynamic `import('xlsx')`) → converted to clean CSV before Supabase storage. Wired into Q&A analysis pipeline with niche-filtering (Claude filters prompts by category).
 31. **Product Mapper** — `lb_products` table (ASIN unique key). `/products` page with search, category filter, CRUD, xlsx/csv import. Import upserts on ASIN in batches of 100.
+32. **Railway worktrees** — `railway up` uploads ALL worktrees. If any worktree has stale code with build errors, deploy fails. Always `git merge main --ff-only` in all worktrees before deploying.
 
 ---
 
@@ -145,16 +147,15 @@ npm run lint         # ESLint
 
 ## Pending Tasks
 
+- **Image Builder — Sub-model visibility in UI:**
+  1. All image dropdowns (listing detail tabs, standalone `/images`, workshop) should show which sub-model is active (e.g. "Gemini — Nano Banana Pro" not just "Google Gemini")
+  2. Add sub-model selector wherever provider dropdown exists (not just GenerationControls/Workshop)
+  3. Audit all image entry points for consistent model display and selection
 - **Phased Generation e2e Testing:**
   1. New listing wizard — verify 4-phase flow: Generate Titles → confirm → Generate Bullets → confirm → Description → Backend
   2. Keyword coverage panel — verify score climbs across phases (30% → 60% → 85% → 95%+)
   3. SectionCard in wizard — "Use" buttons copy to final text, confirm buttons advance phases
   4. Re-generation — regenerate a phase, verify downstream phases reset
-- **Session 15 Enhancement Testing:**
-  1. Test Competitor Analysis — Research page → paste competitors → analyze → verify saved
-  2. Test Optimize Existing mode — wizard toggle → paste listing → verify optimized variations
-  3. Test Q&A Verification — listing detail → "Verify Q&A Coverage" → coverage matrix
-  4. Test Image Stack Recommendations — secondary images tab → "Get Recommendations"
 - **Image Builder e2e Testing:**
   1. Test all 4 image flows: main, secondary, video thumbnails, swatch
   2. Test drafts panel: generate → navigate away → return → click draft → verify resume
