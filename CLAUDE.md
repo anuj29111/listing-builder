@@ -126,15 +126,17 @@ npm run lint         # ESLint
 32. **Railway worktrees** — `railway up` uploads ALL worktrees. If any worktree has stale code with build errors, deploy fails. Always `git merge main --ff-only` in all worktrees before deploying.
 34. **`.railwayignore`** — Created to exclude worktrees/non-code dirs from `railway up` uploads. Without it, upload times out.
 35. **ASIN Lookup via Oxylabs** — `/asin-lookup` page uses Oxylabs E-Commerce Scraper API (`realtime.oxylabs.io/v1/queries`). Credentials stored as `oxylabs_username`/`oxylabs_password` in `lb_admin_settings`. `source: "amazon_product"`, `domain` derived from `lb_countries.amazon_domain` by stripping `amazon.` prefix. Free tier: 2,000 results. Paid: $0.50/1K.
-36. **`lb_asin_lookups` table** — Stores fetched ASIN data. UNIQUE on `(asin, country_id)` — re-lookups upsert. `raw_response` JSONB preserves full Oxylabs payload. Extracted fields: title, brand, price, currency, rating, reviews_count, bullet_points, description, images, sales_rank, category, featured_merchant, variations, is_prime_eligible, stock.
+36. **`lb_asin_lookups` table** — Stores fetched ASIN data. UNIQUE on `(asin, country_id)` — re-lookups upsert. `raw_response` JSONB preserves full Oxylabs payload. Extracted fields: title, brand, price (+ price_upper, price_sns, price_initial, price_shipping), currency, rating, reviews_count, bullet_points, description, images, sales_rank, category, featured_merchant, variations, is_prime_eligible, stock, deal_type, coupon, coupon_discount_percentage, discount_percentage, amazon_choice, parent_asin, answered_questions_count, has_videos, sales_volume, max_quantity, pricing_count, product_dimensions, product_details, product_overview, delivery, buybox, lightning_deal, rating_stars_distribution, sns_discounts, top_reviews.
+37. **`lb_keyword_searches` table** — Caches Amazon keyword search results via Oxylabs `amazon_search` source. UNIQUE on `(keyword, country_id)`. Stores organic_results, sponsored_results, amazons_choices, suggested_results as JSONB arrays. Each result item has: asin, title, price, rating, reviews_count, pos, url_image, is_prime, is_amazons_choice, best_seller, manufacturer, sales_volume.
+38. **ASIN Lookup page is tabbed** — `/asin-lookup` has two tabs: "ASIN Lookup" (by ASIN) and "Keyword Search" (by keyword). `AsinLookupPageClient` wraps both `AsinLookupClient` and `KeywordSearchClient`.
 
 ---
 
 ## Database
 
-19 tables prefixed `lb_`. Full DDL in `docs/SCHEMA.md`.
+20 tables prefixed `lb_`. Full DDL in `docs/SCHEMA.md`.
 
-**Key tables:** `lb_users`, `lb_categories`, `lb_countries`, `lb_research_files`, `lb_research_analysis`, `lb_product_types`, `lb_products`, `lb_listings`, `lb_listing_sections`, `lb_listing_chats`, `lb_image_generations`, `lb_image_chats`, `lb_image_workshops`, `lb_batch_jobs`, `lb_admin_settings`, `lb_sync_logs`, `lb_export_logs`, `lb_aplus_modules`, `lb_asin_lookups`
+**Key tables:** `lb_users`, `lb_categories`, `lb_countries`, `lb_research_files`, `lb_research_analysis`, `lb_product_types`, `lb_products`, `lb_listings`, `lb_listing_sections`, `lb_listing_chats`, `lb_image_generations`, `lb_image_chats`, `lb_image_workshops`, `lb_batch_jobs`, `lb_admin_settings`, `lb_sync_logs`, `lb_export_logs`, `lb_aplus_modules`, `lb_asin_lookups`, `lb_keyword_searches`
 
 **RLS pattern:** All authenticated users can CRUD (except `lb_admin_settings` = admin only). All policies use `(SELECT auth.uid())` wrapper.
 
@@ -163,7 +165,8 @@ npm run lint         # ESLint
   1. Test all 4 image flows: main, secondary, video thumbnails, swatch
   2. Test drafts panel: generate → navigate away → return → click draft → verify resume
   3. Verify DB persistence across navigation
-- **ASIN Lookup — Expand data & add keyword search:**
-  1. Audit what else Oxylabs returns (A+ content, coupons, buybox info, etc.) and extract more fields
-  2. Add keyword search support — enter keyword → get search results (top ASINs, search volume, etc.)
-  3. Oxylabs `amazon_search` source: `source: "amazon_search"`, `query: "keyword"`, `domain`, `parse: true`
+- **ASIN Lookup / Keyword Search e2e Testing:**
+  1. Test ASIN lookup with real ASIN — verify all 20+ expanded fields display correctly
+  2. Test keyword search — verify organic/sponsored/Amazon's Choice tabs work
+  3. Verify history panels for both tabs
+  4. Test re-searching same keyword/ASIN — verify upsert (not duplicate)
