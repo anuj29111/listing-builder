@@ -215,17 +215,19 @@ export function ReviewsClient({
             </Select>
           </div>
           <div>
-            <label className="text-sm font-medium mb-1.5 block">Pages</label>
+            <label className="text-sm font-medium mb-1.5 block">Reviews</label>
             <Select value={String(pages)} onValueChange={(v) => setPages(Number(v))}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {[5, 10, 20, 30, 50].map((p) => (
-                  <SelectItem key={p} value={String(p)}>
-                    ~{p * 10} reviews
-                  </SelectItem>
-                ))}
+                <SelectItem value="5">~50</SelectItem>
+                <SelectItem value="10">~100</SelectItem>
+                <SelectItem value="25">~250</SelectItem>
+                <SelectItem value="50">~500</SelectItem>
+                <SelectItem value="100">~1,000</SelectItem>
+                <SelectItem value="300">~3,000</SelectItem>
+                <SelectItem value="0">All</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -257,7 +259,8 @@ export function ReviewsClient({
         {asin.trim() && selectedCountry && (
           <p className="text-xs text-muted-foreground mt-2">
             Fetching reviews for {asin.trim().toUpperCase()} on{' '}
-            {selectedCountry.amazon_domain} ({pages * 10} reviews max, sorted by {sortBy})
+            {selectedCountry.amazon_domain} ({pages === 0 ? 'all reviews' : `~${pages * 10} reviews max`}, sorted by {sortBy})
+            {pages >= 100 && <span className="ml-1 text-amber-600 dark:text-amber-400">— large fetch, may take a while</span>}
           </p>
         )}
       </div>

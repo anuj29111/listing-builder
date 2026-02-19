@@ -44,7 +44,9 @@ export async function POST(request: Request) {
     }
 
     const oxylabsDomain = country.amazon_domain.replace('amazon.', '')
-    const pagesToFetch = Math.min(pages || 10, 50)
+    // pages=0 means "all", otherwise use requested count (default 10)
+    const fetchAll = pages === 0
+    const pagesToFetch = fetchAll ? 9999 : (pages || 10)
     const sortBy = sort_by || 'recent'
 
     // Strategy: Try amazon_reviews source first (full pagination)
@@ -75,10 +77,12 @@ export async function POST(request: Request) {
       }
 
       // Fetch remaining pages if needed
-      if (pagesToFetch > 1 && data.reviews && data.reviews.length > 0) {
+      // For "all" mode, cap at totalPagesAvailable from the first response
+      const maxPages = fetchAll ? (totalPagesAvailable || pagesToFetch) : pagesToFetch
+      if (maxPages > 1 && data.reviews && data.reviews.length > 0) {
         const batchSize = 10
         let currentPage = 2
-        let pagesRemaining = pagesToFetch - 1
+        let pagesRemaining = maxPages - 1
 
         while (pagesRemaining > 0) {
           const batchPages = Math.min(pagesRemaining, batchSize)
