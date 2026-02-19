@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Loader2, Search, Star, TrendingUp, Clock, RefreshCw } from 'lucide-react'
+import { Loader2, Search, Star, TrendingUp, Clock, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCountry, LbAsinLookup } from '@/types'
 import type { OxylabsProductResult } from '@/lib/oxylabs'
@@ -44,6 +44,9 @@ export function AsinLookupClient({
   const [lookups, setLookups] = useState<Partial<LbAsinLookup>[]>(initialLookups)
   const [historySearch, setHistorySearch] = useState('')
   const [historyCountry, setHistoryCountry] = useState<string>('')
+  const [expandedLookupId, setExpandedLookupId] = useState<string | null>(null)
+  const [expandedLookupData, setExpandedLookupData] = useState<Record<string, unknown> | null>(null)
+  const [loadingLookupId, setLoadingLookupId] = useState<string | null>(null)
 
   const selectedCountry = countries.find((c) => c.id === countryId)
 
@@ -121,6 +124,32 @@ export function AsinLookupClient({
 
   const handleHistorySearch = () => {
     refreshHistory()
+  }
+
+  const toggleHistoryItem = async (lookupId: string) => {
+    if (expandedLookupId === lookupId) {
+      // Collapse
+      setExpandedLookupId(null)
+      setExpandedLookupData(null)
+      return
+    }
+
+    // Expand — fetch full record with raw_response
+    setExpandedLookupId(lookupId)
+    setExpandedLookupData(null)
+    setLoadingLookupId(lookupId)
+
+    try {
+      const res = await fetch(`/api/asin-lookup/${lookupId}`)
+      const json = await res.json()
+      if (res.ok && json.data) {
+        setExpandedLookupData(json.data.raw_response || json.data)
+      }
+    } catch {
+      // silent
+    } finally {
+      setLoadingLookupId(null)
+    }
   }
 
   return (
@@ -274,57 +303,91 @@ export function AsinLookupClient({
               const bsr = (
                 lookup.sales_rank as Array<{ rank: number }> | undefined
               )?.[0]
+              const isExpanded = expandedLookupId === lookup.id
+              const isLoading = loadingLookupId === lookup.id
 
               return (
-                <div
-                  key={lookup.id}
-                  className="p-3 flex items-center gap-3 hover:bg-muted/50 transition-colors"
-                >
-                  {firstImage && (
-                    <div className="w-10 h-10 flex-shrink-0 rounded overflow-hidden bg-muted">
-                      <img
-                        src={firstImage}
-                        alt=""
-                        className="w-full h-full object-contain"
-                      />
+                <div key={lookup.id}>
+                  {/* Clickable row */}
+                  <div
+                    className="p-3 flex items-center gap-3 hover:bg-muted/50 transition-colors cursor-pointer"
+                    onClick={() => lookup.id && toggleHistoryItem(lookup.id)}
+                  >
+                    {firstImage && (
+                      <div className="w-10 h-10 flex-shrink-0 rounded overflow-hidden bg-muted">
+                        <img
+                          src={firstImage}
+                          alt=""
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">
+                        {lookup.title || lookup.asin}
+                      </p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="font-mono">{lookup.asin}</span>
+                        <span>{lookup.marketplace_domain}</span>
+                        {lookup.brand && (
+                          <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                            {lookup.brand}
+                          </Badge>
+                        )}
+                        {lookup.amazon_choice && (
+                          <Badge className="text-[10px] px-1 py-0 bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300">
+                            Choice
+                          </Badge>
+                        )}
+                      </div>
                     </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">
-                      {lookup.title || lookup.asin}
-                    </p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span className="font-mono">{lookup.asin}</span>
-                      <span>{lookup.marketplace_domain}</span>
-                      {lookup.brand && (
-                        <Badge variant="secondary" className="text-[10px] px-1 py-0">
-                          {lookup.brand}
-                        </Badge>
+                    <div className="flex items-center gap-3 flex-shrink-0 text-sm">
+                      {lookup.sales_volume && (
+                        <span className="text-[10px] text-green-600 dark:text-green-400 font-medium hidden sm:inline">
+                          {lookup.sales_volume}
+                        </span>
+                      )}
+                      {lookup.price != null && (
+                        <span className="font-medium">
+                          {lookup.currency || '$'}
+                          {Number(lookup.price).toFixed(2)}
+                        </span>
+                      )}
+                      {lookup.rating != null && (
+                        <span className="flex items-center gap-0.5 text-muted-foreground">
+                          <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                          {lookup.rating}
+                        </span>
+                      )}
+                      {bsr && (
+                        <span className="flex items-center gap-0.5 text-muted-foreground hidden sm:flex">
+                          <TrendingUp className="h-3 w-3" />#{bsr.rank?.toLocaleString()}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground hidden sm:inline">
+                        {formatTimeAgo(lookup.updated_at || lookup.created_at || '')}
+                      </span>
+                      {isLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                      ) : isExpanded ? (
+                        <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 flex-shrink-0 text-sm">
-                    {lookup.price != null && (
-                      <span className="font-medium">
-                        {lookup.currency || '$'}
-                        {Number(lookup.price).toFixed(2)}
-                      </span>
-                    )}
-                    {lookup.rating != null && (
-                      <span className="flex items-center gap-0.5 text-muted-foreground">
-                        <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                        {lookup.rating}
-                      </span>
-                    )}
-                    {bsr && (
-                      <span className="flex items-center gap-0.5 text-muted-foreground">
-                        <TrendingUp className="h-3 w-3" />#{bsr.rank?.toLocaleString()}
-                      </span>
-                    )}
-                    <span className="text-xs text-muted-foreground">
-                      {formatTimeAgo(lookup.updated_at || lookup.created_at || '')}
-                    </span>
-                  </div>
+
+                  {/* Expanded detail card */}
+                  {isExpanded && expandedLookupData && (
+                    <div className="border-t bg-muted/20 p-3">
+                      <AsinResultCard
+                        asin={lookup.asin || ''}
+                        data={expandedLookupData as OxylabsProductResult}
+                        marketplace={lookup.marketplace_domain || ''}
+                        defaultExpanded
+                      />
+                    </div>
+                  )}
                 </div>
               )
             })}

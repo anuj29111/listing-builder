@@ -25,6 +25,7 @@ interface AsinResultCardProps {
   data: OxylabsProductResult
   marketplace: string
   savedId?: string
+  defaultExpanded?: boolean
 }
 
 export function AsinResultCard({
@@ -32,8 +33,9 @@ export function AsinResultCard({
   data,
   marketplace,
   savedId,
+  defaultExpanded = false,
 }: AsinResultCardProps) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(defaultExpanded)
 
   const mainImage = data.images?.[0]
   const bsr = data.sales_rank?.[0]
