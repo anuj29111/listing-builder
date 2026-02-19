@@ -44,6 +44,7 @@ export function KeywordSearchClient({
   const [activeTab, setActiveTab] = useState<'organic' | 'sponsored' | 'amazons_choices'>('organic')
   const [searches, setSearches] = useState<Partial<LbKeywordSearch>[]>(initialSearches)
   const [historySearch, setHistorySearch] = useState('')
+  const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null)
 
   const selectedCountry = countries.find((c) => c.id === countryId)
 
@@ -69,6 +70,7 @@ export function KeywordSearchClient({
       }
 
       setResults(json as SearchResultsData)
+      setActiveTab('organic')
 
       const totalProducts =
         (json.organic?.length || 0) +
@@ -98,6 +100,38 @@ export function KeywordSearchClient({
       // silent
     }
   }, [historySearch])
+
+  const loadHistoryItem = async (searchId: string, searchKeyword: string, marketplace: string) => {
+    setLoadingHistoryId(searchId)
+
+    try {
+      const res = await fetch(`/api/keyword-search/${searchId}`)
+      const json = await res.json()
+
+      if (res.ok && json.data) {
+        const data = json.data as LbKeywordSearch
+        setResults({
+          keyword: data.keyword,
+          marketplace: marketplace,
+          total_results_count: data.total_results_count,
+          organic: (data.organic_results || []) as unknown as OxylabsSearchResultItem[],
+          sponsored: (data.sponsored_results || []) as unknown as OxylabsSearchResultItem[],
+          amazons_choices: (data.amazons_choices || []) as unknown as OxylabsSearchResultItem[],
+        })
+        setActiveTab('organic')
+        setKeyword(searchKeyword)
+
+        // Scroll to results
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      } else {
+        toast.error('Failed to load search results')
+      }
+    } catch {
+      toast.error('Failed to load search results')
+    } finally {
+      setLoadingHistoryId(null)
+    }
+  }
 
   const getActiveResults = (): OxylabsSearchResultItem[] => {
     if (!results) return []
@@ -405,33 +439,40 @@ export function KeywordSearchClient({
           </div>
         ) : (
           <div className="rounded-lg border bg-card divide-y">
-            {searches.map((s) => (
-              <div
-                key={s.id}
-                className="p-3 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer"
-                onClick={() => {
-                  setKeyword(s.keyword || '')
-                  if (s.country_id) setCountryId(s.country_id)
-                }}
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">&ldquo;{s.keyword}&rdquo;</p>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                    <span>{s.marketplace_domain}</span>
-                    {s.total_results_count != null && (
-                      <span className="flex items-center gap-0.5">
-                        <TrendingUp className="h-3 w-3" />
-                        {s.total_results_count.toLocaleString()} results
-                      </span>
-                    )}
-                    <span>{s.pages_fetched} page{(s.pages_fetched || 1) > 1 ? 's' : ''}</span>
+            {searches.map((s) => {
+              const isLoading = loadingHistoryId === s.id
+              return (
+                <div
+                  key={s.id}
+                  className="p-3 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer"
+                  onClick={() => {
+                    if (s.id && !isLoading) {
+                      loadHistoryItem(s.id, s.keyword || '', s.marketplace_domain || '')
+                    }
+                  }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">&ldquo;{s.keyword}&rdquo;</p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                      <span>{s.marketplace_domain}</span>
+                      {s.total_results_count != null && (
+                        <span className="flex items-center gap-0.5">
+                          <TrendingUp className="h-3 w-3" />
+                          {s.total_results_count.toLocaleString()} results
+                        </span>
+                      )}
+                      <span>{s.pages_fetched} page{(s.pages_fetched || 1) > 1 ? 's' : ''}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-xs text-muted-foreground">
+                      {formatTimeAgo(s.updated_at || s.created_at || '')}
+                    </span>
+                    {isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                   </div>
                 </div>
-                <span className="text-xs text-muted-foreground flex-shrink-0">
-                  {formatTimeAgo(s.updated_at || s.created_at || '')}
-                </span>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
