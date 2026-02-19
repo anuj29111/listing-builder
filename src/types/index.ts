@@ -24,6 +24,7 @@ export type {
   LbAsinLookup,
   LbKeywordSearch,
   LbAsinReview,
+  LbMarketIntelligence,
 } from './database'
 
 export type {
@@ -63,6 +64,12 @@ export type {
   DescriptionPhaseResult,
   BackendPhaseResult,
 } from './api'
+
+export type {
+  MarketIntelligenceResult,
+  MarketIntelligencePhase1Result,
+  MarketIntelligencePhase2Result,
+} from './market-intelligence'
 
 export type Brand = 'Chalkola' | 'Spedalon' | 'Funcils' | 'Other'
 export type FileType = 'keywords' | 'reviews' | 'qna' | 'rufus_qna' | 'keywords_analysis' | 'reviews_analysis' | 'qna_analysis' | 'sp_prompts'

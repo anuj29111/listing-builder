@@ -412,6 +412,28 @@ export interface LbAsinReview {
   updated_at: string
 }
 
+// Market Intelligence (standalone proof-of-concept)
+export interface LbMarketIntelligence {
+  id: string
+  keyword: string
+  country_id: string
+  marketplace_domain: string
+  max_competitors: number
+  top_asins: string[]
+  competitors_data: Record<string, unknown>
+  keyword_search_data: Record<string, unknown>
+  analysis_result: Record<string, unknown>
+  status: 'pending' | 'collecting' | 'collected' | 'analyzing' | 'completed' | 'failed'
+  progress: { step?: string; current?: number; total?: number; message?: string }
+  error_message: string | null
+  model_used: string | null
+  tokens_used: number | null
+  oxylabs_calls_used: number
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 // Higgsfield prompt queue (shared table with higgsfield-automator)
 export type HfModel = 'nano-banana-pro' | 'chatgpt' | 'seedream' | 'soul'
 
