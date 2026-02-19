@@ -21,6 +21,7 @@ export type {
   KeywordCoverage,
   KeywordPlacement,
   LbProduct,
+  LbAsinLookup,
 } from './database'
 
 export type {

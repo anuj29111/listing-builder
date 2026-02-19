@@ -47,6 +47,18 @@ const API_KEY_SLOTS = [
     description: 'Paired with Higgsfield API Key above',
     placeholder: 'Secret key',
   },
+  {
+    key: 'oxylabs_username',
+    label: 'Oxylabs Username',
+    description: 'Used for ASIN product data lookups via Oxylabs E-Commerce Scraper',
+    placeholder: 'your_username',
+  },
+  {
+    key: 'oxylabs_password',
+    label: 'Oxylabs Password',
+    description: 'Paired with Oxylabs Username above',
+    placeholder: 'your_password',
+  },
 ]
 
 // Keys managed by dedicated UI components (not shown in generic grid)

@@ -1,0 +1,362 @@
+'use client'
+
+import { useState, useCallback } from 'react'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Loader2, Search, ScanSearch, Star, TrendingUp, Clock, RefreshCw } from 'lucide-react'
+import toast from 'react-hot-toast'
+import type { LbCountry, LbAsinLookup } from '@/types'
+import type { OxylabsProductResult } from '@/lib/oxylabs'
+import { AsinResultCard } from './AsinResultCard'
+
+interface AsinLookupClientProps {
+  countries: LbCountry[]
+  initialLookups: Partial<LbAsinLookup>[]
+}
+
+interface FetchResult {
+  asin: string
+  success: boolean
+  error?: string
+  data?: OxylabsProductResult
+  saved_id?: string
+}
+
+export function AsinLookupClient({
+  countries,
+  initialLookups,
+}: AsinLookupClientProps) {
+  const [asinInput, setAsinInput] = useState('')
+  const [countryId, setCountryId] = useState(
+    countries.find((c) => c.code === 'US')?.id || countries[0]?.id || ''
+  )
+  const [loading, setLoading] = useState(false)
+  const [results, setResults] = useState<FetchResult[]>([])
+  const [lookups, setLookups] = useState<Partial<LbAsinLookup>[]>(initialLookups)
+  const [historySearch, setHistorySearch] = useState('')
+  const [historyCountry, setHistoryCountry] = useState<string>('')
+
+  const selectedCountry = countries.find((c) => c.id === countryId)
+
+  const parseAsins = useCallback((input: string): string[] => {
+    return input
+      .split(/[,\n\r]+/)
+      .map((s) => s.trim().toUpperCase())
+      .filter((s) => s.length > 0)
+  }, [])
+
+  const handleFetch = async () => {
+    const asins = parseAsins(asinInput)
+    if (asins.length === 0) {
+      toast.error('Enter at least one ASIN')
+      return
+    }
+    if (asins.length > 10) {
+      toast.error('Maximum 10 ASINs at a time')
+      return
+    }
+
+    setLoading(true)
+    setResults([])
+
+    try {
+      const res = await fetch('/api/asin-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asins, country_id: countryId }),
+      })
+      const json = await res.json()
+
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to fetch')
+      }
+
+      const fetchResults = json.results as FetchResult[]
+      setResults(fetchResults)
+
+      const successCount = fetchResults.filter((r) => r.success).length
+      const failCount = fetchResults.filter((r) => !r.success).length
+
+      if (successCount > 0 && failCount === 0) {
+        toast.success(`Fetched ${successCount} product${successCount > 1 ? 's' : ''}`)
+      } else if (successCount > 0 && failCount > 0) {
+        toast.success(`Fetched ${successCount}, ${failCount} failed`)
+      } else {
+        toast.error('All lookups failed')
+      }
+
+      // Refresh history
+      refreshHistory()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Something went wrong')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const refreshHistory = async () => {
+    try {
+      const params = new URLSearchParams()
+      if (historySearch) params.set('search', historySearch)
+      if (historyCountry) params.set('country_id', historyCountry)
+
+      const res = await fetch(`/api/asin-lookup?${params}`)
+      const json = await res.json()
+      if (res.ok) {
+        setLookups(json.data || [])
+      }
+    } catch {
+      // silent
+    }
+  }
+
+  const handleHistorySearch = () => {
+    refreshHistory()
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <ScanSearch className="h-6 w-6" />
+          ASIN Lookup
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Fetch product data from any Amazon marketplace via Oxylabs
+        </p>
+      </div>
+
+      {/* Input Form */}
+      <div className="rounded-lg border bg-card p-4">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_200px_auto] gap-3 items-end">
+          <div>
+            <label className="text-sm font-medium mb-1.5 block">
+              ASINs{' '}
+              <span className="text-muted-foreground font-normal">
+                (comma or newline separated, max 10)
+              </span>
+            </label>
+            <Textarea
+              value={asinInput}
+              onChange={(e) => setAsinInput(e.target.value)}
+              placeholder="B08N5WRWNW, B09V3KXJPB, B07FZ8S74R..."
+              rows={2}
+              className="font-mono text-sm resize-none"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-1.5 block">
+              Marketplace
+            </label>
+            <Select value={countryId} onValueChange={setCountryId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select marketplace" />
+              </SelectTrigger>
+              <SelectContent>
+                {countries.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.flag_emoji} {c.name} ({c.amazon_domain})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            onClick={handleFetch}
+            disabled={loading || !asinInput.trim()}
+            className="gap-2"
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Search className="h-4 w-4" />
+            )}
+            {loading ? 'Fetching...' : 'Fetch Data'}
+          </Button>
+        </div>
+        {asinInput.trim() && (
+          <p className="text-xs text-muted-foreground mt-2">
+            {parseAsins(asinInput).length} ASIN
+            {parseAsins(asinInput).length !== 1 ? 's' : ''} detected
+            {selectedCountry &&
+              ` \u2014 will fetch from ${selectedCountry.amazon_domain}`}
+          </p>
+        )}
+      </div>
+
+      {/* Active Results */}
+      {results.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold mb-3">
+            Results ({results.filter((r) => r.success).length}/
+            {results.length} successful)
+          </h2>
+          <div className="space-y-3">
+            {results.map((r) =>
+              r.success && r.data ? (
+                <AsinResultCard
+                  key={r.asin}
+                  asin={r.asin}
+                  data={r.data}
+                  marketplace={selectedCountry?.amazon_domain || ''}
+                  savedId={r.saved_id}
+                />
+              ) : (
+                <div
+                  key={r.asin}
+                  className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 p-4"
+                >
+                  <p className="text-sm font-mono font-medium">{r.asin}</p>
+                  <p className="text-sm text-red-600 dark:text-red-400 mt-1">
+                    {r.error}
+                  </p>
+                </div>
+              )
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* History */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Clock className="h-5 w-5" />
+            Lookup History
+          </h2>
+          <Button variant="ghost" size="sm" onClick={refreshHistory} className="gap-1">
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </Button>
+        </div>
+
+        {/* History Filters */}
+        <div className="flex gap-2 mb-3">
+          <Input
+            placeholder="Search by ASIN, title, or brand..."
+            value={historySearch}
+            onChange={(e) => setHistorySearch(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleHistorySearch()}
+            className="max-w-xs text-sm"
+          />
+          <Select
+            value={historyCountry}
+            onValueChange={(v) => {
+              setHistoryCountry(v === 'all' ? '' : v)
+              // Trigger refresh after state update
+              setTimeout(refreshHistory, 0)
+            }}
+          >
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="All marketplaces" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All marketplaces</SelectItem>
+              {countries.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.flag_emoji} {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={handleHistorySearch}>
+            <Search className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+
+        {lookups.length === 0 ? (
+          <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
+            No lookups yet. Enter ASINs above to fetch product data.
+          </div>
+        ) : (
+          <div className="rounded-lg border bg-card divide-y">
+            {lookups.map((lookup) => {
+              const firstImage = (lookup.images as string[] | undefined)?.[0]
+              const bsr = (
+                lookup.sales_rank as Array<{ rank: number }> | undefined
+              )?.[0]
+
+              return (
+                <div
+                  key={lookup.id}
+                  className="p-3 flex items-center gap-3 hover:bg-muted/50 transition-colors"
+                >
+                  {firstImage && (
+                    <div className="w-10 h-10 flex-shrink-0 rounded overflow-hidden bg-muted">
+                      <img
+                        src={firstImage}
+                        alt=""
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">
+                      {lookup.title || lookup.asin}
+                    </p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="font-mono">{lookup.asin}</span>
+                      <span>{lookup.marketplace_domain}</span>
+                      {lookup.brand && (
+                        <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                          {lookup.brand}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0 text-sm">
+                    {lookup.price != null && (
+                      <span className="font-medium">
+                        {lookup.currency || '$'}
+                        {Number(lookup.price).toFixed(2)}
+                      </span>
+                    )}
+                    {lookup.rating != null && (
+                      <span className="flex items-center gap-0.5 text-muted-foreground">
+                        <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                        {lookup.rating}
+                      </span>
+                    )}
+                    {bsr && (
+                      <span className="flex items-center gap-0.5 text-muted-foreground">
+                        <TrendingUp className="h-3 w-3" />#{bsr.rank?.toLocaleString()}
+                      </span>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      {formatTimeAgo(lookup.updated_at || lookup.created_at || '')}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function formatTimeAgo(dateStr: string): string {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  if (diffMins < 1) return 'just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) return `${diffHours}h ago`
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays < 30) return `${diffDays}d ago`
+  return date.toLocaleDateString()
+}

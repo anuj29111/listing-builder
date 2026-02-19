@@ -281,6 +281,32 @@ export interface LbProduct {
   updated_at: string
 }
 
+export interface LbAsinLookup {
+  id: string
+  asin: string
+  country_id: string
+  marketplace_domain: string
+  raw_response: Record<string, unknown>
+  title: string | null
+  brand: string | null
+  price: number | null
+  currency: string | null
+  rating: number | null
+  reviews_count: number | null
+  bullet_points: string | null
+  description: string | null
+  images: string[]
+  sales_rank: Array<{ rank: number; ladder?: Array<{ url: string; name: string }> }>
+  category: Array<{ ladder?: Array<{ url: string; name: string }> }>
+  featured_merchant: Record<string, unknown> | null
+  variations: unknown[]
+  is_prime_eligible: boolean | null
+  stock: string | null
+  lookup_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 // Higgsfield prompt queue (shared table with higgsfield-automator)
 export type HfModel = 'nano-banana-pro' | 'chatgpt' | 'seedream' | 'soul'
 
