@@ -170,3 +170,13 @@ npm run lint         # ESLint
   2. Test keyword search — verify organic/sponsored/Amazon's Choice tabs work
   3. Verify history panels for both tabs
   4. Test re-searching same keyword/ASIN — verify upsert (not duplicate)
+- **Keyword Search Fixes (Session 19 bugs):**
+  1. External link arrow in search results goes to 404 — Oxylabs returns relative Amazon URLs, need to prepend `https://www.{marketplace_domain}/` to make them absolute
+  2. Keyword search history has no chevron/dropdown indicator like ASIN history does
+  3. Audit: are we pulling everything Oxylabs returns for `amazon_search`? Compare parsed fields vs what we extract
+- **Reviews Tab (Priority — replaces Apify):**
+  1. Add `amazon_reviews` as 3rd tab: "ASIN Lookup | Keyword Search | Reviews"
+  2. Oxylabs `amazon_reviews` source: 8 reviews/page, paginate with `start_page`+`pages`, sort_by: `recent`/`helpful`/`top`
+  3. New table `lb_asin_reviews` or extend `lb_asin_lookups` — store paginated reviews per ASIN+country
+  4. Test with a product having 500-1000 reviews — verify full extraction
+  5. Each review: id, title, author, rating, content, timestamp, is_verified, helpful_count
