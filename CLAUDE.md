@@ -12,7 +12,7 @@
 | **Deployment** | Railway (auto-deploy from GitHub `main`) |
 | **Production URL** | `https://listing-builder-production.up.railway.app` |
 | **GitHub** | `anuj29111/listing-builder` |
-| **Table Prefix** | `lb_` (18 tables, 62 RLS policies) |
+| **Table Prefix** | `lb_` (21 tables, 66 RLS policies) |
 | **Storage Buckets** | `lb-research-files`, `lb-images` |
 | **Brands** | Chalkola, Spedalon, Funcils |
 
@@ -128,15 +128,20 @@ npm run lint         # ESLint
 35. **ASIN Lookup via Oxylabs** — `/asin-lookup` page uses Oxylabs E-Commerce Scraper API (`realtime.oxylabs.io/v1/queries`). Credentials stored as `oxylabs_username`/`oxylabs_password` in `lb_admin_settings`. `source: "amazon_product"`, `domain` derived from `lb_countries.amazon_domain` by stripping `amazon.` prefix. Free tier: 2,000 results. Paid: $0.50/1K.
 36. **`lb_asin_lookups` table** — Stores fetched ASIN data. UNIQUE on `(asin, country_id)` — re-lookups upsert. `raw_response` JSONB preserves full Oxylabs payload. Extracted fields: title, brand, price (+ price_upper, price_sns, price_initial, price_shipping), currency, rating, reviews_count, bullet_points, description, images, sales_rank, category, featured_merchant, variations, is_prime_eligible, stock, deal_type, coupon, coupon_discount_percentage, discount_percentage, amazon_choice, parent_asin, answered_questions_count, has_videos, sales_volume, max_quantity, pricing_count, product_dimensions, product_details, product_overview, delivery, buybox, lightning_deal, rating_stars_distribution, sns_discounts, top_reviews.
 37. **`lb_keyword_searches` table** — Caches Amazon keyword search results via Oxylabs `amazon_search` source. UNIQUE on `(keyword, country_id)`. Stores organic_results, sponsored_results, amazons_choices, suggested_results as JSONB arrays. Each result item has: asin, title, price, rating, reviews_count, pos, url_image, is_prime, is_amazons_choice, best_seller, manufacturer, sales_volume.
-38. **ASIN Lookup page is tabbed** — `/asin-lookup` has two tabs: "ASIN Lookup" (by ASIN) and "Keyword Search" (by keyword). `AsinLookupPageClient` wraps both `AsinLookupClient` and `KeywordSearchClient`.
+38. **ASIN Lookup page is 3-tabbed** — `/asin-lookup` has: "ASIN Lookup" | "Keyword Search" | "Reviews". `AsinLookupPageClient` wraps `AsinLookupClient`, `KeywordSearchClient`, `ReviewsClient`.
+39. **`lb_asin_reviews` table** — Stores reviews per ASIN+country+sort. UNIQUE on `(asin, country_id, sort_by)`. Reviews stored as JSONB array. Each review: id, title, author, rating, content, timestamp, is_verified, helpful_count, product_attributes, images.
+40. **Oxylabs `amazon_reviews` source NOT available on free plan** — API returns "Unsupported source". Fallback uses `amazon_product` top reviews (~13 per product). Code auto-detects: tries `amazon_reviews` first, falls back to `lookupAsin()`. When plan is upgraded, full pagination works with zero code changes.
+41. **Keyword search URLs are relative** — Oxylabs `amazon_search` returns relative URLs like `/dp/B0DLQ7D59R/...`. `toAbsoluteAmazonUrl()` in `KeywordSearchClient.tsx` prepends `https://www.{marketplace_domain}`.
+42. **Oxylabs `amazon_search` coverage** — We pull all major fields. Only missing: `refinements` (filter options), `no_price_reason`, `suggested_query`. Low priority.
+43. **Next session vision: Market Intelligence Module** — Keyword → top organic ASINs → pull listings + reviews → aggregate into market intelligence. This is Phase 7 reimagined with Oxylabs instead of Apify. Reference images in `/Sample Website/Brief/`.
 
 ---
 
 ## Database
 
-20 tables prefixed `lb_`. Full DDL in `docs/SCHEMA.md`.
+21 tables prefixed `lb_`. Full DDL in `docs/SCHEMA.md`.
 
-**Key tables:** `lb_users`, `lb_categories`, `lb_countries`, `lb_research_files`, `lb_research_analysis`, `lb_product_types`, `lb_products`, `lb_listings`, `lb_listing_sections`, `lb_listing_chats`, `lb_image_generations`, `lb_image_chats`, `lb_image_workshops`, `lb_batch_jobs`, `lb_admin_settings`, `lb_sync_logs`, `lb_export_logs`, `lb_aplus_modules`, `lb_asin_lookups`, `lb_keyword_searches`
+**Key tables:** `lb_users`, `lb_categories`, `lb_countries`, `lb_research_files`, `lb_research_analysis`, `lb_product_types`, `lb_products`, `lb_listings`, `lb_listing_sections`, `lb_listing_chats`, `lb_image_generations`, `lb_image_chats`, `lb_image_workshops`, `lb_batch_jobs`, `lb_admin_settings`, `lb_sync_logs`, `lb_export_logs`, `lb_aplus_modules`, `lb_asin_lookups`, `lb_keyword_searches`, `lb_asin_reviews`
 
 **RLS pattern:** All authenticated users can CRUD (except `lb_admin_settings` = admin only). All policies use `(SELECT auth.uid())` wrapper.
 
@@ -170,13 +175,12 @@ npm run lint         # ESLint
   2. Test keyword search — verify organic/sponsored/Amazon's Choice tabs work
   3. Verify history panels for both tabs
   4. Test re-searching same keyword/ASIN — verify upsert (not duplicate)
-- **Keyword Search Fixes (Session 19 bugs):**
-  1. External link arrow in search results goes to 404 — Oxylabs returns relative Amazon URLs, need to prepend `https://www.{marketplace_domain}/` to make them absolute
-  2. Keyword search history has no chevron/dropdown indicator like ASIN history does
-  3. Audit: are we pulling everything Oxylabs returns for `amazon_search`? Compare parsed fields vs what we extract
-- **Reviews Tab (Priority — replaces Apify):**
-  1. Add `amazon_reviews` as 3rd tab: "ASIN Lookup | Keyword Search | Reviews"
-  2. Oxylabs `amazon_reviews` source: 8 reviews/page, paginate with `start_page`+`pages`, sort_by: `recent`/`helpful`/`top`
-  3. New table `lb_asin_reviews` or extend `lb_asin_lookups` — store paginated reviews per ASIN+country
-  4. Test with a product having 500-1000 reviews — verify full extraction
-  5. Each review: id, title, author, rating, content, timestamp, is_verified, helpful_count
+- **Market Intelligence Module (Phase 7 reimagined with Oxylabs):**
+  1. Flow: keyword → top organic ASINs → pull their listings (bullet points, descriptions) + reviews → aggregate into market intelligence report
+  2. This replaces Apify/DataDive entirely — Oxylabs covers product data, search results, and reviews (once plan upgraded)
+  3. UI reference images in `/Sample Website/Brief/`
+  4. Need to design: how does this feed into existing research analysis pipeline? Probably a new analysis_type in `lb_research_analysis`
+- **Oxylabs Plan Upgrade + Full Reviews Testing:**
+  1. Upgrade Oxylabs plan to unlock `amazon_reviews` source
+  2. Test with 500-1000 review product — verify full pagination works
+  3. Code is ready — auto-detects source availability, no changes needed
