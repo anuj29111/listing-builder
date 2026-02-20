@@ -12,14 +12,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Loader2, Search, Star, TrendingUp, Clock, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
+import { Loader2, Search, Star, TrendingUp, Clock, RefreshCw, ChevronDown, ChevronUp, Package } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCountry, LbAsinLookup } from '@/types'
 import type { OxylabsProductResult } from '@/lib/oxylabs'
 import { AsinResultCard } from './AsinResultCard'
-import { TagBadge, TagInput } from '@/components/shared/TagInput'
-import { NotesEditor, NotesIndicator } from '@/components/shared/NotesEditor'
-import { CollectionPicker, CollectionBadges } from '@/components/shared/CollectionPicker'
+import { TagBadge } from '@/components/shared/TagInput'
+import { NotesIndicator } from '@/components/shared/NotesEditor'
+import { CollectionBadges } from '@/components/shared/CollectionPicker'
 import { useCollectionStore } from '@/stores/collection-store'
 
 interface AsinLookupClientProps {
@@ -65,9 +65,9 @@ export function AsinLookupClient({
   const [membershipsMap, setMembershipsMap] = useState<
     Record<string, Array<{ collection_id: string; name: string; color: string }>>
   >({})
+  const [ownProductAsins, setOwnProductAsins] = useState<Record<string, boolean>>({})
 
   const selectedCountry = countries.find((c) => c.id === countryId)
-  const fetchAllTags = useCollectionStore((s) => s.fetchAllTags)
   const allTags = useCollectionStore((s) => s.allTags)
 
   // Fetch collection memberships for all displayed lookups
@@ -87,10 +87,27 @@ export function AsinLookupClient({
     }
   }, [])
 
-  // Fetch memberships when lookups change
+  // Fetch "own product" status for displayed lookups
+  const fetchOwnProducts = useCallback(async (lookupList: Partial<LbAsinLookup>[]) => {
+    const asins = lookupList.map((l) => l.asin).filter(Boolean) as string[]
+    if (asins.length === 0) return
+    try {
+      const uniqueAsins = Array.from(new Set(asins))
+      const res = await fetch(`/api/products/check-asins?asins=${uniqueAsins.join(',')}`)
+      const json = await res.json()
+      if (json.data) {
+        setOwnProductAsins(json.data)
+      }
+    } catch {
+      // silent
+    }
+  }, [])
+
+  // Fetch memberships and own products when lookups change
   useEffect(() => {
     fetchMemberships(lookups)
-  }, [lookups, fetchMemberships])
+    fetchOwnProducts(lookups)
+  }, [lookups, fetchMemberships, fetchOwnProducts])
 
   const parseAsins = useCallback((input: string): string[] => {
     return input
@@ -162,25 +179,6 @@ export function AsinLookupClient({
       }
     } catch {
       // silent
-    }
-  }
-
-  const handleUpdateTagsNotes = async (lookupId: string, updates: { tags?: string[]; notes?: string }) => {
-    try {
-      const res = await fetch(`/api/asin-lookup/${lookupId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      })
-      if (res.ok) {
-        // Update local state
-        setLookups((prev) =>
-          prev.map((l) => (l.id === lookupId ? { ...l, ...updates } : l))
-        )
-        fetchAllTags()
-      }
-    } catch {
-      toast.error('Failed to update')
     }
   }
 
@@ -432,6 +430,12 @@ export function AsinLookupClient({
                             {lookup.brand}
                           </Badge>
                         )}
+                        {lookup.asin && ownProductAsins[lookup.asin] && (
+                          <Badge className="text-[10px] px-1 py-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 gap-0.5">
+                            <Package className="h-2.5 w-2.5" />
+                            Own
+                          </Badge>
+                        )}
                         {lookup.amazon_choice && (
                           <Badge className="text-[10px] px-1 py-0 bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300">
                             Choice
@@ -484,37 +488,7 @@ export function AsinLookupClient({
 
                   {/* Expanded detail card */}
                   {isExpanded && expandedLookupData && (
-                    <div className="border-t bg-muted/20 p-3 space-y-3">
-                      {/* Tags, Notes, Collections */}
-                      <div className="flex flex-wrap items-start gap-4 pb-3 border-b">
-                        <div className="flex-1 min-w-[200px]">
-                          <p className="text-xs font-medium text-muted-foreground mb-1">Tags</p>
-                          <TagInput
-                            tags={(lookup.tags as string[]) || []}
-                            onTagsChange={(tags) => lookup.id && handleUpdateTagsNotes(lookup.id, { tags })}
-                            compact
-                          />
-                        </div>
-                        <div className="flex-1 min-w-[200px]">
-                          <p className="text-xs font-medium text-muted-foreground mb-1">Notes</p>
-                          <NotesEditor
-                            notes={(lookup.notes as string | null) ?? null}
-                            onSave={(notes) => lookup.id && handleUpdateTagsNotes(lookup.id, { notes })}
-                            compact
-                          />
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-muted-foreground mb-1">Collections</p>
-                          {lookup.id && (
-                            <CollectionPicker
-                              entityType="asin_lookup"
-                              entityId={lookup.id}
-                              compact
-                              onMembershipChange={() => fetchMemberships(lookups)}
-                            />
-                          )}
-                        </div>
-                      </div>
+                    <div className="border-t bg-muted/20 p-3">
                       <AsinResultCard
                         asin={lookup.asin || ''}
                         data={expandedLookupData as OxylabsProductResult}
