@@ -1,6 +1,6 @@
 'use client'
 
-import type { MarketIntelligenceResult } from '@/types/market-intelligence'
+import type { MarketIntelligenceResult, MarketIntelligenceQnAPhaseResult } from '@/types/market-intelligence'
 import { ReviewAnalysisDashboard } from './sections/ReviewAnalysisDashboard'
 import { PainPointsSection } from './sections/PainPointsSection'
 import { MotivationsSection } from './sections/MotivationsSection'
@@ -8,6 +8,7 @@ import { BuyingFactorsSection } from './sections/BuyingFactorsSection'
 import { CustomerSegmentsSection } from './sections/CustomerSegmentsSection'
 import { SimilarReviewsSection } from './sections/SimilarReviewsSection'
 import { CompetitorProductsSection } from './sections/CompetitorProductsSection'
+import { QnASection } from './sections/QnASection'
 import { ImageRecommendationsSection } from './sections/ImageRecommendationsSection'
 import { CompetitiveLandscapeSection } from './sections/CompetitiveLandscapeSection'
 import { DetailedAvatarsSection } from './sections/DetailedAvatarsSection'
@@ -19,11 +20,31 @@ import { CompetitorPatternsSection } from './sections/CompetitorPatternsSection'
 interface MarketIntelligenceReportProps {
   analysisResult: MarketIntelligenceResult
   competitorsData: Array<Record<string, unknown>>
+  marketplaceDomain?: string
+  ourAsins?: Set<string>
+  questionsData?: Record<string, Array<Record<string, unknown>>>
 }
 
-export function MarketIntelligenceReport({ analysisResult, competitorsData }: MarketIntelligenceReportProps) {
+export function MarketIntelligenceReport({
+  analysisResult,
+  competitorsData,
+  marketplaceDomain,
+  ourAsins,
+  questionsData,
+}: MarketIntelligenceReportProps) {
   const r = analysisResult
   if (!r) return <div className="text-center py-12 text-muted-foreground">No analysis data available.</div>
+
+  // Extract Q&A result from merged analysis
+  const qnaResult: MarketIntelligenceQnAPhaseResult | undefined = r.topQuestions
+    ? {
+        topQuestions: r.topQuestions,
+        questionThemes: r.questionThemes,
+        unansweredGaps: r.unansweredGaps,
+        buyerConcerns: r.buyerConcerns,
+        contentGaps: r.contentGaps,
+      }
+    : undefined
 
   return (
     <div className="space-y-8">
@@ -62,24 +83,35 @@ export function MarketIntelligenceReport({ analysisResult, competitorsData }: Ma
       <SimilarReviewsSection competitorsData={competitorsData} />
 
       {/* 7. Competitor Products (raw data) */}
-      <CompetitorProductsSection competitorsData={competitorsData} />
+      <CompetitorProductsSection
+        competitorsData={competitorsData}
+        marketplaceDomain={marketplaceDomain}
+        ourAsins={ourAsins}
+      />
 
-      {/* 8. Image Recommendations */}
+      {/* 8. Q&A Section */}
+      <QnASection
+        qnaResult={qnaResult}
+        questionsData={questionsData}
+        competitorsData={competitorsData}
+      />
+
+      {/* 9. Image Recommendations */}
       {r.imageRecommendations?.length > 0 && <ImageRecommendationsSection recommendations={r.imageRecommendations} />}
 
-      {/* 9. Competitive Landscape */}
+      {/* 10. Competitive Landscape */}
       {r.competitiveLandscape?.length > 0 && <CompetitiveLandscapeSection landscape={r.competitiveLandscape} />}
 
-      {/* 10. Detailed Avatars */}
+      {/* 11. Detailed Avatars */}
       {r.detailedAvatars?.length > 0 && <DetailedAvatarsSection avatars={r.detailedAvatars} />}
 
-      {/* 11. Key Market Insights */}
+      {/* 12. Key Market Insights */}
       {r.keyMarketInsights && <KeyMarketInsightsSection insights={r.keyMarketInsights} />}
 
-      {/* 12. Strategic Recommendations */}
+      {/* 13. Strategic Recommendations */}
       {r.strategicRecommendations && <StrategicRecommendationsSection recommendations={r.strategicRecommendations} />}
 
-      {/* 13. Messaging Framework */}
+      {/* 14. Messaging Framework */}
       {r.messagingFramework && (
         <MessagingFrameworkSection
           framework={r.messagingFramework}
@@ -87,7 +119,7 @@ export function MarketIntelligenceReport({ analysisResult, competitorsData }: Ma
         />
       )}
 
-      {/* 14. Competitor Patterns */}
+      {/* 15. Competitor Patterns */}
       {r.competitorPatterns && (
         <CompetitorPatternsSection
           patterns={r.competitorPatterns}

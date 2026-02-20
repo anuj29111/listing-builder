@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
-import { searchKeyword, lookupAsin } from '@/lib/oxylabs'
+import { searchKeyword, lookupAsin, fetchReviews, fetchQuestions } from '@/lib/oxylabs'
 
 const CACHE_HOURS = 168 // 7 days
 
@@ -31,10 +31,18 @@ export async function POST(
       )
     }
 
+    // Get keywords list (support both single and multi-keyword)
+    const keywordsList: string[] = record.keywords && record.keywords.length > 0
+      ? record.keywords
+      : [record.keyword]
+
+    const reviewsPerProduct = record.reviews_per_product || 200
+    const reviewPages = Math.ceil(reviewsPerProduct / 10) // ~10 reviews per page
+
     // 2. Set status to collecting
     await admin.from('lb_market_intelligence').update({
       status: 'collecting',
-      progress: { step: 'keyword_search', current: 0, total: record.max_competitors + 1, message: 'Searching keyword...' },
+      progress: { step: 'keyword_search', current: 0, total: 1, message: 'Starting keyword searches...' },
       updated_at: new Date().toISOString(),
     }).eq('id', params.id)
 
@@ -55,98 +63,122 @@ export async function POST(
 
     const oxylabsDomain = country.amazon_domain.replace('amazon.', '')
     let oxylabsCallsUsed = 0
-
-    // 4. Keyword search — check cache first
     const cacheThreshold = new Date(Date.now() - CACHE_HOURS * 60 * 60 * 1000).toISOString()
-    let keywordSearchData: Record<string, unknown> | null = null
 
-    const { data: cachedSearch } = await supabase
-      .from('lb_keyword_searches')
-      .select('*')
-      .eq('keyword', record.keyword)
-      .eq('country_id', record.country_id)
-      .gte('updated_at', cacheThreshold)
-      .single()
+    // ========== STEP 1: Search all keywords ==========
+    const masterAsinSet = new Set<string>()
+    const allKeywordSearchData: Record<string, unknown>[] = []
 
-    if (cachedSearch) {
-      keywordSearchData = {
-        organic_results: cachedSearch.organic_results,
-        sponsored_results: cachedSearch.sponsored_results,
-        amazons_choices: cachedSearch.amazons_choices,
-        total_results_count: cachedSearch.total_results_count,
-        source: 'cache',
-      }
-    } else {
-      // Fetch fresh from Oxylabs
-      const searchResult = await searchKeyword(record.keyword, oxylabsDomain, 1)
-      oxylabsCallsUsed++
+    for (let ki = 0; ki < keywordsList.length; ki++) {
+      const kw = keywordsList[ki]
 
-      if (!searchResult.success || !searchResult.data) {
-        await admin.from('lb_market_intelligence').update({
-          status: 'failed', error_message: searchResult.error || 'Keyword search failed',
-          updated_at: new Date().toISOString(),
-        }).eq('id', params.id)
-        return NextResponse.json({ error: searchResult.error || 'Keyword search failed' }, { status: 500 })
-      }
-
-      // Upsert to cache
-      const organicResults = searchResult.data.results?.organic || []
-      const sponsoredResults = searchResult.data.results?.paid || []
-      const amazonsChoices = searchResult.data.results?.amazons_choices || []
-
-      await admin.from('lb_keyword_searches').upsert({
-        keyword: record.keyword,
-        country_id: record.country_id,
-        marketplace_domain: country.amazon_domain,
-        total_results_count: searchResult.data.total_results_count || 0,
-        pages_fetched: 1,
-        organic_results: organicResults,
-        sponsored_results: sponsoredResults,
-        amazons_choices: amazonsChoices,
-        suggested_results: searchResult.data.results?.suggested || [],
-        raw_response: searchResult.data,
-        searched_by: lbUser.id,
+      await admin.from('lb_market_intelligence').update({
+        progress: {
+          step: 'keyword_search',
+          current: ki,
+          total: keywordsList.length,
+          message: `Searching keyword "${kw}" (${ki + 1}/${keywordsList.length})...`,
+        },
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'keyword,country_id' })
+      }).eq('id', params.id)
 
-      keywordSearchData = {
-        organic_results: organicResults,
-        sponsored_results: sponsoredResults,
-        amazons_choices: amazonsChoices,
-        total_results_count: searchResult.data.total_results_count || 0,
-        source: 'fresh',
+      // Check cache
+      let keywordSearchData: Record<string, unknown> | null = null
+      const { data: cachedSearch } = await supabase
+        .from('lb_keyword_searches')
+        .select('*')
+        .eq('keyword', kw)
+        .eq('country_id', record.country_id)
+        .gte('updated_at', cacheThreshold)
+        .single()
+
+      if (cachedSearch) {
+        keywordSearchData = {
+          keyword: kw,
+          organic_results: cachedSearch.organic_results,
+          sponsored_results: cachedSearch.sponsored_results,
+          amazons_choices: cachedSearch.amazons_choices,
+          total_results_count: cachedSearch.total_results_count,
+          source: 'cache',
+        }
+      } else {
+        const searchResult = await searchKeyword(kw, oxylabsDomain, 1)
+        oxylabsCallsUsed++
+
+        if (!searchResult.success || !searchResult.data) {
+          // Skip this keyword, continue with others
+          console.error(`Keyword search failed for "${kw}": ${searchResult.error}`)
+          continue
+        }
+
+        const organicResults = searchResult.data.results?.organic || []
+        const sponsoredResults = searchResult.data.results?.paid || []
+        const amazonsChoices = searchResult.data.results?.amazons_choices || []
+
+        // Upsert to cache
+        await admin.from('lb_keyword_searches').upsert({
+          keyword: kw,
+          country_id: record.country_id,
+          marketplace_domain: country.amazon_domain,
+          total_results_count: searchResult.data.total_results_count || 0,
+          pages_fetched: 1,
+          organic_results: organicResults,
+          sponsored_results: sponsoredResults,
+          amazons_choices: amazonsChoices,
+          suggested_results: searchResult.data.results?.suggested || [],
+          raw_response: searchResult.data,
+          searched_by: lbUser.id,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'keyword,country_id' })
+
+        keywordSearchData = {
+          keyword: kw,
+          organic_results: organicResults,
+          sponsored_results: sponsoredResults,
+          amazons_choices: amazonsChoices,
+          total_results_count: searchResult.data.total_results_count || 0,
+          source: 'fresh',
+        }
+      }
+
+      if (keywordSearchData) {
+        allKeywordSearchData.push(keywordSearchData)
+
+        // Extract ASINs from organic results
+        const organicResults = (keywordSearchData.organic_results as Array<Record<string, unknown>>) || []
+        for (const item of organicResults) {
+          const asin = item.asin as string
+          if (asin) masterAsinSet.add(asin)
+        }
       }
     }
 
-    // Update progress
-    await admin.from('lb_market_intelligence').update({
-      progress: { step: 'keyword_search', current: 1, total: record.max_competitors + 1, message: 'Keyword search complete. Fetching products...' },
-      updated_at: new Date().toISOString(),
-    }).eq('id', params.id)
+    // Limit to max_competitors unique ASINs (take top by organic rank order)
+    const topAsins = Array.from(masterAsinSet).slice(0, record.max_competitors)
 
-    // 5. Extract top N organic ASINs
-    const organicResults = (keywordSearchData.organic_results as Array<Record<string, unknown>>) || []
-    const seenAsins = new Set<string>()
-    const topAsins: string[] = []
-
-    for (const item of organicResults) {
-      const asin = item.asin as string
-      if (asin && !seenAsins.has(asin)) {
-        seenAsins.add(asin)
-        topAsins.push(asin)
-        if (topAsins.length >= record.max_competitors) break
-      }
+    if (topAsins.length === 0) {
+      await admin.from('lb_market_intelligence').update({
+        status: 'failed',
+        error_message: 'No products found for any keyword',
+        updated_at: new Date().toISOString(),
+      }).eq('id', params.id)
+      return NextResponse.json({ error: 'No products found' }, { status: 404 })
     }
 
-    // 6. Fetch product data for each ASIN
+    // ========== STEP 2: Fetch product data for each ASIN ==========
     const competitorsData: Array<Record<string, unknown>> = []
+    const totalSteps = topAsins.length
 
     for (let i = 0; i < topAsins.length; i++) {
       const asin = topAsins[i]
 
-      // Update progress
       await admin.from('lb_market_intelligence').update({
-        progress: { step: 'asin_lookup', current: i + 2, total: record.max_competitors + 1, message: `Fetching ${asin} (${i + 1}/${topAsins.length})...` },
+        progress: {
+          step: 'asin_lookup',
+          current: i,
+          total: totalSteps,
+          message: `Fetching product ${asin} (${i + 1}/${totalSteps})...`,
+        },
         updated_at: new Date().toISOString(),
       }).eq('id', params.id)
 
@@ -172,20 +204,39 @@ export async function POST(
           bullet_points: cachedLookup.bullet_points,
           description: cachedLookup.description,
           product_overview: cachedLookup.product_overview,
+          product_details: cachedLookup.product_details,
           images: cachedLookup.images,
           is_prime_eligible: cachedLookup.is_prime_eligible,
           amazon_choice: cachedLookup.amazon_choice,
           deal_type: cachedLookup.deal_type,
           coupon: cachedLookup.coupon,
+          coupon_discount_percentage: cachedLookup.coupon_discount_percentage,
+          discount_percentage: cachedLookup.discount_percentage,
           sales_volume: cachedLookup.sales_volume,
           sales_rank: cachedLookup.sales_rank,
+          category: cachedLookup.category,
+          featured_merchant: cachedLookup.featured_merchant,
+          variations: cachedLookup.variations,
+          stock: cachedLookup.stock,
+          parent_asin: cachedLookup.parent_asin,
+          answered_questions_count: cachedLookup.answered_questions_count,
+          has_videos: cachedLookup.has_videos,
+          max_quantity: cachedLookup.max_quantity,
+          pricing_count: cachedLookup.pricing_count,
+          product_dimensions: cachedLookup.product_dimensions,
+          delivery: cachedLookup.delivery,
+          buybox: cachedLookup.buybox,
+          lightning_deal: cachedLookup.lightning_deal,
+          rating_stars_distribution: cachedLookup.rating_stars_distribution,
+          sns_discounts: cachedLookup.sns_discounts,
           top_reviews: cachedLookup.top_reviews,
+          marketplace_domain: country.amazon_domain,
           source: 'cache',
         })
         continue
       }
 
-      // Fetch fresh from Oxylabs
+      // Fetch fresh
       try {
         const lookupResult = await lookupAsin(asin, oxylabsDomain)
         oxylabsCallsUsed++
@@ -194,81 +245,99 @@ export async function POST(
           throw new Error(lookupResult.error || 'Lookup failed')
         }
 
-        const productResult = lookupResult.data
+        const p = lookupResult.data
 
-        // Upsert to lb_asin_lookups cache
+        // Upsert to cache
         await admin.from('lb_asin_lookups').upsert({
           asin,
           country_id: record.country_id,
           marketplace_domain: country.amazon_domain,
-          raw_response: productResult,
-          title: productResult.title || null,
-          brand: productResult.brand || null,
-          price: productResult.price ?? null,
-          price_upper: productResult.price_upper ?? null,
-          price_sns: productResult.price_sns ?? null,
-          price_initial: productResult.price_initial ?? null,
-          price_shipping: productResult.price_shipping ?? null,
-          currency: productResult.currency || null,
-          rating: productResult.rating ?? null,
-          reviews_count: productResult.reviews_count ?? null,
-          bullet_points: productResult.bullet_points || null,
-          description: productResult.description || null,
-          images: productResult.images || [],
-          sales_rank: productResult.sales_rank || null,
-          category: productResult.category || null,
-          featured_merchant: productResult.featured_merchant || null,
-          variations: productResult.variation || null,
-          is_prime_eligible: productResult.is_prime_eligible ?? false,
-          stock: productResult.stock || null,
-          deal_type: productResult.deal_type || null,
-          coupon: productResult.coupon || null,
-          coupon_discount_percentage: productResult.coupon_discount_percentage ?? null,
-          discount_percentage: productResult.discount?.percentage ?? null,
-          amazon_choice: productResult.amazon_choice ?? false,
-          parent_asin: productResult.parent_asin || null,
-          answered_questions_count: productResult.answered_questions_count ?? null,
-          has_videos: productResult.has_videos ?? false,
-          sales_volume: productResult.sales_volume || null,
-          max_quantity: productResult.max_quantity ?? null,
-          pricing_count: productResult.pricing_count ?? null,
-          product_dimensions: productResult.product_dimensions || null,
-          product_details: productResult.product_details || null,
-          product_overview: productResult.product_overview || null,
-          delivery: productResult.delivery || null,
-          buybox: productResult.buybox || null,
-          lightning_deal: productResult.lightning_deal || null,
-          rating_stars_distribution: productResult.rating_stars_distribution || null,
-          sns_discounts: productResult.sns_discounts || null,
-          top_reviews: productResult.reviews || null,
+          raw_response: p,
+          title: p.title || null,
+          brand: p.brand || null,
+          price: p.price ?? null,
+          price_upper: p.price_upper ?? null,
+          price_sns: p.price_sns ?? null,
+          price_initial: p.price_initial ?? null,
+          price_shipping: p.price_shipping ?? null,
+          currency: p.currency || null,
+          rating: p.rating ?? null,
+          reviews_count: p.reviews_count ?? null,
+          bullet_points: p.bullet_points || null,
+          description: p.description || null,
+          images: p.images || [],
+          sales_rank: p.sales_rank || null,
+          category: p.category || null,
+          featured_merchant: p.featured_merchant || null,
+          variations: p.variation || null,
+          is_prime_eligible: p.is_prime_eligible ?? false,
+          stock: p.stock || null,
+          deal_type: p.deal_type || null,
+          coupon: p.coupon || null,
+          coupon_discount_percentage: p.coupon_discount_percentage ?? null,
+          discount_percentage: p.discount?.percentage ?? null,
+          amazon_choice: p.amazon_choice ?? false,
+          parent_asin: p.parent_asin || null,
+          answered_questions_count: p.answered_questions_count ?? null,
+          has_videos: p.has_videos ?? false,
+          sales_volume: p.sales_volume || null,
+          max_quantity: p.max_quantity ?? null,
+          pricing_count: p.pricing_count ?? null,
+          product_dimensions: p.product_dimensions || null,
+          product_details: p.product_details || null,
+          product_overview: p.product_overview || null,
+          delivery: p.delivery || null,
+          buybox: p.buybox || null,
+          lightning_deal: p.lightning_deal || null,
+          rating_stars_distribution: p.rating_stars_distribution || null,
+          sns_discounts: p.sns_discounts || null,
+          top_reviews: p.reviews || null,
           lookup_by: lbUser.id,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'asin,country_id' })
 
         competitorsData.push({
           asin,
-          title: productResult.title,
-          brand: productResult.brand,
-          price: productResult.price,
-          price_initial: productResult.price_initial,
-          currency: productResult.currency,
-          rating: productResult.rating,
-          reviews_count: productResult.reviews_count,
-          bullet_points: productResult.bullet_points,
-          description: productResult.description,
-          product_overview: productResult.product_overview,
-          images: productResult.images,
-          is_prime_eligible: productResult.is_prime_eligible,
-          amazon_choice: productResult.amazon_choice,
-          deal_type: productResult.deal_type,
-          coupon: productResult.coupon,
-          sales_volume: productResult.sales_volume,
-          sales_rank: productResult.sales_rank,
-          top_reviews: productResult.reviews,
+          title: p.title,
+          brand: p.brand,
+          price: p.price,
+          price_initial: p.price_initial,
+          currency: p.currency,
+          rating: p.rating,
+          reviews_count: p.reviews_count,
+          bullet_points: p.bullet_points,
+          description: p.description,
+          product_overview: p.product_overview,
+          product_details: p.product_details,
+          images: p.images,
+          is_prime_eligible: p.is_prime_eligible,
+          amazon_choice: p.amazon_choice,
+          deal_type: p.deal_type,
+          coupon: p.coupon,
+          coupon_discount_percentage: p.coupon_discount_percentage,
+          discount_percentage: p.discount?.percentage,
+          sales_volume: p.sales_volume,
+          sales_rank: p.sales_rank,
+          category: p.category,
+          featured_merchant: p.featured_merchant,
+          variations: p.variation,
+          stock: p.stock,
+          parent_asin: p.parent_asin,
+          answered_questions_count: p.answered_questions_count,
+          has_videos: p.has_videos,
+          max_quantity: p.max_quantity,
+          pricing_count: p.pricing_count,
+          product_dimensions: p.product_dimensions,
+          delivery: p.delivery,
+          buybox: p.buybox,
+          lightning_deal: p.lightning_deal,
+          rating_stars_distribution: p.rating_stars_distribution,
+          sns_discounts: p.sns_discounts,
+          top_reviews: p.reviews,
+          marketplace_domain: country.amazon_domain,
           source: 'fresh',
         })
       } catch (lookupErr) {
-        // Skip this ASIN but continue with others
         console.error(`Failed to lookup ${asin}:`, lookupErr)
         competitorsData.push({
           asin,
@@ -278,26 +347,164 @@ export async function POST(
       }
     }
 
-    // 7. Update record with collected data
+    // ========== STEP 3: Fetch reviews for each product ==========
+    const reviewsData: Record<string, Array<Record<string, unknown>>> = {}
+    const successfulAsins = competitorsData.filter(c => !c.error).map(c => c.asin as string)
+
+    for (let i = 0; i < successfulAsins.length; i++) {
+      const asin = successfulAsins[i]
+
+      await admin.from('lb_market_intelligence').update({
+        progress: {
+          step: 'review_fetch',
+          current: i,
+          total: successfulAsins.length,
+          message: `Fetching reviews for ${asin} (${i + 1}/${successfulAsins.length})...`,
+        },
+        updated_at: new Date().toISOString(),
+      }).eq('id', params.id)
+
+      // Check cached reviews
+      const { data: cachedReviews } = await supabase
+        .from('lb_asin_reviews')
+        .select('reviews')
+        .eq('asin', asin)
+        .eq('country_id', record.country_id)
+        .gte('updated_at', cacheThreshold)
+        .single()
+
+      if (cachedReviews?.reviews) {
+        reviewsData[asin] = cachedReviews.reviews as Array<Record<string, unknown>>
+        continue
+      }
+
+      // Fetch fresh reviews (try amazon_reviews source, fallback to product top reviews)
+      try {
+        const reviewResult = await fetchReviews(asin, oxylabsDomain, 1, Math.min(reviewPages, 20))
+        oxylabsCallsUsed++
+
+        if (reviewResult.success && reviewResult.data?.reviews) {
+          reviewsData[asin] = reviewResult.data.reviews as unknown as Array<Record<string, unknown>>
+
+          // Cache in lb_asin_reviews
+          await admin.from('lb_asin_reviews').upsert({
+            asin,
+            country_id: record.country_id,
+            marketplace_domain: country.amazon_domain,
+            reviews_count: reviewResult.data.reviews_count || reviewResult.data.reviews.length,
+            rating: reviewResult.data.rating,
+            rating_stars_distribution: reviewResult.data.rating_stars_distribution,
+            reviews: reviewResult.data.reviews,
+            raw_response: reviewResult.data,
+            sort_by: 'recent',
+            fetched_by: lbUser.id,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'asin,country_id,sort_by' })
+        } else {
+          // Fallback: use top_reviews from product data
+          const comp = competitorsData.find(c => c.asin === asin)
+          if (comp?.top_reviews) {
+            reviewsData[asin] = comp.top_reviews as Array<Record<string, unknown>>
+          }
+        }
+      } catch {
+        // Fallback: use top_reviews from product data
+        const comp = competitorsData.find(c => c.asin === asin)
+        if (comp?.top_reviews) {
+          reviewsData[asin] = comp.top_reviews as Array<Record<string, unknown>>
+        }
+      }
+    }
+
+    // ========== STEP 4: Fetch Q&A for each product ==========
+    const questionsData: Record<string, Array<Record<string, unknown>>> = {}
+
+    for (let i = 0; i < successfulAsins.length; i++) {
+      const asin = successfulAsins[i]
+
+      await admin.from('lb_market_intelligence').update({
+        progress: {
+          step: 'qna_fetch',
+          current: i,
+          total: successfulAsins.length,
+          message: `Fetching Q&A for ${asin} (${i + 1}/${successfulAsins.length})...`,
+        },
+        updated_at: new Date().toISOString(),
+      }).eq('id', params.id)
+
+      // Check cached Q&A
+      const { data: cachedQnA } = await supabase
+        .from('lb_asin_questions')
+        .select('questions')
+        .eq('asin', asin)
+        .eq('country_id', record.country_id)
+        .gte('updated_at', cacheThreshold)
+        .single()
+
+      if (cachedQnA?.questions) {
+        questionsData[asin] = cachedQnA.questions as Array<Record<string, unknown>>
+        continue
+      }
+
+      // Fetch fresh Q&A
+      try {
+        const qnaResult = await fetchQuestions(asin, oxylabsDomain, 1)
+        oxylabsCallsUsed++
+
+        if (qnaResult.success && qnaResult.data?.questions) {
+          questionsData[asin] = qnaResult.data.questions as unknown as Array<Record<string, unknown>>
+
+          // Cache in lb_asin_questions
+          await admin.from('lb_asin_questions').upsert({
+            asin,
+            country_id: record.country_id,
+            marketplace_domain: country.amazon_domain,
+            total_questions: qnaResult.data.questions.length,
+            questions: qnaResult.data.questions,
+            raw_response: qnaResult.data,
+            fetched_by: lbUser.id,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'asin,country_id' })
+        }
+      } catch (qnaErr) {
+        console.error(`Failed to fetch Q&A for ${asin}:`, qnaErr)
+        // Non-critical, continue
+      }
+    }
+
+    // ========== STEP 5: Save all collected data ==========
+    // Merge keyword search data (use first keyword's data for backward compat, store all in array)
+    const keywordSearchData = keywordsList.length === 1
+      ? allKeywordSearchData[0] || {}
+      : { keywords: allKeywordSearchData }
+
     await admin.from('lb_market_intelligence').update({
-      status: 'collected',
+      status: 'awaiting_selection',
       top_asins: topAsins,
       competitors_data: competitorsData,
       keyword_search_data: keywordSearchData,
+      reviews_data: reviewsData,
+      questions_data: questionsData,
       oxylabs_calls_used: oxylabsCallsUsed,
-      progress: { step: 'collected', current: record.max_competitors + 1, total: record.max_competitors + 1, message: 'Data collection complete.' },
+      progress: {
+        step: 'awaiting_selection',
+        current: 0,
+        total: 0,
+        message: `Data collection complete. ${topAsins.length} products found. Select products for analysis.`,
+      },
       updated_at: new Date().toISOString(),
     }).eq('id', params.id)
 
     return NextResponse.json({
-      status: 'collected',
+      status: 'awaiting_selection',
       asins_found: topAsins.length,
       competitors_fetched: competitorsData.filter(c => !c.error).length,
+      reviews_fetched: Object.keys(reviewsData).length,
+      questions_fetched: Object.keys(questionsData).length,
       oxylabs_calls_used: oxylabsCallsUsed,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
-    // Try to mark as failed
     try {
       const admin = createAdminClient()
       await admin.from('lb_market_intelligence').update({

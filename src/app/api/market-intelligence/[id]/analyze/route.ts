@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
-import { analyzeMarketIntelligencePhase1, analyzeMarketIntelligencePhase2 } from '@/lib/claude'
+import {
+  analyzeMarketIntelligencePhase1Reviews,
+  analyzeMarketIntelligencePhase2QnA,
+  analyzeMarketIntelligencePhase3Market,
+  analyzeMarketIntelligencePhase4Strategy,
+} from '@/lib/claude'
 
 export async function POST(
   _request: Request,
@@ -32,17 +37,35 @@ export async function POST(
     // 2. Set status to analyzing
     await admin.from('lb_market_intelligence').update({
       status: 'analyzing',
-      progress: { step: 'phase_1', current: 0, total: 2, message: 'Phase 1: Analyzing market & competition...' },
+      progress: { step: 'phase_1', current: 0, total: 4, message: 'Phase 1: Analyzing reviews...' },
       updated_at: new Date().toISOString(),
     }).eq('id', params.id)
 
-    // 3. Build aggregated data for Claude
+    // 3. Build data for analysis — filter by selected_asins if present
     const competitorsRaw = (record.competitors_data || []) as Array<Record<string, unknown>>
     const keywordData = record.keyword_search_data as Record<string, unknown>
-    const organicResults = (keywordData?.organic_results || []) as Array<Record<string, unknown>>
+    const reviewsRaw = (record.reviews_data || {}) as Record<string, Array<Record<string, unknown>>>
+    const questionsRaw = (record.questions_data || {}) as Record<string, Array<Record<string, unknown>>>
+    const selectedAsins = record.selected_asins as string[] | null
 
-    // Filter out errored competitors
-    const competitors = competitorsRaw.filter(c => !c.error).map(c => ({
+    // Get organic results for search landscape
+    let organicResults: Array<Record<string, unknown>> = []
+    if (keywordData?.keywords && Array.isArray(keywordData.keywords)) {
+      // Multi-keyword: merge organic results
+      for (const kwData of keywordData.keywords as Array<Record<string, unknown>>) {
+        const or = (kwData.organic_results || []) as Array<Record<string, unknown>>
+        organicResults.push(...or)
+      }
+    } else {
+      organicResults = (keywordData?.organic_results || []) as Array<Record<string, unknown>>
+    }
+
+    // Filter competitors by selected ASINs
+    const filteredCompetitors = selectedAsins
+      ? competitorsRaw.filter(c => !c.error && selectedAsins.includes(c.asin as string))
+      : competitorsRaw.filter(c => !c.error)
+
+    const competitors = filteredCompetitors.map(c => ({
       asin: c.asin as string,
       title: c.title as string,
       brand: (c.brand as string) || '',
@@ -71,6 +94,36 @@ export async function POST(
       })),
     }))
 
+    // Build reviews data (filter by selected ASINs)
+    const reviewsData: Record<string, Array<{ rating: number; title: string; content: string; author: string; is_verified: boolean; helpful_count: number; id?: string; timestamp?: string }>> = {}
+    const selectedAsinSet = new Set(selectedAsins || competitors.map(c => c.asin))
+    for (const [asin, reviews] of Object.entries(reviewsRaw)) {
+      if (!selectedAsinSet.has(asin)) continue
+      reviewsData[asin] = reviews.map(r => ({
+        rating: (r.rating as number) || 0,
+        title: (r.title as string) || '',
+        content: (r.content as string) || '',
+        author: (r.author as string) || '',
+        is_verified: (r.is_verified as boolean) || false,
+        helpful_count: (r.helpful_count as number) || 0,
+        id: r.id as string | undefined,
+        timestamp: r.timestamp as string | undefined,
+      }))
+    }
+
+    // Build questions data (filter by selected ASINs)
+    const questionsData: Record<string, Array<{ question: string; answer: string; votes: number; author?: string; date?: string }>> = {}
+    for (const [asin, questions] of Object.entries(questionsRaw)) {
+      if (!selectedAsinSet.has(asin)) continue
+      questionsData[asin] = questions.map(q => ({
+        question: (q.question as string) || '',
+        answer: (q.answer as string) || '',
+        votes: (q.votes as number) || 0,
+        author: q.author as string | undefined,
+        date: q.date as string | undefined,
+      }))
+    }
+
     const searchResults = organicResults.slice(0, 20).map(r => ({
       pos: (r.pos as number) || 0,
       title: (r.title as string) || '',
@@ -91,9 +144,12 @@ export async function POST(
 
     const data = {
       keyword: record.keyword,
+      keywords: record.keywords as string[] | undefined,
       marketplace: record.marketplace_domain,
       searchResults,
       competitors,
+      reviewsData,
+      questionsData,
       marketStats: {
         avgPrice: prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : 0,
         minPrice: prices.length ? Math.min(...prices) : 0,
@@ -106,33 +162,66 @@ export async function POST(
       },
     }
 
-    // 4. Phase 1: Market & Competitive Analysis
-    const phase1 = await analyzeMarketIntelligencePhase1(data)
+    let totalTokens = 0
 
-    // Update progress for phase 2
+    // 4. Phase 1: Review Deep-Dive
+    const phase1 = await analyzeMarketIntelligencePhase1Reviews(data)
+    totalTokens += phase1.tokensUsed
+
+    // Update progress
     await admin.from('lb_market_intelligence').update({
-      progress: { step: 'phase_2', current: 1, total: 2, message: 'Phase 2: Building customer intelligence & strategy...' },
+      progress: { step: 'phase_2', current: 1, total: 4, message: 'Phase 2: Analyzing Q&A data...' },
       updated_at: new Date().toISOString(),
     }).eq('id', params.id)
 
-    // 5. Phase 2: Customer Intelligence & Strategy
-    const phase2 = await analyzeMarketIntelligencePhase2(data, phase1.result)
+    // 5. Phase 2: Q&A Analysis
+    const phase2 = await analyzeMarketIntelligencePhase2QnA(data, phase1.result as unknown as Record<string, unknown>)
+    totalTokens += phase2.tokensUsed
 
-    // 6. Merge Phase 1 + Phase 2 into final result
+    // Update progress
+    await admin.from('lb_market_intelligence').update({
+      progress: { step: 'phase_3', current: 2, total: 4, message: 'Phase 3: Analyzing market & competition...' },
+      updated_at: new Date().toISOString(),
+    }).eq('id', params.id)
+
+    // 6. Phase 3: Market & Competitive
+    const phase3 = await analyzeMarketIntelligencePhase3Market(
+      data,
+      phase1.result as unknown as Record<string, unknown>,
+      phase2.result as unknown as Record<string, unknown>
+    )
+    totalTokens += phase3.tokensUsed
+
+    // Update progress
+    await admin.from('lb_market_intelligence').update({
+      progress: { step: 'phase_4', current: 3, total: 4, message: 'Phase 4: Building customer intelligence & strategy...' },
+      updated_at: new Date().toISOString(),
+    }).eq('id', params.id)
+
+    // 7. Phase 4: Customer Intelligence & Strategy
+    const phase4 = await analyzeMarketIntelligencePhase4Strategy(
+      data,
+      phase1.result as unknown as Record<string, unknown>,
+      phase2.result as unknown as Record<string, unknown>,
+      phase3.result as unknown as Record<string, unknown>
+    )
+    totalTokens += phase4.tokensUsed
+
+    // 8. Merge all 4 phases
     const mergedResult = {
       ...phase1.result,
       ...phase2.result,
+      ...phase3.result,
+      ...phase4.result,
     }
 
-    const totalTokens = phase1.tokensUsed + phase2.tokensUsed
-
-    // 7. Update record as completed
+    // 9. Update record as completed
     await admin.from('lb_market_intelligence').update({
       status: 'completed',
       analysis_result: mergedResult,
       model_used: phase1.model,
       tokens_used: totalTokens,
-      progress: { step: 'completed', current: 2, total: 2, message: 'Analysis complete.' },
+      progress: { step: 'completed', current: 4, total: 4, message: 'Analysis complete.' },
       updated_at: new Date().toISOString(),
     }).eq('id', params.id)
 

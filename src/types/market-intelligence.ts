@@ -1,8 +1,8 @@
 // --- Market Intelligence Module Types ---
-// Standalone proof-of-concept: 4th tab on /asin-lookup
+// 4-phase waterfall analysis: Reviews → Q&A → Market/Competitive → Customer/Strategy
 
-// Phase 1: Market & Competitive Analysis
-export interface MarketIntelligencePhase1Result {
+// Phase 1: Review Deep-Dive (per-product summaries)
+export interface MarketIntelligenceReviewPhaseResult {
   sentimentAnalysis: {
     positive: number
     painPoints: number
@@ -28,6 +28,52 @@ export interface MarketIntelligencePhase1Result {
     title: string
     description: string
   }>
+  perProductSummaries: Array<{
+    asin: string
+    brand: string
+    title: string
+    positiveThemes: string[]
+    negativeThemes: string[]
+    uniqueSellingPoints: string[]
+    commonComplaints: string[]
+    reviewCount: number
+    avgRating: number
+  }>
+}
+
+// Phase 2: Q&A Analysis
+export interface MarketIntelligenceQnAPhaseResult {
+  topQuestions: Array<{
+    question: string
+    answer: string
+    votes: number
+    category: string
+    asin: string
+  }>
+  questionThemes: Array<{
+    theme: string
+    count: number
+    description: string
+  }>
+  unansweredGaps: Array<{
+    gap: string
+    importance: string
+    recommendation: string
+  }>
+  buyerConcerns: Array<{
+    concern: string
+    frequency: string
+    resolution: string
+  }>
+  contentGaps: Array<{
+    gap: string
+    importance: string
+    recommendation: string
+  }>
+}
+
+// Phase 3: Market & Competitive Analysis
+export interface MarketIntelligenceMarketPhaseResult {
   competitiveLandscape: Array<{
     brand: string
     avgRating: number
@@ -47,26 +93,21 @@ export interface MarketIntelligencePhase1Result {
       currency: string
     }
   }
-  contentGaps: Array<{
-    gap: string
-    importance: string
-    recommendation: string
-  }>
-}
-
-// Phase 2: Customer Intelligence & Strategy
-export interface MarketIntelligencePhase2Result {
-  executiveSummary: string
-  customerDemographics: Array<{
-    ageRange: string
-    male: number
-    female: number
-  }>
   customerSegments: Array<{
     name: string
     ageRange: string
     occupation: string
     traits: string[]
+  }>
+}
+
+// Phase 4: Customer Intelligence & Strategy
+export interface MarketIntelligenceStrategyPhaseResult {
+  executiveSummary: string
+  customerDemographics: Array<{
+    ageRange: string
+    male: number
+    female: number
   }>
   detailedAvatars: Array<{
     name: string
@@ -125,5 +166,13 @@ export interface MarketIntelligencePhase2Result {
   }
 }
 
-// Final merged result (Phase 1 + Phase 2)
-export type MarketIntelligenceResult = MarketIntelligencePhase1Result & MarketIntelligencePhase2Result
+// Final merged result (all 4 phases)
+export type MarketIntelligenceResult =
+  MarketIntelligenceReviewPhaseResult &
+  MarketIntelligenceQnAPhaseResult &
+  MarketIntelligenceMarketPhaseResult &
+  MarketIntelligenceStrategyPhaseResult
+
+// Legacy aliases for backward compatibility with existing Phase1/Phase2 naming
+export type MarketIntelligencePhase1Result = MarketIntelligenceReviewPhaseResult & MarketIntelligenceMarketPhaseResult
+export type MarketIntelligencePhase2Result = MarketIntelligenceStrategyPhaseResult

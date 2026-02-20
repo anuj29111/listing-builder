@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
-import { lookupAsin } from '@/lib/oxylabs'
-import type { OxylabsProductResult } from '@/lib/oxylabs'
+import { lookupAsin, fetchQuestions } from '@/lib/oxylabs'
+import type { OxylabsProductResult, OxylabsQnAItem } from '@/lib/oxylabs'
 
 export async function POST(request: Request) {
   try {
@@ -49,6 +49,7 @@ export async function POST(request: Request) {
       error?: string
       data?: OxylabsProductResult
       saved_id?: string
+      questions?: OxylabsQnAItem[]
     }> = []
 
     // Lookup each ASIN sequentially to respect rate limits
@@ -130,11 +131,52 @@ export async function POST(request: Request) {
         console.error('Failed to save ASIN lookup:', saveErr)
       }
 
+      // Fetch Q&A — check cache first (7-day TTL), then call Oxylabs
+      let questions: OxylabsQnAItem[] = []
+      try {
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+        const { data: cached } = await supabase
+          .from('lb_asin_questions')
+          .select('id, questions')
+          .eq('asin', asin)
+          .eq('country_id', country_id)
+          .gte('updated_at', sevenDaysAgo)
+          .single()
+
+        if (cached?.questions) {
+          questions = cached.questions as OxylabsQnAItem[]
+        } else {
+          const qResult = await fetchQuestions(asin, oxylabsDomain)
+          if (qResult.success && qResult.data?.questions?.length) {
+            questions = qResult.data.questions
+            // Cache in lb_asin_questions
+            await supabase
+              .from('lb_asin_questions')
+              .upsert(
+                {
+                  asin,
+                  country_id,
+                  marketplace_domain: country.amazon_domain,
+                  total_questions: questions.length,
+                  questions,
+                  raw_response: qResult.data,
+                  fetched_by: lbUser.id,
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: 'asin,country_id' }
+              )
+          }
+        }
+      } catch (qErr) {
+        console.error('Q&A fetch failed (non-blocking):', qErr)
+      }
+
       results.push({
         asin,
         success: true,
         data,
         saved_id: saved?.id,
+        questions: questions.length > 0 ? questions : undefined,
       })
     }
 

@@ -212,6 +212,26 @@ export interface OxylabsReviewsResponse {
   parse_status_code: number
 }
 
+// --- Seller Product types ---
+
+export interface SellerProduct {
+  asin: string
+  title: string
+  price: number | null
+  rating: number | null
+  reviews_count: number | null
+  is_prime: boolean
+  url_image: string | null
+  manufacturer: string | null
+  sales_volume: string | null
+}
+
+export interface SellerProductsResult {
+  products: SellerProduct[]
+  totalPages: number
+  pagesScraped: number
+}
+
 // --- API functions ---
 
 export async function lookupAsin(
@@ -338,4 +358,183 @@ export async function fetchReviews(
   }
 
   return { success: true, data: content as OxylabsReviewsResponse }
+}
+
+// --- Amazon Q&A types ---
+
+export interface OxylabsQnAItem {
+  question: string
+  answer: string
+  votes: number
+  author?: string
+  date?: string
+}
+
+export interface OxylabsQnAResponse {
+  url: string
+  asin: string
+  page: number
+  pages: number
+  questions: OxylabsQnAItem[]
+  parse_status_code: number
+}
+
+export async function fetchQuestions(
+  asin: string,
+  domain: string,
+  pages: number = 1
+): Promise<{ success: boolean; data?: OxylabsQnAResponse; error?: string }> {
+  const { username, password } = await getCredentials()
+
+  const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization:
+        'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
+    },
+    body: JSON.stringify({
+      source: 'amazon_questions',
+      domain,
+      query: asin,
+      pages,
+      parse: true,
+    }),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    return {
+      success: false,
+      error: `Oxylabs API error (${response.status}): ${text}`,
+    }
+  }
+
+  const json = await response.json()
+
+  const content = json.results?.[0]?.content
+  if (!content) {
+    return { success: false, error: 'No Q&A data returned from Oxylabs' }
+  }
+
+  return { success: true, data: content as OxylabsQnAResponse }
+}
+
+// --- Seller Product Pull ---
+
+export async function fetchSellerProducts(
+  sellerId: string,
+  domain: string,
+  maxPages: number = 20
+): Promise<{ success: boolean; data?: SellerProductsResult; error?: string }> {
+  const { username, password } = await getCredentials()
+  const authHeader =
+    'Basic ' + Buffer.from(`${username}:${password}`).toString('base64')
+
+  const allProducts: SellerProduct[] = []
+  const seen = new Set<string>()
+  let totalPages = 0
+  let pagesScraped = 0
+
+  // Paginate in batches of 3 to avoid rate limits
+  const batchSize = 3
+
+  for (let startPage = 1; startPage <= maxPages; startPage += batchSize) {
+    const pagesToFetch = Math.min(batchSize, maxPages - startPage + 1)
+
+    const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: authHeader,
+      },
+      body: JSON.stringify({
+        source: 'amazon_search',
+        domain,
+        query: ' ',
+        start_page: startPage,
+        pages: pagesToFetch,
+        parse: true,
+        context: [{ key: 'merchant_id', value: sellerId }],
+      }),
+    })
+
+    if (!response.ok) {
+      const text = await response.text()
+      // If rate limited but we have some results, return what we have
+      if (allProducts.length > 0) {
+        return {
+          success: true,
+          data: { products: allProducts, totalPages, pagesScraped },
+        }
+      }
+      return {
+        success: false,
+        error: `Oxylabs API error (${response.status}): ${text}`,
+      }
+    }
+
+    const json = await response.json()
+
+    if (json.message) {
+      // Rate limit or other error from Oxylabs
+      if (allProducts.length > 0) {
+        return {
+          success: true,
+          data: { products: allProducts, totalPages, pagesScraped },
+        }
+      }
+      return { success: false, error: json.message }
+    }
+
+    const results = json.results || []
+    let foundProducts = false
+
+    for (const result of results) {
+      const content = result?.content
+      if (!content || typeof content !== 'object') continue
+
+      pagesScraped++
+
+      // Capture total pages from first result
+      if (totalPages === 0 && content.last_visible_page) {
+        totalPages = content.last_visible_page
+      }
+
+      const organic = content.results?.organic || []
+      for (const item of organic) {
+        const asin = item.asin
+        if (!asin || seen.has(asin)) continue
+        seen.add(asin)
+        foundProducts = true
+
+        allProducts.push({
+          asin,
+          title: item.title || '',
+          price: item.price ?? null,
+          rating: item.rating ?? null,
+          reviews_count: item.reviews_count ?? null,
+          is_prime: item.is_prime ?? false,
+          url_image: item.url_image ?? null,
+          manufacturer: item.manufacturer ?? null,
+          sales_volume: item.sales_volume ?? null,
+        })
+      }
+    }
+
+    // Stop if we've reached the last page or no products found
+    if (!foundProducts || startPage + pagesToFetch - 1 >= totalPages) {
+      break
+    }
+
+    // Delay between batches to avoid rate limits
+    if (startPage + batchSize <= maxPages) {
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+    }
+  }
+
+  return {
+    success: true,
+    data: { products: allProducts, totalPages, pagesScraped },
+  }
 }

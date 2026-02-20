@@ -412,24 +412,49 @@ export interface LbAsinReview {
   updated_at: string
 }
 
-// Market Intelligence (standalone proof-of-concept)
+// Market Intelligence
 export interface LbMarketIntelligence {
   id: string
   keyword: string
+  keywords: string[] | null
   country_id: string
   marketplace_domain: string
   max_competitors: number
+  reviews_per_product: number
   top_asins: string[]
+  selected_asins: string[] | null
   competitors_data: Record<string, unknown>
   keyword_search_data: Record<string, unknown>
+  reviews_data: Record<string, unknown> | null
+  questions_data: Record<string, unknown> | null
   analysis_result: Record<string, unknown>
-  status: 'pending' | 'collecting' | 'collected' | 'analyzing' | 'completed' | 'failed'
+  status: 'pending' | 'collecting' | 'collected' | 'awaiting_selection' | 'analyzing' | 'completed' | 'failed'
   progress: { step?: string; current?: number; total?: number; message?: string }
   error_message: string | null
   model_used: string | null
   tokens_used: number | null
   oxylabs_calls_used: number
   created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ASIN Q&A cache
+export interface LbAsinQuestions {
+  id: string
+  asin: string
+  country_id: string
+  marketplace_domain: string | null
+  total_questions: number
+  questions: Array<{
+    question: string
+    answer: string
+    votes: number
+    author?: string
+    date?: string
+  }>
+  raw_response: Record<string, unknown> | null
+  fetched_by: string | null
   created_at: string
   updated_at: string
 }

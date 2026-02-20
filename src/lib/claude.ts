@@ -2089,6 +2089,7 @@ export async function analyzeQnA(
 
 interface MarketIntelligenceData {
   keyword: string
+  keywords?: string[]
   marketplace: string
   searchResults: Array<{
     pos: number
@@ -2128,6 +2129,25 @@ interface MarketIntelligenceData {
       helpful_count: number
     }>
   }>
+  // Full reviews data (separate from inline product reviews)
+  reviewsData?: Record<string, Array<{
+    rating: number
+    title: string
+    content: string
+    author: string
+    is_verified: boolean
+    helpful_count: number
+    id?: string
+    timestamp?: string
+  }>>
+  // Q&A data per product
+  questionsData?: Record<string, Array<{
+    question: string
+    answer: string
+    votes: number
+    author?: string
+    date?: string
+  }>>
   marketStats: {
     avgPrice: number
     minPrice: number
@@ -2164,31 +2184,56 @@ ${overview ? `\nProduct Overview:\n${overview}` : ''}
 ${reviews ? `\nTop Reviews (${comp.reviews?.length || 0}):\n${reviews}` : ''}`
 }
 
-function buildMarketIntelligencePhase1Prompt(data: MarketIntelligenceData): string {
-  const searchLandscape = data.searchResults.slice(0, 20)
-    .map(r => `  #${r.pos} | ${r.title?.slice(0, 80)} | ${r.asin} | $${r.price ?? 'N/A'} | ${r.rating ?? 'N/A'}★ | ${r.reviews_count?.toLocaleString() ?? '?'} reviews${r.is_prime ? ' | Prime' : ''}${r.sales_volume ? ` | ${r.sales_volume}` : ''}`)
+function buildCompetitorBlockLight(comp: MarketIntelligenceData['competitors'][0], idx: number): string {
+  const overview = (comp.product_overview || [])
+    .map(o => `    ${o.title}: ${o.description}`)
     .join('\n')
 
-  const competitorBlocks = data.competitors
-    .map((c, i) => buildCompetitorBlock(c, i))
-    .join('\n')
+  return `
+--- Competitor ${idx + 1}: ${comp.asin} ---
+Title: ${comp.title}
+Brand: ${comp.brand || 'Unknown'} | Price: ${comp.currency || '$'}${comp.price ?? 'N/A'}${comp.price_initial ? ` (was ${comp.currency || '$'}${comp.price_initial})` : ''} | Rating: ${comp.rating ?? 'N/A'}/5 | Reviews: ${comp.reviews_count?.toLocaleString() ?? 'N/A'}
+Prime: ${comp.is_prime_eligible ? 'Yes' : 'No'} | Amazon's Choice: ${comp.amazon_choice ? 'Yes' : 'No'}${comp.deal_type ? ` | Deal: ${comp.deal_type}` : ''}${comp.coupon ? ` | Coupon: ${comp.coupon}` : ''}${comp.sales_volume ? ` | Sales: ${comp.sales_volume}` : ''}
 
-  return `You are an expert Amazon market intelligence analyst. Analyze the following scraped data from the top organic search results for "${data.keyword}" on ${data.marketplace}.
+Bullet Points:
+${comp.bullet_points || '  (none)'}
 
-=== SEARCH LANDSCAPE (Top 20 Organic Results) ===
-${searchLandscape}
+Description:
+${comp.description?.slice(0, 1500) || '  (none)'}${comp.description && comp.description.length > 1500 ? '...' : ''}
+${overview ? `\nProduct Overview:\n${overview}` : ''}`
+}
 
-=== COMPETITOR PRODUCT DATA (${data.competitors.length} products) ===
-${competitorBlocks}
+// === 4-PHASE MARKET INTELLIGENCE ANALYSIS ===
+// Phase 1: Review Deep-Dive → Phase 2: Q&A Analysis → Phase 3: Market & Competitive → Phase 4: Customer & Strategy
 
-=== AGGREGATED MARKET STATS ===
-Average Price: ${data.marketStats.currency}${data.marketStats.avgPrice.toFixed(2)} | Price Range: ${data.marketStats.currency}${data.marketStats.minPrice.toFixed(2)}-${data.marketStats.currency}${data.marketStats.maxPrice.toFixed(2)}
-Average Rating: ${data.marketStats.avgRating.toFixed(1)}/5 | Total Reviews Across Competitors: ${data.marketStats.totalReviews.toLocaleString()}
-Prime Eligible: ${data.marketStats.primePercentage.toFixed(0)}% | Amazon's Choice Products: ${data.marketStats.amazonChoiceCount}
+function buildMIPhase1ReviewsPrompt(data: MarketIntelligenceData): string {
+  const keywordsLabel = data.keywords && data.keywords.length > 1
+    ? data.keywords.join(', ')
+    : data.keyword
 
-=== YOUR TASK: PHASE 1 — MARKET & COMPETITIVE ANALYSIS ===
+  // Build review blocks per product — use full reviews if available, fallback to inline
+  const reviewBlocks: string[] = []
+  for (const comp of data.competitors) {
+    const fullReviews = data.reviewsData?.[comp.asin] || comp.reviews || []
+    if (fullReviews.length === 0) continue
 
-Analyze ALL competitor listings and ALL reviews deeply. This is for listing optimization — every insight matters.
+    const reviewLines = fullReviews
+      .map((r, i) => `  [${i + 1}] ${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)} "${r.title || ''}" — ${(r.content || '').slice(0, 400)}${r.content && r.content.length > 400 ? '...' : ''} — ${r.is_verified ? 'Verified' : 'Unverified'}${r.helpful_count > 0 ? `, ${r.helpful_count} helpful` : ''}`)
+      .join('\n')
+
+    reviewBlocks.push(`\n--- ${comp.asin} | ${comp.brand || 'Unknown'} — "${comp.title?.slice(0, 80)}" | ${comp.rating}/5 | ${comp.reviews_count?.toLocaleString() || '?'} total reviews ---\n${reviewLines}`)
+  }
+
+  const totalReviews = reviewBlocks.reduce((sum, block) => sum + (block.match(/\[(\d+)\]/g)?.length || 0), 0)
+
+  return `You are an expert Amazon review analyst. Perform a deep-dive analysis of ${totalReviews} reviews across ${data.competitors.length} competing products for "${keywordsLabel}" on ${data.marketplace}.
+
+=== REVIEWS BY PRODUCT ===
+${reviewBlocks.join('\n')}
+
+=== YOUR TASK: PHASE 1 — REVIEW DEEP-DIVE ===
+
+Analyze EVERY review provided. This data is the foundation for all subsequent analysis phases. Be thorough and precise with counts.
 
 Return a JSON object with this EXACT structure:
 {
@@ -2196,109 +2241,207 @@ Return a JSON object with this EXACT structure:
     "positive": <% of reviews that are positive (4-5 stars)>,
     "painPoints": <% of reviews mentioning problems/complaints>,
     "featureRequests": <% of reviews requesting features/improvements>,
-    "totalReviews": <total reviews analyzed>,
-    "averageRating": <average across all competitors>
+    "totalReviews": ${totalReviews},
+    "averageRating": <weighted average across all products>
   },
-  "topPositiveThemes": [8-10 positive themes: {"theme":"Vibrant Colors","mentions":<count from reviews>}],
-  "painPointsList": [8-10 pain points: {"theme":"Ink Runs","mentions":<count>}],
-  "featureRequestsList": [5-8 feature requests: {"theme":"More Color Options","mentions":<count>}],
-  "topPainPoints": [top 5 pain points as cards: {"title":"Ink Runs","description":"Ink runs too easily creating a mess","impactPercentage":<% of negative reviews mentioning this>}],
-  "primaryMotivations": [top 5 motivations: {"title":"Vibrant Color Variety","description":"Customers love the array of colors available which enhances creative projects","frequencyDescription":"Mentioned in 45% of positive reviews"}],
-  "buyingDecisionFactors": [top 4-6 ranked: {"rank":1,"title":"Color Brightness","description":"Customers prefer markers with bright, noticeable colors that stand out on different surfaces"}],
-  "competitiveLandscape": [one entry per competitor: {"brand":"<brand name>","avgRating":<rating>,"reviewCount":<count>,"category":"<product category>","keyFeatures":["feature1","feature2","feature3"],"marketShare":"<estimated % based on review volume and search position>"}],
-  "competitorPatterns": {
-    "titlePatterns": [top 5 title structure patterns: {"pattern":"Brand + Count + Type + Feature","frequency":<how many competitors use this>,"example":"<actual title example>"}],
-    "bulletThemes": [top 5 bullet point themes: {"theme":"Surface Compatibility","frequency":<how many competitors mention>,"example":"<actual bullet excerpt>"}],
-    "pricingRange": {"min":<lowest>,"max":<highest>,"average":<avg>,"median":<median>,"currency":"<currency symbol>"}
-  },
-  "contentGaps": [5-8 content gaps competitors are missing: {"gap":"<what's missing>","importance":"CRITICAL/HIGH/MEDIUM","recommendation":"<specific action>"}]
+  "topPositiveThemes": [8-12 themes: {"theme":"Vibrant Colors","mentions":<exact count>}],
+  "painPointsList": [8-12 pain points: {"theme":"Ink Runs","mentions":<exact count>}],
+  "featureRequestsList": [5-10 feature requests: {"theme":"More Color Options","mentions":<count>}],
+  "topPainPoints": [top 5-7 pain points: {"title":"...","description":"...","impactPercentage":<% of negative reviews>}],
+  "primaryMotivations": [top 5-7 motivations: {"title":"...","description":"...","frequencyDescription":"Mentioned in X% of positive reviews"}],
+  "buyingDecisionFactors": [top 6-8 ranked: {"rank":1,"title":"...","description":"..."}],
+  "perProductSummaries": [one per product: {
+    "asin":"<asin>",
+    "brand":"<brand>",
+    "title":"<product title>",
+    "positiveThemes":["theme1","theme2","theme3"],
+    "negativeThemes":["theme1","theme2"],
+    "uniqueSellingPoints":["usp1","usp2"],
+    "commonComplaints":["complaint1","complaint2"],
+    "reviewCount":<reviews analyzed for this product>,
+    "avgRating":<average rating for this product>
+  }]
 }
 
-Be thorough. Count real mentions from the review data. Every number should be grounded in the actual data provided. Do not make up statistics — derive them from the reviews and listings above.
+Be thorough. Every number MUST be grounded in the actual review data. Count real mentions.
 
 Only return valid JSON, no markdown fences or explanation.`
 }
 
-function buildMarketIntelligencePhase2Prompt(data: MarketIntelligenceData, phase1Result: import('@/types/market-intelligence').MarketIntelligencePhase1Result): string {
-  const searchLandscape = data.searchResults.slice(0, 20)
-    .map(r => `  #${r.pos} | ${r.title?.slice(0, 80)} | ${r.asin} | $${r.price ?? 'N/A'} | ${r.rating ?? 'N/A'}★ | ${r.reviews_count?.toLocaleString() ?? '?'} reviews`)
-    .join('\n')
+function buildMIPhase2QnAPrompt(data: MarketIntelligenceData, phase1Summary: string): string {
+  const keywordsLabel = data.keywords && data.keywords.length > 1
+    ? data.keywords.join(', ')
+    : data.keyword
 
-  const competitorBlocks = data.competitors
-    .map((c, i) => buildCompetitorBlock(c, i))
-    .join('\n')
+  // Build Q&A blocks per product
+  const qnaBlocks: string[] = []
+  let totalQnAs = 0
+  if (data.questionsData) {
+    for (const comp of data.competitors) {
+      const questions = data.questionsData[comp.asin] || []
+      if (questions.length === 0) continue
+      totalQnAs += questions.length
 
-  return `You are an expert Amazon market intelligence analyst. This is PHASE 2 of a 2-phase analysis for "${data.keyword}" on ${data.marketplace}.
+      const qLines = questions
+        .map((q, i) => `  [${i + 1}] Q: ${q.question}\n       A: ${(q.answer || 'No answer').slice(0, 300)}${q.votes ? ` (${q.votes} votes)` : ''}`)
+        .join('\n')
 
-=== PHASE 1 RESULTS (already completed) ===
-${JSON.stringify(phase1Result, null, 2)}
+      qnaBlocks.push(`\n--- ${comp.asin} | ${comp.brand || 'Unknown'} — "${comp.title?.slice(0, 80)}" ---\n${qLines}`)
+    }
+  }
 
-=== RAW DATA (same as Phase 1) ===
+  const qnaSection = qnaBlocks.length > 0
+    ? `=== Q&A DATA (${totalQnAs} questions across ${qnaBlocks.length} products) ===\n${qnaBlocks.join('\n')}`
+    : '=== Q&A DATA ===\nNo Q&A data available for these products.'
 
-SEARCH LANDSCAPE (Top 20):
-${searchLandscape}
+  return `You are an expert Amazon market analyst. This is PHASE 2 of a 4-phase analysis for "${keywordsLabel}" on ${data.marketplace}.
 
-COMPETITOR DATA (${data.competitors.length} products):
-${competitorBlocks}
+=== PHASE 1 REVIEW SUMMARY ===
+${phase1Summary}
 
-MARKET STATS:
-Avg Price: ${data.marketStats.currency}${data.marketStats.avgPrice.toFixed(2)} | Range: ${data.marketStats.currency}${data.marketStats.minPrice.toFixed(2)}-${data.marketStats.currency}${data.marketStats.maxPrice.toFixed(2)} | Avg Rating: ${data.marketStats.avgRating.toFixed(1)} | Total Reviews: ${data.marketStats.totalReviews.toLocaleString()}
+${qnaSection}
 
-=== YOUR TASK: PHASE 2 — CUSTOMER INTELLIGENCE & STRATEGY ===
+=== YOUR TASK: PHASE 2 — Q&A ANALYSIS & CONTENT GAPS ===
 
-Using the Phase 1 competitive analysis AND the raw review/listing data, build deep customer intelligence and strategic recommendations.
+Analyze all Q&A data to identify what customers ask before buying, what concerns they have, and what information gaps exist in competitor listings.
 
 Return a JSON object with this EXACT structure:
 {
-  "executiveSummary": "<3-5 sentences: key market opportunity, competitive landscape summary, primary customer need, strategic differentiation angle, recommended positioning>",
-  "customerDemographics": [6-8 age ranges with estimated gender split based on review language/use cases: {"ageRange":"18-24","male":<estimated count>,"female":<estimated count>}],
-  "customerSegments": [4-6 distinct customer segments from reviews: {"name":"Creative Teacher Emily","ageRange":"25-34","occupation":"Teacher","traits":["Budget-conscious","Focus on non-toxic materials","Needs durable supplies for heavy use","Prefers multicolored sets"]}],
-  "detailedAvatars": [2-3 primary buyer personas with rich detail: {
-    "name":"<persona name>",
-    "initials":"<2 letter initials>",
-    "role":"Primary",
-    "buyerPercentage":<estimated % of buyers>,
-    "demographics":{"age":<typical age>,"gender":"<Male/Female>","location":"<Urban/Suburban/Rural>","income":"<Low/Medium/High>","purchaseFrequency":"<Occasionally/Regularly/Often>"},
-    "psychographics":{"lifestyle":"<brief description>","values":["value1","value2","value3"],"interests":["interest1","interest2","interest3"]},
-    "buyingBehavior":["behavior1","behavior2","behavior3"],
-    "keyMotivations":"<2-3 sentences about what drives this persona to buy>"
-  }],
-  "imageRecommendations": ["8-10 specific image/photography recommendations based on what competitors show and what reviews mention wanting to see"],
-  "keyMarketInsights": {
-    "primaryTargetMarket": {"priceRange":"$X-$Y","region":"<Urban/Suburban>","income":"<income level>","ageRange":"<age range>"},
-    "growthOpportunity": {"growthRate":"<+X% estimated>","focusArea":"<specific opportunity>","marketType":"<Premium/Value/Niche>"},
-    "featurePriority": {"importance":"<X%>","features":["top 3-4 features to prioritize"]}
-  },
-  "strategicRecommendations": {
-    "pricing": ["3 specific pricing strategy recommendations"],
-    "product": ["3 specific product strategy recommendations"],
-    "marketing": ["3 specific marketing strategy recommendations"],
-    "operations": ["3 specific operations strategy recommendations"]
-  },
-  "messagingFramework": {
-    "primaryMessage": "<one-line primary positioning message for the listing>",
-    "supportPoints": ["3-4 support points backed by market data"],
-    "proofPoints": ["3-4 proof points from competitor reviews/data"],
-    "riskReversal": "<how to preemptively address the top pain point from Phase 1>"
-  },
-  "customerVoicePhrases": {
-    "positiveEmotional": ["5-8 authentic positive phrases from competitor reviews, e.g. 'love the vibrant colors'"],
-    "functional": ["5-8 functional phrases, e.g. 'erasable and washable', 'dual tip design'"],
-    "useCaseLanguage": ["5-8 use case phrases, e.g. 'chalkboard menu displays', 'classroom activities'"]
-  }
+  "topQuestions": [top 10-15 most important questions: {"question":"...","answer":"...","votes":<count>,"category":"Product Specs/Usage/Compatibility/Quality/Safety","asin":"<source asin>"}],
+  "questionThemes": [5-8 question categories: {"theme":"Surface Compatibility","count":<questions about this>,"description":"Customers frequently ask about which surfaces these work on"}],
+  "unansweredGaps": [5-8 gaps: {"gap":"...","importance":"CRITICAL/HIGH/MEDIUM","recommendation":"..."}],
+  "buyerConcerns": [5-8 pre-purchase concerns: {"concern":"...","frequency":"Very Common/Common/Occasional","resolution":"How to address this in listing"}],
+  "contentGaps": [5-8 content gaps competitors miss: {"gap":"...","importance":"CRITICAL/HIGH/MEDIUM","recommendation":"..."}]
 }
 
-IMPORTANT: Reference Phase 1 results to ensure coherence. Avatars should mention real pain points from Phase 1. Strategy should address real competitive gaps. Messaging framework should leverage real customer voice from reviews.
+If no Q&A data is available, derive gaps and concerns from the Phase 1 review analysis — what questions do reviews implicitly answer that should be in listings?
 
 Only return valid JSON, no markdown fences or explanation.`
 }
 
-export async function analyzeMarketIntelligencePhase1(
-  data: MarketIntelligenceData
-): Promise<{ result: import('@/types/market-intelligence').MarketIntelligencePhase1Result; model: string; tokensUsed: number }> {
+function buildMIPhase3MarketPrompt(data: MarketIntelligenceData, phase1Result: Record<string, unknown>, phase2Result: Record<string, unknown>): string {
+  const keywordsLabel = data.keywords && data.keywords.length > 1
+    ? data.keywords.join(', ')
+    : data.keyword
+
+  const searchLandscape = data.searchResults.slice(0, 20)
+    .map(r => `  #${r.pos} | ${r.title?.slice(0, 80)} | ${r.asin} | $${r.price ?? 'N/A'} | ${r.rating ?? 'N/A'}★ | ${r.reviews_count?.toLocaleString() ?? '?'} reviews${r.is_prime ? ' | Prime' : ''}${r.sales_volume ? ` | ${r.sales_volume}` : ''}`)
+    .join('\n')
+
+  const competitorBlocks = data.competitors
+    .map((c, i) => buildCompetitorBlockLight(c, i))
+    .join('\n')
+
+  return `You are an expert Amazon market intelligence analyst. This is PHASE 3 of a 4-phase analysis for "${keywordsLabel}" on ${data.marketplace}.
+
+=== PHASE 1 RESULTS — REVIEW DEEP-DIVE ===
+${JSON.stringify(phase1Result, null, 2)}
+
+=== PHASE 2 RESULTS — Q&A ANALYSIS ===
+${JSON.stringify(phase2Result, null, 2)}
+
+=== SEARCH LANDSCAPE (Top 20 Organic Results) ===
+${searchLandscape}
+
+=== COMPETITOR PRODUCT DATA (${data.competitors.length} products) ===
+${competitorBlocks}
+
+=== MARKET STATS ===
+Avg Price: ${data.marketStats.currency}${data.marketStats.avgPrice.toFixed(2)} | Range: ${data.marketStats.currency}${data.marketStats.minPrice.toFixed(2)}-${data.marketStats.currency}${data.marketStats.maxPrice.toFixed(2)}
+Avg Rating: ${data.marketStats.avgRating.toFixed(1)}/5 | Total Reviews: ${data.marketStats.totalReviews.toLocaleString()} | Prime: ${data.marketStats.primePercentage.toFixed(0)}% | AC: ${data.marketStats.amazonChoiceCount}
+
+=== YOUR TASK: PHASE 3 — MARKET & COMPETITIVE ANALYSIS ===
+
+Using Phase 1 review insights, Phase 2 Q&A analysis, and the product listing data, analyze the competitive landscape.
+
+Return a JSON object with this EXACT structure:
+{
+  "competitiveLandscape": [one per competitor: {"brand":"...","avgRating":<rating>,"reviewCount":<count>,"category":"...","keyFeatures":["f1","f2","f3"],"marketShare":"<estimated %>"}],
+  "competitorPatterns": {
+    "titlePatterns": [top 5: {"pattern":"Brand + Count + Type + Feature","frequency":<count>,"example":"<actual title>"}],
+    "bulletThemes": [top 5: {"theme":"Surface Compatibility","frequency":<count>,"example":"<excerpt>"}],
+    "pricingRange": {"min":<lowest>,"max":<highest>,"average":<avg>,"median":<median>,"currency":"<symbol>"}
+  },
+  "customerSegments": [4-6 segments: {"name":"Creative Teacher Emily","ageRange":"25-34","occupation":"Teacher","traits":["trait1","trait2","trait3"]}]
+}
+
+Only return valid JSON, no markdown fences or explanation.`
+}
+
+function buildMIPhase4StrategyPrompt(data: MarketIntelligenceData, phase1Result: Record<string, unknown>, phase2Result: Record<string, unknown>, phase3Result: Record<string, unknown>): string {
+  const keywordsLabel = data.keywords && data.keywords.length > 1
+    ? data.keywords.join(', ')
+    : data.keyword
+
+  return `You are an expert Amazon market intelligence strategist. This is PHASE 4 (final) of a 4-phase analysis for "${keywordsLabel}" on ${data.marketplace}.
+
+=== PHASE 1 — REVIEW DEEP-DIVE ===
+${JSON.stringify(phase1Result, null, 2)}
+
+=== PHASE 2 — Q&A ANALYSIS ===
+${JSON.stringify(phase2Result, null, 2)}
+
+=== PHASE 3 — MARKET & COMPETITIVE ===
+${JSON.stringify(phase3Result, null, 2)}
+
+=== MARKET CONTEXT ===
+Products analyzed: ${data.competitors.length} | Avg Price: ${data.marketStats.currency}${data.marketStats.avgPrice.toFixed(2)} | Avg Rating: ${data.marketStats.avgRating.toFixed(1)} | Total Reviews: ${data.marketStats.totalReviews.toLocaleString()}
+
+=== YOUR TASK: PHASE 4 — CUSTOMER INTELLIGENCE & STRATEGY ===
+
+Synthesize ALL prior phases into actionable customer intelligence and strategy. Every recommendation must reference real data from prior phases.
+
+Return a JSON object with this EXACT structure:
+{
+  "executiveSummary": "<3-5 sentences: market opportunity, competitive summary, primary need, differentiation angle, positioning>",
+  "customerDemographics": [6-8 age ranges: {"ageRange":"18-24","male":<count>,"female":<count>}],
+  "detailedAvatars": [2-3 personas: {
+    "name":"<name>","initials":"<2 letters>","role":"Primary",
+    "buyerPercentage":<% of buyers>,
+    "demographics":{"age":<age>,"gender":"...","location":"...","income":"...","purchaseFrequency":"..."},
+    "psychographics":{"lifestyle":"...","values":["v1","v2","v3"],"interests":["i1","i2","i3"]},
+    "buyingBehavior":["b1","b2","b3"],
+    "keyMotivations":"<2-3 sentences>"
+  }],
+  "imageRecommendations": ["8-10 specific image recommendations based on review mentions + competitor gaps"],
+  "keyMarketInsights": {
+    "primaryTargetMarket": {"priceRange":"$X-$Y","region":"...","income":"...","ageRange":"..."},
+    "growthOpportunity": {"growthRate":"...","focusArea":"...","marketType":"..."},
+    "featurePriority": {"importance":"...","features":["f1","f2","f3"]}
+  },
+  "strategicRecommendations": {
+    "pricing": ["3 recommendations"],
+    "product": ["3 recommendations"],
+    "marketing": ["3 recommendations"],
+    "operations": ["3 recommendations"]
+  },
+  "messagingFramework": {
+    "primaryMessage": "<one-line positioning>",
+    "supportPoints": ["3-4 points"],
+    "proofPoints": ["3-4 points"],
+    "riskReversal": "<address top pain point>"
+  },
+  "customerVoicePhrases": {
+    "positiveEmotional": ["5-8 authentic phrases from reviews"],
+    "functional": ["5-8 functional phrases"],
+    "useCaseLanguage": ["5-8 use case phrases"]
+  }
+}
+
+IMPORTANT: Reference Phase 1-3 results. Avatars should mention real pain points. Strategy should address real gaps. Use real customer voice from reviews.
+
+Only return valid JSON, no markdown fences or explanation.`
+}
+
+// --- 4-Phase Analysis Executor Functions ---
+
+async function runMIPhase(
+  promptBuilder: () => string,
+  phaseLabel: string
+): Promise<{ result: Record<string, unknown>; model: string; tokensUsed: number }> {
   const client = await getClient()
   const model = await getModel()
-  const prompt = buildMarketIntelligencePhase1Prompt(data)
+  const prompt = promptBuilder()
 
   const response = await client.messages.create({
     model,
@@ -2311,35 +2454,77 @@ export async function analyzeMarketIntelligencePhase1(
     .map((b) => b.text)
     .join('')
 
-  const result = JSON.parse(stripMarkdownFences(text)) as import('@/types/market-intelligence').MarketIntelligencePhase1Result
+  const result = JSON.parse(stripMarkdownFences(text)) as Record<string, unknown>
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
   return { result, model, tokensUsed }
+}
+
+export async function analyzeMarketIntelligencePhase1Reviews(
+  data: MarketIntelligenceData
+): Promise<{ result: import('@/types/market-intelligence').MarketIntelligenceReviewPhaseResult; model: string; tokensUsed: number }> {
+  const { result, model, tokensUsed } = await runMIPhase(
+    () => buildMIPhase1ReviewsPrompt(data),
+    'Phase 1: Reviews'
+  )
+  return { result: result as unknown as import('@/types/market-intelligence').MarketIntelligenceReviewPhaseResult, model, tokensUsed }
+}
+
+export async function analyzeMarketIntelligencePhase2QnA(
+  data: MarketIntelligenceData,
+  phase1Result: Record<string, unknown>
+): Promise<{ result: import('@/types/market-intelligence').MarketIntelligenceQnAPhaseResult; model: string; tokensUsed: number }> {
+  const phase1Summary = JSON.stringify({
+    sentimentAnalysis: phase1Result.sentimentAnalysis,
+    topPainPoints: phase1Result.topPainPoints,
+    primaryMotivations: phase1Result.primaryMotivations,
+    perProductSummaries: phase1Result.perProductSummaries,
+  }, null, 2)
+
+  const { result, model, tokensUsed } = await runMIPhase(
+    () => buildMIPhase2QnAPrompt(data, phase1Summary),
+    'Phase 2: Q&A'
+  )
+  return { result: result as unknown as import('@/types/market-intelligence').MarketIntelligenceQnAPhaseResult, model, tokensUsed }
+}
+
+export async function analyzeMarketIntelligencePhase3Market(
+  data: MarketIntelligenceData,
+  phase1Result: Record<string, unknown>,
+  phase2Result: Record<string, unknown>
+): Promise<{ result: import('@/types/market-intelligence').MarketIntelligenceMarketPhaseResult; model: string; tokensUsed: number }> {
+  const { result, model, tokensUsed } = await runMIPhase(
+    () => buildMIPhase3MarketPrompt(data, phase1Result, phase2Result),
+    'Phase 3: Market'
+  )
+  return { result: result as unknown as import('@/types/market-intelligence').MarketIntelligenceMarketPhaseResult, model, tokensUsed }
+}
+
+export async function analyzeMarketIntelligencePhase4Strategy(
+  data: MarketIntelligenceData,
+  phase1Result: Record<string, unknown>,
+  phase2Result: Record<string, unknown>,
+  phase3Result: Record<string, unknown>
+): Promise<{ result: import('@/types/market-intelligence').MarketIntelligenceStrategyPhaseResult; model: string; tokensUsed: number }> {
+  const { result, model, tokensUsed } = await runMIPhase(
+    () => buildMIPhase4StrategyPrompt(data, phase1Result, phase2Result, phase3Result),
+    'Phase 4: Strategy'
+  )
+  return { result: result as unknown as import('@/types/market-intelligence').MarketIntelligenceStrategyPhaseResult, model, tokensUsed }
+}
+
+// Legacy aliases for backward compatibility
+export async function analyzeMarketIntelligencePhase1(
+  data: MarketIntelligenceData
+): Promise<{ result: import('@/types/market-intelligence').MarketIntelligencePhase1Result; model: string; tokensUsed: number }> {
+  return analyzeMarketIntelligencePhase1Reviews(data) as Promise<{ result: import('@/types/market-intelligence').MarketIntelligencePhase1Result; model: string; tokensUsed: number }>
 }
 
 export async function analyzeMarketIntelligencePhase2(
   data: MarketIntelligenceData,
   phase1Result: import('@/types/market-intelligence').MarketIntelligencePhase1Result
 ): Promise<{ result: import('@/types/market-intelligence').MarketIntelligencePhase2Result; model: string; tokensUsed: number }> {
-  const client = await getClient()
-  const model = await getModel()
-  const prompt = buildMarketIntelligencePhase2Prompt(data, phase1Result)
-
-  const response = await client.messages.create({
-    model,
-    max_tokens: 16384,
-    messages: [{ role: 'user', content: prompt }],
-  })
-
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    .map((b) => b.text)
-    .join('')
-
-  const result = JSON.parse(stripMarkdownFences(text)) as import('@/types/market-intelligence').MarketIntelligencePhase2Result
-  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
-
-  return { result, model, tokensUsed }
+  return analyzeMarketIntelligencePhase4Strategy(data, phase1Result as unknown as Record<string, unknown>, {}, {}) as Promise<{ result: import('@/types/market-intelligence').MarketIntelligencePhase2Result; model: string; tokensUsed: number }>
 }
 
 // --- Pre-Analyzed File Conversion ---

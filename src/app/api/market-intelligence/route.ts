@@ -9,20 +9,31 @@ export async function POST(request: Request) {
     const supabase = createClient()
     const body = await request.json()
 
-    const { keyword, country_id, max_competitors } = body as {
-      keyword: string
+    const { keyword, keywords, country_id, max_competitors, reviews_per_product } = body as {
+      keyword?: string
+      keywords?: string[]
       country_id: string
       max_competitors?: number
+      reviews_per_product?: number
     }
 
-    if (!keyword?.trim() || !country_id) {
+    // Support both single keyword and keywords array
+    let keywordsList: string[] = []
+    if (keywords && Array.isArray(keywords) && keywords.length > 0) {
+      keywordsList = keywords.map(k => k.trim().toLowerCase()).filter(k => k.length > 0)
+    } else if (keyword?.trim()) {
+      keywordsList = [keyword.trim().toLowerCase()]
+    }
+
+    if (keywordsList.length === 0 || !country_id) {
       return NextResponse.json(
-        { error: 'keyword and country_id are required' },
+        { error: 'At least one keyword and country_id are required' },
         { status: 400 }
       )
     }
 
     const competitors = Math.min(Math.max(max_competitors || 10, 5), 20)
+    const reviewsPerProduct = Math.min(Math.max(reviews_per_product || 200, 100), 500)
 
     // Get country for marketplace_domain
     const { data: country, error: countryErr } = await supabase
@@ -38,10 +49,12 @@ export async function POST(request: Request) {
     const { data: record, error: insertErr } = await supabase
       .from('lb_market_intelligence')
       .insert({
-        keyword: keyword.trim().toLowerCase(),
+        keyword: keywordsList[0], // primary/display keyword
+        keywords: keywordsList,
         country_id,
         marketplace_domain: country.amazon_domain,
         max_competitors: competitors,
+        reviews_per_product: reviewsPerProduct,
         status: 'pending',
         created_by: lbUser.id,
       })

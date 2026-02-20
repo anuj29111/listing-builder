@@ -11,6 +11,21 @@ export async function GET(request: Request) {
     const search = searchParams.get('search')?.trim()
     const category = searchParams.get('category')
     const brand = searchParams.get('brand')
+    const asinsOnly = searchParams.get('asins_only')
+
+    // Lightweight endpoint: return just ASINs for matching/tagging
+    if (asinsOnly === 'true') {
+      const { data, error } = await supabase
+        .from('lb_products')
+        .select('asin')
+        .limit(2000)
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 })
+      }
+
+      return NextResponse.json({ asins: (data || []).map(d => d.asin) })
+    }
 
     let query = supabase
       .from('lb_products')

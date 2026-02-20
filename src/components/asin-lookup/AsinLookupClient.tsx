@@ -23,12 +23,21 @@ interface AsinLookupClientProps {
   initialLookups: Partial<LbAsinLookup>[]
 }
 
+interface QnAItem {
+  question: string
+  answer: string
+  votes: number
+  author?: string
+  date?: string
+}
+
 interface FetchResult {
   asin: string
   success: boolean
   error?: string
   data?: OxylabsProductResult
   saved_id?: string
+  questions?: QnAItem[]
 }
 
 export function AsinLookupClient({
@@ -46,6 +55,7 @@ export function AsinLookupClient({
   const [historyCountry, setHistoryCountry] = useState<string>('')
   const [expandedLookupId, setExpandedLookupId] = useState<string | null>(null)
   const [expandedLookupData, setExpandedLookupData] = useState<Record<string, unknown> | null>(null)
+  const [expandedLookupQuestions, setExpandedLookupQuestions] = useState<QnAItem[] | undefined>(undefined)
   const [loadingLookupId, setLoadingLookupId] = useState<string | null>(null)
 
   const selectedCountry = countries.find((c) => c.id === countryId)
@@ -126,17 +136,19 @@ export function AsinLookupClient({
     refreshHistory()
   }
 
-  const toggleHistoryItem = async (lookupId: string) => {
+  const toggleHistoryItem = async (lookupId: string, lookupAsin?: string, lookupCountryId?: string) => {
     if (expandedLookupId === lookupId) {
       // Collapse
       setExpandedLookupId(null)
       setExpandedLookupData(null)
+      setExpandedLookupQuestions(undefined)
       return
     }
 
-    // Expand — fetch full record with raw_response
+    // Expand — fetch full record with raw_response + Q&A
     setExpandedLookupId(lookupId)
     setExpandedLookupData(null)
+    setExpandedLookupQuestions(undefined)
     setLoadingLookupId(lookupId)
 
     try {
@@ -144,6 +156,19 @@ export function AsinLookupClient({
       const json = await res.json()
       if (res.ok && json.data) {
         setExpandedLookupData(json.data.raw_response || json.data)
+
+        // Also fetch Q&A if we have asin + country_id
+        if (lookupAsin && lookupCountryId) {
+          try {
+            const qRes = await fetch(`/api/asin-questions?asin=${lookupAsin}&country_id=${lookupCountryId}`)
+            const qJson = await qRes.json()
+            if (qRes.ok && qJson.questions) {
+              setExpandedLookupQuestions(qJson.questions)
+            }
+          } catch {
+            // Q&A fetch is non-blocking
+          }
+        }
       }
     } catch {
       // silent
@@ -228,6 +253,7 @@ export function AsinLookupClient({
                   data={r.data}
                   marketplace={selectedCountry?.amazon_domain || ''}
                   savedId={r.saved_id}
+                  questions={r.questions}
                 />
               ) : (
                 <div
@@ -311,7 +337,7 @@ export function AsinLookupClient({
                   {/* Clickable row */}
                   <div
                     className="p-3 flex items-center gap-3 hover:bg-muted/50 transition-colors cursor-pointer"
-                    onClick={() => lookup.id && toggleHistoryItem(lookup.id)}
+                    onClick={() => lookup.id && toggleHistoryItem(lookup.id, lookup.asin, lookup.country_id)}
                   >
                     {firstImage && (
                       <div className="w-10 h-10 flex-shrink-0 rounded overflow-hidden bg-muted">
@@ -385,6 +411,7 @@ export function AsinLookupClient({
                         data={expandedLookupData as OxylabsProductResult}
                         marketplace={lookup.marketplace_domain || ''}
                         defaultExpanded
+                        questions={expandedLookupQuestions}
                       />
                     </div>
                   )}

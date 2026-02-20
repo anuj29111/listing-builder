@@ -17,8 +17,18 @@ import {
   ShoppingCart,
   Truck,
   BarChart3,
+  HelpCircle,
+  ThumbsUp,
 } from 'lucide-react'
 import type { OxylabsProductResult } from '@/lib/oxylabs'
+
+interface QnAItem {
+  question: string
+  answer: string
+  votes: number
+  author?: string
+  date?: string
+}
 
 interface AsinResultCardProps {
   asin: string
@@ -26,6 +36,7 @@ interface AsinResultCardProps {
   marketplace: string
   savedId?: string
   defaultExpanded?: boolean
+  questions?: QnAItem[]
 }
 
 export function AsinResultCard({
@@ -34,8 +45,10 @@ export function AsinResultCard({
   marketplace,
   savedId,
   defaultExpanded = false,
+  questions,
 }: AsinResultCardProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
+  const [showAllQnA, setShowAllQnA] = useState(false)
 
   const mainImage = data.images?.[0]
   const bsr = data.sales_rank?.[0]
@@ -499,6 +512,51 @@ export function AsinResultCard({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Q&A */}
+          {questions && questions.length > 0 && (
+            <div className="p-4">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                <HelpCircle className="h-3 w-3 inline mr-1" />
+                Questions & Answers ({questions.length})
+              </h4>
+              <div className="space-y-2">
+                {(showAllQnA ? questions : questions.slice(0, 5)).map((q, i) => (
+                  <div key={i} className="text-sm border rounded p-3 bg-muted/30">
+                    <div className="flex items-start gap-2">
+                      <span className="text-primary font-bold text-xs mt-0.5 flex-shrink-0">Q:</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">{q.question}</p>
+                        {q.answer && (
+                          <p className="text-xs text-muted-foreground mt-1">{q.answer}</p>
+                        )}
+                        <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
+                          {q.votes > 0 && (
+                            <span className="flex items-center gap-0.5">
+                              <ThumbsUp className="h-2.5 w-2.5" />{q.votes}
+                            </span>
+                          )}
+                          {q.author && <span>by {q.author}</span>}
+                          {q.date && <span>{q.date}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {questions.length > 5 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAllQnA(!showAllQnA)}
+                  className="mt-2 w-full text-xs"
+                >
+                  <ChevronDown className={`h-3 w-3 mr-1 transition-transform ${showAllQnA ? 'rotate-180' : ''}`} />
+                  {showAllQnA ? 'Show Less' : `Show All ${questions.length} Q&As`}
+                </Button>
+              )}
             </div>
           )}
 
