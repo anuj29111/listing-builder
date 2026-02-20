@@ -193,6 +193,7 @@ export interface GenerateWorkshopPromptsRequest {
   listing_id?: string
   name?: string
   image_type?: 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
+  workshop_id?: string
 }
 
 export interface GenerateWorkshopPromptsResponse {
@@ -231,6 +232,9 @@ export interface UpdateWorkshopRequest {
   selected_prompt_indices?: number[]
   provider?: 'openai' | 'gemini' | 'higgsfield'
   orientation?: 'square' | 'portrait' | 'landscape'
+  creative_brief?: CreativeBrief | null
+  product_photos?: string[]
+  product_photo_descriptions?: Record<string, ProductPhotoDescription> | null
 }
 
 // --- Secondary Image Concepts ---
@@ -263,6 +267,7 @@ export interface GenerateSecondaryPromptsRequest {
   category_id: string
   country_id: string
   listing_id?: string
+  workshop_id?: string
 }
 
 export interface GenerateSecondaryPromptsResponse {
@@ -314,6 +319,7 @@ export interface GenerateVideoStoryboardRequest {
   category_id: string
   country_id: string
   listing_id?: string
+  workshop_id?: string
 }
 
 export interface GenerateVideoStoryboardResponse {
@@ -327,6 +333,7 @@ export interface GenerateThumbnailPromptsRequest {
   category_id: string
   country_id: string
   listing_id?: string
+  workshop_id?: string
 }
 
 export interface GenerateThumbnailPromptsResponse {
@@ -447,12 +454,107 @@ export interface GenerateAPlusStrategyRequest {
   category_id: string
   country_id: string
   listing_id?: string
+  workshop_id?: string
 }
 
 export interface GenerateAPlusStrategyResponse {
   strategy: APlusStrategy
   model: string
   tokensUsed: number
+}
+
+// --- Creative Brief Types ---
+
+export interface CreativeBriefPainPoint {
+  pain_point: string
+  evidence_source: string
+  mention_count: number
+  suggested_image_position: number
+  visual_proof_direction: string
+}
+
+export interface CreativeBriefUSP {
+  usp: string
+  evidence: string
+  competitor_weakness: string
+  suggested_image_position: number
+  visual_demo_direction: string
+}
+
+export interface CreativeBriefPersona {
+  name: string
+  description: string
+  demographics: string
+  lifestyle_scene_direction: string
+  emotional_trigger: string
+}
+
+export interface CreativeBriefVisualDirection {
+  primary_colors: string[]
+  secondary_colors: string[]
+  mood: string[]
+  style: string
+  typography_direction: string
+  photography_style: string
+}
+
+export interface CreativeBriefCompetitorGap {
+  gap: string
+  what_competitors_show: string
+  what_we_should_show: string
+  priority: 'HIGH' | 'MEDIUM' | 'LOW'
+}
+
+export interface CreativeBrief {
+  top_pain_points: CreativeBriefPainPoint[]
+  top_usps: CreativeBriefUSP[]
+  personas: CreativeBriefPersona[]
+  customer_voice_phrases: string[]
+  visual_direction: CreativeBriefVisualDirection
+  competitor_visual_gaps: CreativeBriefCompetitorGap[]
+  product_description_from_photos: string | null
+  image_position_strategy: string
+}
+
+export interface ProductPhotoDescription {
+  description: string
+  detected_features: string[]
+  dominant_colors: string[]
+  suggested_angles: string[]
+  photo_type: string
+}
+
+export interface GenerateCreativeBriefRequest {
+  product_name: string
+  brand: string
+  category_id: string
+  country_id: string
+  listing_id?: string
+  workshop_id: string
+  market_intelligence_id?: string
+}
+
+export interface GenerateCreativeBriefResponse {
+  brief: CreativeBrief
+  model: string
+  tokensUsed: number
+}
+
+export interface UploadProductPhotosRequest {
+  workshop_id: string
+}
+
+export interface UploadProductPhotosResponse {
+  photo_urls: string[]
+}
+
+export interface AnalyzeProductPhotosRequest {
+  workshop_id: string
+  photo_urls: string[]
+}
+
+export interface AnalyzeProductPhotosResponse {
+  descriptions: Record<string, ProductPhotoDescription>
 }
 
 // --- Listing Enhancement Types ---

@@ -7,7 +7,7 @@ import {
   type ReviewAnalysisResult,
   type QnAAnalysisResult,
 } from '@/lib/claude'
-import type { GenerateSecondaryPromptsRequest, CompetitorAnalysisResult } from '@/types/api'
+import type { GenerateSecondaryPromptsRequest, CompetitorAnalysisResult, CreativeBrief } from '@/types/api'
 
 export async function POST(request: Request) {
   try {
@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     const adminClient = createAdminClient()
     const body = (await request.json()) as GenerateSecondaryPromptsRequest
 
-    const { product_name, brand, category_id, country_id, listing_id } = body
+    const { product_name, brand, category_id, country_id, listing_id, workshop_id } = body
 
     if (!product_name || !brand || !category_id || !country_id) {
       return NextResponse.json(
@@ -94,6 +94,17 @@ export async function POST(request: Request) {
       }
     }
 
+    // Fetch creative brief from existing workshop if available
+    let creativeBrief: CreativeBrief | null = null
+    if (workshop_id) {
+      const { data: existingWorkshop } = await supabase
+        .from('lb_image_workshops')
+        .select('creative_brief')
+        .eq('id', workshop_id)
+        .single()
+      creativeBrief = (existingWorkshop?.creative_brief as unknown as CreativeBrief) || null
+    }
+
     const { result } = await generateSecondaryImagePrompts({
       productName: product_name,
       brand,
@@ -113,6 +124,7 @@ export async function POST(request: Request) {
       competitorAnalysis: competitorRow
         ? (competitorRow.analysis_result as unknown as CompetitorAnalysisResult)
         : null,
+      creativeBrief,
     })
 
     // Create workshop record with prompts persisted

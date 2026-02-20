@@ -16,6 +16,13 @@ export interface ConceptDetailItem {
   value: string | string[]
 }
 
+export interface ConceptMetadataItem {
+  label: string
+  value: string
+}
+
+type ImageType = 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
+
 interface ConceptCardProps {
   index: number
   label: string
@@ -30,6 +37,33 @@ interface ConceptCardProps {
   onGenerate?: () => void
   showCheckbox?: boolean
   details?: ConceptDetailItem[]
+  imageType?: ImageType
+  metadata?: ConceptMetadataItem[]
+  colorSwatches?: string[]
+  subHeadline?: string
+  usp?: string
+}
+
+/** Parse hex color codes from a string like "#FF1493, #008080" or "vibrant pink (#FF1493)" */
+function parseHexColors(str: string): string[] {
+  const hexPattern = /#[0-9A-Fa-f]{6}/g
+  return str.match(hexPattern) || []
+}
+
+function ColorSwatches({ colors }: { colors: string[] }) {
+  if (colors.length === 0) return null
+  return (
+    <div className="flex items-center gap-1">
+      {colors.slice(0, 6).map((color, i) => (
+        <div
+          key={i}
+          className="w-4 h-4 rounded-full border border-border/50 flex-shrink-0"
+          style={{ backgroundColor: color }}
+          title={color}
+        />
+      ))}
+    </div>
+  )
 }
 
 export function ConceptCard({
@@ -46,6 +80,11 @@ export function ConceptCard({
   onGenerate,
   showCheckbox = true,
   details,
+  imageType,
+  metadata,
+  colorSwatches,
+  subHeadline,
+  usp,
 }: ConceptCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -63,10 +102,24 @@ export function ConceptCard({
     setEditing(false)
   }
 
+  // Filter out empty details
   const filteredDetails = details?.filter((d) => {
     if (Array.isArray(d.value)) return d.value.length > 0
     return d.value && d.value.trim() !== ''
   })
+
+  // Metadata items shown in the inline bar already — exclude from "Full Details" to avoid duplication
+  const metadataLabels = new Set((metadata || []).map((m) => m.label))
+  const remainingDetails = filteredDetails?.filter((d) => !metadataLabels.has(d.label))
+
+  // Auto-detect color swatches from details if not explicitly provided
+  const resolvedSwatches = colorSwatches || (() => {
+    const colorDetail = details?.find((d) =>
+      d.label.toLowerCase().includes('color') &&
+      typeof d.value === 'string'
+    )
+    return colorDetail ? parseHexColors(colorDetail.value as string) : []
+  })()
 
   return (
     <div
@@ -80,7 +133,7 @@ export function ConceptCard({
         {/* Left: Prompt content */}
         <div className="flex-1 min-w-0">
           {/* Header row */}
-          <div className="flex items-start gap-3 mb-2">
+          <div className="flex items-start gap-3 mb-1">
             {showCheckbox && (
               <button
                 onClick={onToggleSelect}
@@ -103,6 +156,33 @@ export function ConceptCard({
             </div>
           </div>
 
+          {/* Always-visible metadata bar */}
+          {(metadata && metadata.length > 0) || resolvedSwatches.length > 0 || subHeadline || usp ? (
+            <div className="flex items-center gap-3 flex-wrap mt-1 mb-1.5">
+              {metadata?.map((m) => (
+                <span key={m.label} className="text-[11px] text-muted-foreground">
+                  <span className="font-medium text-foreground/70">{m.label}:</span>{' '}
+                  {m.value}
+                </span>
+              ))}
+              {resolvedSwatches.length > 0 && <ColorSwatches colors={resolvedSwatches} />}
+            </div>
+          ) : null}
+
+          {/* Sub-headline + USP always visible for secondary images */}
+          {(subHeadline || usp) && (
+            <div className="space-y-0.5 mt-1 mb-1.5">
+              {subHeadline && (
+                <p className="text-xs font-medium text-foreground/80 italic">&ldquo;{subHeadline}&rdquo;</p>
+              )}
+              {usp && (
+                <p className="text-[11px] text-primary/80">
+                  <span className="font-semibold">USP:</span> {usp}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Prompt text */}
           {editing ? (
             <div className="space-y-2 mt-2">
@@ -119,7 +199,7 @@ export function ConceptCard({
             </div>
           ) : (
             <div className="mt-1">
-              <p className={`text-xs text-muted-foreground ${expanded ? '' : 'line-clamp-2'}`}>
+              <p className={`text-xs text-muted-foreground ${expanded ? '' : 'line-clamp-3'}`}>
                 {prompt}
               </p>
               <button
@@ -147,7 +227,7 @@ export function ConceptCard({
                 Edit
               </Button>
             )}
-            {filteredDetails && filteredDetails.length > 0 && (
+            {remainingDetails && remainingDetails.length > 0 && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -155,7 +235,7 @@ export function ConceptCard({
                 onClick={() => setShowDetails(!showDetails)}
               >
                 <Info className="h-3 w-3 mr-1" />
-                {showDetails ? 'Hide Details' : 'Details'}
+                {showDetails ? 'Hide Details' : 'Full Details'}
               </Button>
             )}
             {image && onRegenerate && (
@@ -220,11 +300,11 @@ export function ConceptCard({
         </div>
       </div>
 
-      {/* Enriched Details Panel */}
-      {showDetails && filteredDetails && filteredDetails.length > 0 && (
+      {/* Full Details Panel (only fields NOT already in metadata bar) */}
+      {showDetails && remainingDetails && remainingDetails.length > 0 && (
         <div className="border-t px-4 py-3 bg-muted/20">
           <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-            {filteredDetails.map((detail) => (
+            {remainingDetails.map((detail) => (
               <div key={detail.label} className="min-w-0">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   {detail.label}

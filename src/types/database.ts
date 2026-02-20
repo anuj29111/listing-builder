@@ -215,6 +215,9 @@ export interface LbImageWorkshop {
   provider: 'openai' | 'gemini' | 'higgsfield'
   orientation: 'square' | 'portrait' | 'landscape'
   image_type: 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
+  creative_brief: import('@/types/api').CreativeBrief | null
+  product_photos: string[]
+  product_photo_descriptions: Record<string, import('@/types/api').ProductPhotoDescription> | null
   created_by: string | null
   created_at: string
   updated_at: string

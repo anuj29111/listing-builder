@@ -327,6 +327,14 @@ export function SecondaryImageSection({
               onRegenerate={image ? () => handleGenerateSingle(concept) : undefined}
               onGenerate={!image ? () => handleGenerateSingle(concept) : undefined}
               showCheckbox={false}
+              imageType="secondary"
+              subHeadline={concept.sub_headline}
+              usp={concept.unique_selling_point}
+              metadata={[
+                ...(concept.target_audience ? [{ label: 'Audience', value: concept.target_audience }] : []),
+                ...(concept.mood ? [{ label: 'Mood', value: concept.mood }] : []),
+                ...(concept.layout_type ? [{ label: 'Layout', value: concept.layout_type }] : []),
+              ]}
               details={[
                 { label: 'Sub-headline', value: concept.sub_headline || '' },
                 { label: 'Layout Type', value: concept.layout_type || '' },

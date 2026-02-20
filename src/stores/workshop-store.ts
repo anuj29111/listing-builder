@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 import type { LbImageGeneration, LbImageWorkshop } from '@/types/database'
-import type { WorkshopPrompt } from '@/types/api'
+import type { WorkshopPrompt, CreativeBrief, ProductPhotoDescription } from '@/types/api'
 
 type ImageProvider = 'openai' | 'gemini' | 'higgsfield'
 
@@ -22,6 +22,17 @@ interface WorkshopState {
   hfModel: string | null
   orientation: 'square' | 'portrait' | 'landscape'
   isGeneratingPrompts: boolean
+
+  // Creative Brief
+  creativeBrief: CreativeBrief | null
+  isGeneratingBrief: boolean
+
+  // Product Photos
+  productPhotos: string[]
+  productPhotoUrls: string[]
+  isUploadingPhotos: boolean
+  isAnalyzingPhotos: boolean
+  productPhotoDescriptions: Record<string, ProductPhotoDescription> | null
 
   // Step 2: Collage
   workshopImages: LbImageGeneration[]
@@ -51,6 +62,14 @@ interface WorkshopState {
   setHfModel: (model: string | null) => void
   setOrientation: (orientation: 'square' | 'portrait' | 'landscape') => void
   setIsGeneratingPrompts: (v: boolean) => void
+  setCreativeBrief: (brief: CreativeBrief | null) => void
+  setIsGeneratingBrief: (v: boolean) => void
+  setProductPhotos: (photos: string[]) => void
+  addProductPhotos: (photos: string[]) => void
+  removeProductPhoto: (url: string) => void
+  setIsUploadingPhotos: (v: boolean) => void
+  setIsAnalyzingPhotos: (v: boolean) => void
+  setProductPhotoDescriptions: (descriptions: Record<string, ProductPhotoDescription> | null) => void
   setWorkshopImages: (images: LbImageGeneration[]) => void
   addWorkshopImage: (image: LbImageGeneration) => void
   setElementTags: (tags: Record<string, string[]>) => void
@@ -79,6 +98,13 @@ const initialState = {
   hfModel: null as string | null,
   orientation: 'square' as const,
   isGeneratingPrompts: false,
+  creativeBrief: null as CreativeBrief | null,
+  isGeneratingBrief: false,
+  productPhotos: [] as string[],
+  productPhotoUrls: [] as string[],
+  isUploadingPhotos: false,
+  isAnalyzingPhotos: false,
+  productPhotoDescriptions: null as Record<string, ProductPhotoDescription> | null,
   workshopImages: [] as LbImageGeneration[],
   elementTags: {} as Record<string, string[]>,
   isBatchGenerating: false,
@@ -115,7 +141,14 @@ export const useWorkshopStore = create<WorkshopState>((set) => ({
       finalImage: finalImg,
       calloutTexts: workshop.callout_texts || [],
       competitorUrls: workshop.competitor_urls || [],
+      creativeBrief: (workshop.creative_brief as CreativeBrief | null) || null,
+      productPhotos: workshop.product_photos || [],
+      productPhotoUrls: workshop.product_photos || [],
+      productPhotoDescriptions: (workshop.product_photo_descriptions as Record<string, ProductPhotoDescription> | null) || null,
       isGeneratingPrompts: false,
+      isGeneratingBrief: false,
+      isUploadingPhotos: false,
+      isAnalyzingPhotos: false,
       isBatchGenerating: false,
       isGeneratingFinal: false,
       batchProgress: { done: 0, total: 0 },
@@ -153,6 +186,24 @@ export const useWorkshopStore = create<WorkshopState>((set) => ({
   setHfModel: (hfModel) => set({ hfModel }),
   setOrientation: (orientation) => set({ orientation }),
   setIsGeneratingPrompts: (isGeneratingPrompts) => set({ isGeneratingPrompts }),
+
+  setCreativeBrief: (creativeBrief) => set({ creativeBrief }),
+  setIsGeneratingBrief: (isGeneratingBrief) => set({ isGeneratingBrief }),
+
+  setProductPhotos: (productPhotos) => set({ productPhotos, productPhotoUrls: productPhotos }),
+  addProductPhotos: (photos) =>
+    set((state) => {
+      const all = [...state.productPhotos, ...photos]
+      return { productPhotos: all, productPhotoUrls: all }
+    }),
+  removeProductPhoto: (url) =>
+    set((state) => {
+      const filtered = state.productPhotos.filter((p) => p !== url)
+      return { productPhotos: filtered, productPhotoUrls: filtered }
+    }),
+  setIsUploadingPhotos: (isUploadingPhotos) => set({ isUploadingPhotos }),
+  setIsAnalyzingPhotos: (isAnalyzingPhotos) => set({ isAnalyzingPhotos }),
+  setProductPhotoDescriptions: (productPhotoDescriptions) => set({ productPhotoDescriptions }),
 
   setWorkshopImages: (workshopImages) => set({ workshopImages }),
   addWorkshopImage: (image) =>

@@ -60,6 +60,9 @@ export async function PATCH(
     if (body.selected_prompt_indices !== undefined) updates.selected_prompt_indices = body.selected_prompt_indices
     if (body.provider !== undefined) updates.provider = body.provider
     if (body.orientation !== undefined) updates.orientation = body.orientation
+    if (body.creative_brief !== undefined) updates.creative_brief = body.creative_brief
+    if (body.product_photos !== undefined) updates.product_photos = body.product_photos
+    if (body.product_photo_descriptions !== undefined) updates.product_photo_descriptions = body.product_photo_descriptions
 
     const { data: workshop, error } = await adminClient
       .from('lb_image_workshops')

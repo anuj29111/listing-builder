@@ -7,7 +7,7 @@ import {
   type ReviewAnalysisResult,
   type QnAAnalysisResult,
 } from '@/lib/claude'
-import type { GenerateWorkshopPromptsRequest, CompetitorAnalysisResult } from '@/types/api'
+import type { GenerateWorkshopPromptsRequest, CompetitorAnalysisResult, CreativeBrief } from '@/types/api'
 
 export async function POST(request: Request) {
   try {
@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     const adminClient = createAdminClient()
     const body = (await request.json()) as GenerateWorkshopPromptsRequest
 
-    const { product_name, brand, category_id, country_id, listing_id, name, image_type } = body
+    const { product_name, brand, category_id, country_id, listing_id, name, image_type, workshop_id } = body
 
     if (!product_name || !brand || !category_id || !country_id) {
       return NextResponse.json(
@@ -104,7 +104,18 @@ export async function POST(request: Request) {
       }
     }
 
-    // Generate AI image prompts using full research + listing data
+    // Fetch creative brief from existing workshop if available
+    let creativeBrief: CreativeBrief | null = null
+    if (workshop_id) {
+      const { data: existingWorkshop } = await supabase
+        .from('lb_image_workshops')
+        .select('creative_brief')
+        .eq('id', workshop_id)
+        .single()
+      creativeBrief = (existingWorkshop?.creative_brief as unknown as CreativeBrief) || null
+    }
+
+    // Generate AI image prompts using full research + listing data + creative brief
     const { result } = await generateImagePrompts({
       productName: product_name,
       brand,
@@ -116,6 +127,7 @@ export async function POST(request: Request) {
       listingTitle,
       bulletPoints,
       listingDescription,
+      creativeBrief,
     })
 
     // Create workshop record — save prompts to DB for persistence

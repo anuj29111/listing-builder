@@ -15,9 +15,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { IMAGE_ORIENTATION_LABELS } from '@/lib/constants'
-import { Loader2, Sparkles, ImageIcon, Check, Info, ChevronDown, ChevronUp } from 'lucide-react'
+import { Loader2, Sparkles, ImageIcon, Check, ChevronDown, ChevronUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { ProviderInfo } from '@/app/api/images/providers/route'
+import { WorkshopProductPhotos } from './WorkshopProductPhotos'
+import { CreativeBriefPanel } from './CreativeBriefPanel'
+import { ConceptCard, type ConceptMetadataItem } from '@/components/listings/images/ConceptCard'
 
 interface Step1Props {
   listings: Array<{ id: string; title: string | null; generation_context: Record<string, unknown> }>
@@ -33,117 +36,14 @@ function getCostPerImage(provider: string, geminiModel: string | null): number {
 
 import type { WorkshopPrompt } from '@/types/api'
 
-function MainImagePromptCard({ prompt: p, index, isSelected, onToggle }: {
-  prompt: WorkshopPrompt
-  index: number
-  isSelected: boolean
-  onToggle: () => void
-}) {
-  const [showDetails, setShowDetails] = useState(false)
-  const [promptExpanded, setPromptExpanded] = useState(false)
-
-  const hasDetails = p.frame_fill || p.camera_angle || p.lighting || p.emotional_target?.length || p.callout
-
-  return (
-    <div
-      className={`text-left border rounded-lg transition-colors ${
-        isSelected ? 'border-primary bg-primary/5' : 'border-muted opacity-60 hover:opacity-80'
-      }`}
-    >
-      <button onClick={onToggle} className="w-full text-left p-4">
-        <div className="flex items-start gap-3">
-          <div className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 ${
-            isSelected ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/30'
-          }`}>
-            {isSelected && <Check className="h-3 w-3" />}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <span className="font-medium text-sm">{p.label}</span>
-              <Badge variant="secondary" className="text-xs">{p.approach}</Badge>
-              {p.frame_fill && (
-                <Badge variant="outline" className="text-[10px]">{p.frame_fill}</Badge>
-              )}
-            </div>
-            <p className={`text-xs text-muted-foreground ${promptExpanded ? '' : 'line-clamp-2'}`}>
-              {p.prompt}
-            </p>
-          </div>
-        </div>
-      </button>
-
-      {/* Expand/Details toggles */}
-      <div className="flex items-center gap-2 px-4 pb-2">
-        <button
-          onClick={(e) => { e.stopPropagation(); setPromptExpanded(!promptExpanded) }}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          {promptExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-          {promptExpanded ? 'Less' : 'Expand'}
-        </button>
-        {hasDetails && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowDetails(!showDetails) }}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Info className="h-3 w-3" />
-            {showDetails ? 'Hide Details' : 'Details'}
-          </button>
-        )}
-      </div>
-
-      {/* Enriched Details */}
-      {showDetails && hasDetails && (
-        <div className="border-t px-4 py-3 bg-muted/20">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-            {p.camera_angle && (
-              <DetailItem label="Camera Angle" value={p.camera_angle} />
-            )}
-            {p.lighting && (
-              <DetailItem label="Lighting" value={p.lighting} />
-            )}
-            {p.emotional_target?.length > 0 && (
-              <DetailItem label="Mood" value={p.emotional_target} />
-            )}
-            {p.color_direction && (
-              <DetailItem label="Color Direction" value={p.color_direction} />
-            )}
-            {p.props?.length > 0 && (
-              <DetailItem label="Props" value={p.props} />
-            )}
-            {p.post_processing && (
-              <DetailItem label="Post-Processing" value={p.post_processing} />
-            )}
-            {p.callout && (
-              <DetailItem label="Callout" value={p.callout} />
-            )}
-            {p.compliance_notes && (
-              <DetailItem label="Compliance" value={p.compliance_notes} />
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function DetailItem({ label, value }: { label: string; value: string | string[] }) {
-  return (
-    <div className="min-w-0">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
-      {Array.isArray(value) ? (
-        <div className="flex flex-wrap gap-1 mt-0.5">
-          {value.map((v, i) => (
-            <Badge key={i} variant="outline" className="text-[10px] font-normal">{v}</Badge>
-          ))}
-        </div>
-      ) : (
-        <p className="text-xs text-foreground/80 mt-0.5 leading-relaxed">{value}</p>
-      )}
-    </div>
-  )
+/** Build metadata items for the inline bar based on WorkshopPrompt */
+function buildMainImageMetadata(p: WorkshopPrompt): ConceptMetadataItem[] {
+  const items: ConceptMetadataItem[] = []
+  if (p.camera_angle) items.push({ label: 'Camera', value: p.camera_angle })
+  if (p.frame_fill) items.push({ label: 'Fill', value: p.frame_fill })
+  if (p.lighting) items.push({ label: 'Lighting', value: p.lighting })
+  if (p.emotional_target?.length) items.push({ label: 'Mood', value: p.emotional_target.join(', ') })
+  return items
 }
 
 export function WorkshopStep1Setup({ listings, categories, countries }: Step1Props) {
@@ -205,8 +105,8 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
   const showGeminiModelSelector = store.provider === 'gemini' && enabledModels.length > 1
   const showHiggsModelSelector = store.provider === 'higgsfield' && enabledModels.length > 1
 
-  // Step 1a: Generate AI Prompts
-  const handleGeneratePrompts = async () => {
+  // Step 1a: Create workshop (no prompts yet)
+  const handleCreateWorkshop = async () => {
     if (!productName || !brand || !categoryId || !countryId) {
       toast.error('Please fill in all required fields')
       return
@@ -214,6 +114,7 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
 
     store.setIsGeneratingPrompts(true)
     try {
+      // Create a workshop without generating prompts — use PATCH to set up a blank workshop
       const res = await fetch('/api/images/workshop', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -223,6 +124,7 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
           category_id: categoryId,
           country_id: countryId,
           listing_id: listingId || undefined,
+          workshop_id: store.workshopId || undefined,
         }),
       })
 
@@ -237,6 +139,46 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
       toast.success(`Generated ${prompts.length} image prompts!`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to generate prompts')
+    } finally {
+      store.setIsGeneratingPrompts(false)
+    }
+  }
+
+  // Regenerate prompts (with creative brief)
+  const handleRegeneratePrompts = async () => {
+    if (!productName && !store.workshop?.product_name) return
+
+    const pName = productName || store.workshop?.product_name || ''
+    const pBrand = brand || store.workshop?.brand || ''
+    const pCatId = categoryId || store.workshop?.category_id || ''
+    const pCountryId = countryId || store.workshop?.country_id || ''
+
+    store.setIsGeneratingPrompts(true)
+    try {
+      const res = await fetch('/api/images/workshop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_name: pName,
+          brand: pBrand,
+          category_id: pCatId,
+          country_id: pCountryId,
+          listing_id: listingId || store.workshop?.listing_id || undefined,
+          workshop_id: store.workshopId || undefined,
+        }),
+      })
+
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to regenerate prompts')
+
+      const { workshop, prompts, callout_suggestions } = json.data
+      store.setWorkshopId(workshop.id)
+      store.setWorkshop(workshop)
+      store.setGeneratedPrompts(prompts, callout_suggestions)
+      store.setCalloutTexts(callout_suggestions)
+      toast.success(`Regenerated ${prompts.length} image prompts!`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to regenerate')
     } finally {
       store.setIsGeneratingPrompts(false)
     }
@@ -292,6 +234,7 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
   }
 
   const hasPrompts = store.generatedPrompts.length > 0
+  const hasWorkshop = !!store.workshopId
 
   return (
     <div className="space-y-6">
@@ -379,7 +322,7 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
           {/* Generate Prompts Button */}
           <div className="md:col-span-2">
             <Button
-              onClick={handleGeneratePrompts}
+              onClick={handleCreateWorkshop}
               disabled={store.isGeneratingPrompts || !productName || !brand || !categoryId || !countryId}
               className="w-full"
               size="lg"
@@ -400,9 +343,38 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
         </div>
       )}
 
-      {/* Generated Prompts Checklist */}
-      {hasPrompts && (
-        <div className="space-y-4">
+      {/* After workshop created: Photos + Brief + Prompts */}
+      {hasWorkshop && hasPrompts && (
+        <div className="space-y-6">
+          {/* Product Photos Section */}
+          <WorkshopProductPhotos />
+
+          {/* Creative Brief Section */}
+          <CreativeBriefPanel
+            categoryId={categoryId || store.workshop?.category_id || ''}
+            countryId={countryId || store.workshop?.country_id || ''}
+            listingId={listingId || store.workshop?.listing_id || undefined}
+          />
+
+          {/* Regenerate button (uses creative brief) */}
+          {store.creativeBrief && (
+            <div className="flex items-center justify-center">
+              <Button
+                variant="outline"
+                onClick={handleRegeneratePrompts}
+                disabled={store.isGeneratingPrompts}
+              >
+                {store.isGeneratingPrompts ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4 mr-2" />
+                )}
+                Regenerate Prompts with Creative Brief
+              </Button>
+            </div>
+          )}
+
+          {/* Prompts Section Header */}
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold">
@@ -410,6 +382,7 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
               </h2>
               <p className="text-sm text-muted-foreground">
                 Toggle prompts on/off, then generate all selected images.
+                {store.creativeBrief && ' Prompts are informed by your Creative Brief.'}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -504,17 +477,38 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
             </div>
           </div>
 
-          {/* Prompt Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Prompt Cards — now using ConceptCard with metadata bar */}
+          <div className="space-y-3">
             {store.generatedPrompts.map((p, i) => {
               const isSelected = store.selectedPromptIndices.includes(i)
               return (
-                <MainImagePromptCard
+                <ConceptCard
                   key={i}
-                  prompt={p}
                   index={i}
+                  label={p.label}
+                  prompt={p.prompt}
+                  approach={p.approach}
                   isSelected={isSelected}
-                  onToggle={() => store.togglePromptSelection(i)}
+                  onToggleSelect={() => store.togglePromptSelection(i)}
+                  onEditPrompt={(newPrompt) => {
+                    const updated = [...store.generatedPrompts]
+                    updated[i] = { ...updated[i], prompt: newPrompt }
+                    store.setGeneratedPrompts(updated, store.calloutSuggestions)
+                  }}
+                  imageType="main"
+                  metadata={buildMainImageMetadata(p)}
+                  colorSwatches={p.color_direction ? undefined : undefined}
+                  details={[
+                    { label: 'Camera Angle', value: p.camera_angle || '' },
+                    { label: 'Lighting', value: p.lighting || '' },
+                    { label: 'Frame Fill', value: p.frame_fill || '' },
+                    { label: 'Color Direction', value: p.color_direction || '' },
+                    { label: 'Mood', value: p.emotional_target || [] },
+                    { label: 'Props', value: p.props || [] },
+                    { label: 'Post-Processing', value: p.post_processing || '' },
+                    { label: 'Callout', value: p.callout || '' },
+                    { label: 'Compliance', value: p.compliance_notes || '' },
+                  ]}
                 />
               )
             })}

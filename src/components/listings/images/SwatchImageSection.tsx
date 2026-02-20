@@ -465,6 +465,7 @@ export function SwatchImageSection({
               onRegenerate={image ? () => handleGenerateSingle(concept) : undefined}
               onGenerate={!image ? () => handleGenerateSingle(concept) : undefined}
               showCheckbox={false}
+              imageType="swatch"
             />
           )
         })}

@@ -2847,15 +2847,16 @@ export interface APlusStrategyInput {
   listingTitle?: string | null
   bulletPoints?: string[]
   listingDescription?: string | null
+  creativeBrief?: import('@/types/api').CreativeBrief | null
 }
 
 function buildAPlusStrategyPrompt(input: APlusStrategyInput): string {
   const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis,
-          competitorAnalysis, listingTitle, bulletPoints, listingDescription } = input
+          competitorAnalysis, listingTitle, bulletPoints, listingDescription, creativeBrief } = input
 
   const researchContext = buildImageResearchContext({
     keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
-    listingTitle, bulletPoints, listingDescription,
+    listingTitle, bulletPoints, listingDescription, creativeBrief,
   })
 
   return `You are an expert Amazon A+ Content strategist and visual designer. Generate a complete A+ Content strategy with 7 modules in strategic storytelling order.
@@ -2989,6 +2990,7 @@ export interface VideoStoryboardInput {
   listingTitle?: string | null
   bulletPoints?: string[]
   listingDescription?: string | null
+  creativeBrief?: import('@/types/api').CreativeBrief | null
 }
 
 export interface VideoStoryboardResult {
@@ -3011,11 +3013,11 @@ export interface VideoStoryboardResult {
 
 function buildVideoStoryboardPrompt(input: VideoStoryboardInput): string {
   const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis,
-          competitorAnalysis, listingTitle, bulletPoints, listingDescription } = input
+          competitorAnalysis, listingTitle, bulletPoints, listingDescription, creativeBrief } = input
 
   const researchContext = buildImageResearchContext({
     keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
-    listingTitle, bulletPoints, listingDescription,
+    listingTitle, bulletPoints, listingDescription, creativeBrief,
   })
 
   return `You are an expert Amazon product video director and storyboard artist. Generate a complete, shot-by-shot video storyboard for an Amazon product listing video.
@@ -3112,6 +3114,388 @@ export async function generateVideoStoryboard(
   return { result, model, tokensUsed }
 }
 
+// --- Creative Brief Generation ---
+
+export interface CreativeBriefInput {
+  productName: string
+  brand: string
+  categoryName: string
+  keywordAnalysis?: KeywordAnalysisResult | null
+  reviewAnalysis?: ReviewAnalysisResult | null
+  qnaAnalysis?: QnAAnalysisResult | null
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
+  listingTitle?: string | null
+  bulletPoints?: string[]
+  listingDescription?: string | null
+  productPhotoDescriptions?: Record<string, import('@/types/api').ProductPhotoDescription> | null
+}
+
+function buildCreativeBriefPrompt(input: CreativeBriefInput): string {
+  const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis,
+          competitorAnalysis, marketIntelligence, listingTitle, bulletPoints, listingDescription,
+          productPhotoDescriptions } = input
+
+  // Build research context sections
+  let researchData = ''
+
+  // Keyword data
+  if (keywordAnalysis) {
+    const intents = keywordAnalysis.customerIntentPatterns
+      ?.map((p) => `${p.category} (${p.priority})${p.painPoints ? ` — Pain: ${p.painPoints}` : ''}`)
+      .join('\n  ') || 'N/A'
+    const features = keywordAnalysis.featureDemand
+      ?.map((f) => `${f.feature} (${f.priority})`)
+      .join(', ') || 'N/A'
+    researchData += `\n=== KEYWORD DATA ===
+Title keywords: ${keywordAnalysis.titleKeywords?.join(', ') || 'N/A'}
+Customer intent patterns:
+  ${intents}
+Feature demand: ${features}
+Executive Summary: ${keywordAnalysis.executiveSummary || 'N/A'}
+Competitive gaps: ${keywordAnalysis.competitiveIntelligence?.marketGaps?.join('; ') || 'N/A'}
+`
+  }
+
+  // Review data
+  if (reviewAnalysis) {
+    const strengths = reviewAnalysis.strengths
+      ?.map((s) => `${s.strength} (${s.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    const weaknesses = reviewAnalysis.weaknesses
+      ?.map((w) => `${w.weakness} (${w.mentions} mentions)`)
+      .join(', ') || 'N/A'
+    const useCases = reviewAnalysis.useCases
+      ?.map((u) => `${u.useCase} (${u.priority})`)
+      .join(', ') || 'N/A'
+    const profiles = reviewAnalysis.customerProfiles
+      ?.map((p) => `${p.profile}: ${p.description}`)
+      .join('\n  ') || 'N/A'
+    const voicePhrases = reviewAnalysis.customerVoicePhrases
+    const voiceParts: string[] = []
+    if (voicePhrases?.positiveEmotional?.length) voiceParts.push(...voicePhrases.positiveEmotional)
+    if (voicePhrases?.functional?.length) voiceParts.push(...voicePhrases.functional)
+    if (voicePhrases?.useCaseLanguage?.length) voiceParts.push(...voicePhrases.useCaseLanguage)
+    const imageOps = reviewAnalysis.imageOptimizationOpportunities
+      ?.map((o) => `${o.imageType}: ${o.rationale} (Evidence: ${o.reviewEvidence})`)
+      .join('\n  ') || 'N/A'
+
+    researchData += `\n=== REVIEW DATA ===
+Product strengths: ${strengths}
+Product weaknesses: ${weaknesses}
+Top use cases: ${useCases}
+Customer profiles:
+  ${profiles}
+Customer voice phrases: ${voiceParts.map((p) => `"${p}"`).join(', ') || 'N/A'}
+Image optimization opportunities from reviews:
+  ${imageOps}
+`
+  }
+
+  // Q&A data
+  if (qnaAnalysis) {
+    const concerns = qnaAnalysis.customerConcerns
+      ?.map((c) => `${c.concern} — Response: ${c.suggestedResponse}`)
+      .join('\n  ') || 'N/A'
+    const gaps = qnaAnalysis.contentGaps
+      ?.map((g) => `${g.gap} (${g.importance})`)
+      .join(', ') || 'N/A'
+    const highRisk = qnaAnalysis.highRiskQuestions
+      ?.map((q) => `${q.question} → ${q.defensiveAction}`)
+      .join('\n  ') || 'N/A'
+    researchData += `\n=== Q&A DATA ===
+Customer concerns:
+  ${concerns}
+Content gaps: ${gaps}
+High-risk questions:
+  ${highRisk}
+`
+  }
+
+  // Competitor data
+  if (competitorAnalysis) {
+    const gaps = competitorAnalysis.differentiationGaps
+      ?.map((g) => `${g.gap}: ${g.opportunity} (${g.priority})`)
+      .join('\n  ') || 'N/A'
+    const usps = competitorAnalysis.usps
+      ?.map((u) => `${u.usp} — Competitor weakness: ${u.competitorWeakness}`)
+      .join('\n  ') || 'N/A'
+    researchData += `\n=== COMPETITOR DATA ===
+Executive Summary: ${competitorAnalysis.executiveSummary}
+Differentiation gaps:
+  ${gaps}
+USPs:
+  ${usps}
+`
+  }
+
+  // Market Intelligence data (previously COMPLETELY UNUSED in image generation!)
+  if (marketIntelligence) {
+    const topPains = marketIntelligence.topPainPoints
+      ?.map((p) => `${p.title} — ${p.description} (Impact: ${p.impactPercentage}%)`)
+      .join('\n  ') || 'N/A'
+    const avatars = marketIntelligence.detailedAvatars
+      ?.map((a) => `${a.name} (${a.role}, ${a.demographics.age}y, ${a.demographics.gender}, ${a.demographics.location}) — Motivations: ${a.keyMotivations}`)
+      .join('\n  ') || 'N/A'
+    const imageRecs = marketIntelligence.imageRecommendations
+      ?.join('\n  ') || 'N/A'
+    const voicePhrases = marketIntelligence.customerVoicePhrases
+    const miVoice: string[] = []
+    if (voicePhrases?.positiveEmotional?.length) miVoice.push(...voicePhrases.positiveEmotional)
+    if (voicePhrases?.functional?.length) miVoice.push(...voicePhrases.functional)
+    if (voicePhrases?.useCaseLanguage?.length) miVoice.push(...voicePhrases.useCaseLanguage)
+    const landscape = marketIntelligence.competitiveLandscape
+      ?.map((c) => `${c.brand} — Rating: ${c.avgRating}, Reviews: ${c.reviewCount}, Features: ${c.keyFeatures.join(', ')}`)
+      .join('\n  ') || 'N/A'
+    const messaging = marketIntelligence.messagingFramework
+    const msgStr = messaging
+      ? `Primary: "${messaging.primaryMessage}" | Support: ${messaging.supportPoints?.join('; ') || 'N/A'}`
+      : 'N/A'
+    const segments = marketIntelligence.customerSegments
+      ?.map((s) => `${s.name} (${s.ageRange}, ${s.occupation}) — Traits: ${s.traits.join(', ')}`)
+      .join('\n  ') || 'N/A'
+
+    researchData += `\n=== MARKET INTELLIGENCE ===
+Top pain points:
+  ${topPains}
+Detailed customer avatars:
+  ${avatars}
+Image recommendations (from MI):
+  ${imageRecs}
+Customer voice phrases (MI): ${miVoice.map((p) => `"${p}"`).join(', ') || 'N/A'}
+Competitive landscape:
+  ${landscape}
+Messaging framework: ${msgStr}
+Customer segments:
+  ${segments}
+`
+  }
+
+  // Listing content
+  if (listingTitle || (bulletPoints && bulletPoints.length > 0) || listingDescription) {
+    researchData += `\n=== LISTING CONTENT ===
+Title: ${listingTitle || 'N/A'}
+Bullets: ${bulletPoints?.join(' | ') || 'N/A'}
+Description: ${listingDescription || 'N/A'}
+`
+  }
+
+  // Product photo descriptions
+  let photoSection = ''
+  if (productPhotoDescriptions && Object.keys(productPhotoDescriptions).length > 0) {
+    const photoDescs = Object.entries(productPhotoDescriptions)
+      .map(([url, desc]) => `Photo (${desc.photo_type}): ${desc.description}\n  Features: ${desc.detected_features.join(', ')}\n  Colors: ${desc.dominant_colors.join(', ')}`)
+      .join('\n')
+    photoSection = `\n=== PRODUCT PHOTOS ANALYZED ===
+${photoDescs}
+`
+  }
+
+  return `You are a creative director for Amazon product photography. You've been given comprehensive research data about "${productName}" by "${brand}" in the "${categoryName}" category.
+
+Your job is to analyze ALL the research data and produce a CREATIVE BRIEF — a strategic document that maps specific research findings to specific image positions and visual directions. This brief will be used as the primary directive for ALL image prompt generation (main image, secondary images, thumbnails, A+ content, video storyboard).
+
+${researchData}${photoSection}
+
+INSTRUCTIONS:
+1. Identify the TOP 5 customer pain points from reviews + Q&A data. For each, specify which image position (1-7) should address it visually and HOW.
+2. Identify the TOP 5 unique selling propositions. For each, specify which image position should demonstrate it and what visual proof looks like.
+3. Create 3 detailed buyer personas from review profiles + MI avatars. For each, describe a specific lifestyle scene for image use.
+4. Extract 5 EXACT customer voice phrases (verbatim from reviews) that should be used as text overlays — NOT AI-generated copy.
+5. Define brand visual direction: suggest specific hex colors (primary + secondary), mood descriptors, photography style, and typography direction.
+6. Identify 3-5 competitor visual GAPS — what competitors DON'T show in their images that we SHOULD.
+7. If product photos were analyzed, summarize what the actual product looks like for use in prompt generation.
+8. Write a brief image position strategy explaining the overall storytelling arc across all 7 positions.
+
+Respond with ONLY valid JSON (no markdown fences):
+{
+  "top_pain_points": [
+    {
+      "pain_point": "exact pain point description",
+      "evidence_source": "reviews|qna|both",
+      "mention_count": 47,
+      "suggested_image_position": 6,
+      "visual_proof_direction": "Show marker left uncapped for 24hrs, still writes perfectly — close-up of fresh ink flow"
+    }
+  ],
+  "top_usps": [
+    {
+      "usp": "USP description",
+      "evidence": "where this was identified",
+      "competitor_weakness": "what competitors lack here",
+      "suggested_image_position": 3,
+      "visual_demo_direction": "Close-up of twist-lock cap mechanism with labeled callout"
+    }
+  ],
+  "personas": [
+    {
+      "name": "The Classroom Teacher",
+      "description": "Elementary school teacher who uses markers daily",
+      "demographics": "Female, 28-40, suburban, $45-65K income",
+      "lifestyle_scene_direction": "Bright classroom with decorated whiteboard, teacher's desk with organized marker set",
+      "emotional_trigger": "Pride in creating engaging visual aids for students"
+    }
+  ],
+  "customer_voice_phrases": ["Colors that pop", "Easy to erase", "My students love these"],
+  "visual_direction": {
+    "primary_colors": ["#008080", "#FF1493"],
+    "secondary_colors": ["#FFFFFF", "#333333"],
+    "mood": ["vibrant", "playful", "professional"],
+    "style": "clean studio with lifestyle accents",
+    "typography_direction": "Bold sans-serif for headlines, clean readability",
+    "photography_style": "High-key studio lighting with selective color pops"
+  },
+  "competitor_visual_gaps": [
+    {
+      "gap": "No competitor shows long-term ink durability",
+      "what_competitors_show": "Static product shots, basic color swatches",
+      "what_we_should_show": "Before/after: marker uncapped 24hrs still writing vibrantly",
+      "priority": "HIGH"
+    }
+  ],
+  "product_description_from_photos": "Cylindrical markers with dual tips (fine + chisel), transparent barrel showing ink level, twist-lock caps in 12 vibrant colors" or null,
+  "image_position_strategy": "Position 1 (Hero): Premium studio shot establishing quality. Position 2: Size/scale context. Position 3: Key USP demo. Position 4: Use case lifestyle. Position 5: Feature detail. Position 6: Pain point resolution. Position 7: Social proof/trust."
+}`
+}
+
+export async function generateCreativeBrief(input: CreativeBriefInput): Promise<{
+  result: import('@/types/api').CreativeBrief
+  model: string
+  tokensUsed: number
+}> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildCreativeBriefPrompt(input)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+    .map((block) => block.text)
+    .join('')
+
+  const result = JSON.parse(stripMarkdownFences(text)) as import('@/types/api').CreativeBrief
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
+// --- Product Photo Analysis (Claude Vision) ---
+
+export interface ProductPhotoAnalysisInput {
+  photoUrls: string[]
+  productName: string
+  brand: string
+}
+
+async function fetchImageAsBase64(url: string): Promise<{ data: string; mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' }> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`Failed to fetch image: ${url}`)
+  const buffer = await response.arrayBuffer()
+  const data = Buffer.from(buffer).toString('base64')
+  const contentType = response.headers.get('content-type') || 'image/jpeg'
+  const mediaType = (['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(contentType)
+    ? contentType
+    : 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+  return { data, mediaType }
+}
+
+export async function analyzeProductPhotos(input: ProductPhotoAnalysisInput): Promise<{
+  descriptions: Record<string, import('@/types/api').ProductPhotoDescription>
+  model: string
+  tokensUsed: number
+}> {
+  const client = await getClient()
+  const model = await getModel()
+
+  // Download images and convert to base64 for Anthropic SDK 0.24.x
+  const imageDataArr = await Promise.all(
+    input.photoUrls.map((url) => fetchImageAsBase64(url))
+  )
+
+  const imageBlocks: Anthropic.ImageBlockParam[] = imageDataArr.map((img) => ({
+    type: 'image' as const,
+    source: {
+      type: 'base64' as const,
+      media_type: img.mediaType,
+      data: img.data,
+    },
+  }))
+
+  const textBlock: Anthropic.TextBlockParam = {
+    type: 'text',
+    text: `You are analyzing product photos for "${input.productName}" by "${input.brand}".
+
+For EACH photo provided (${input.photoUrls.length} photos total), analyze and describe:
+1. What the photo shows (description)
+2. Key product features visible (detected_features)
+3. Dominant colors with hex codes (dominant_colors)
+4. Best photography angles this reveals (suggested_angles)
+5. Photo type classification (photo_type): one of "product_front", "product_back", "product_side", "packaging", "label", "lifestyle", "detail_closeup", "color_swatch", "bundle", "accessory"
+
+Respond with ONLY valid JSON (no markdown fences):
+{
+  "photos": [
+    {
+      "index": 0,
+      "description": "Front view of cylindrical marker with dual-tip design, transparent barrel showing blue ink, white twist-lock cap",
+      "detected_features": ["dual-tip", "transparent barrel", "twist-lock cap", "ergonomic grip"],
+      "dominant_colors": ["#0066CC", "#FFFFFF", "#333333"],
+      "suggested_angles": ["¾ hero angle", "top-down flat lay", "close-up of tip"],
+      "photo_type": "product_front"
+    }
+  ]
+}`,
+  }
+
+  const content: (Anthropic.ImageBlockParam | Anthropic.TextBlockParam)[] = [...imageBlocks, textBlock]
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content }],
+  })
+
+  const text = response.content
+    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+    .map((block) => block.text)
+    .join('')
+
+  const parsed = JSON.parse(stripMarkdownFences(text)) as {
+    photos: Array<{
+      index: number
+      description: string
+      detected_features: string[]
+      dominant_colors: string[]
+      suggested_angles: string[]
+      photo_type: string
+    }>
+  }
+
+  // Map results back to photo URLs
+  const descriptions: Record<string, import('@/types/api').ProductPhotoDescription> = {}
+  for (const photo of parsed.photos) {
+    const url = input.photoUrls[photo.index]
+    if (url) {
+      descriptions[url] = {
+        description: photo.description,
+        detected_features: photo.detected_features,
+        dominant_colors: photo.dominant_colors,
+        suggested_angles: photo.suggested_angles,
+        photo_type: photo.photo_type,
+      }
+    }
+  }
+
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { descriptions, model, tokensUsed }
+}
+
 // --- Workshop: AI Image Prompt Generation ---
 
 export interface ImageResearchContext {
@@ -3122,6 +3506,7 @@ export interface ImageResearchContext {
   listingTitle?: string | null
   bulletPoints?: string[]
   listingDescription?: string | null
+  creativeBrief?: import('@/types/api').CreativeBrief | null
 }
 
 /**
@@ -3132,7 +3517,7 @@ export interface ImageResearchContext {
  */
 function buildImageResearchContext(ctx: ImageResearchContext): string {
   const { keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
-          listingTitle, bulletPoints, listingDescription } = ctx
+          listingTitle, bulletPoints, listingDescription, creativeBrief } = ctx
 
   // === KEYWORD SECTION (mirrors buildSharedContext) ===
   let keywordSection = ''
@@ -3313,11 +3698,66 @@ ${bulletPoints?.map((b, i) => `${i + 1}. ${b}`).join('\n') || 'N/A'}
 Description: ${listingDescription || 'N/A'}\n`
   }
 
-  if (!keywordSection && !reviewSection && !qnaSection && !competitorSection && !listingSection) {
+  // === CREATIVE BRIEF SECTION (prepended when available) ===
+  let briefSection = ''
+  if (creativeBrief) {
+    const painPoints = creativeBrief.top_pain_points
+      ?.map((p) => `${p.mention_count ? `(${p.mention_count} mentions)` : ''} "${p.pain_point}" → Image Position ${p.suggested_image_position}\n   Visual Proof: ${p.visual_proof_direction}`)
+      .join('\n') || 'N/A'
+    const usps = creativeBrief.top_usps
+      ?.map((u) => `"${u.usp}" → Image Position ${u.suggested_image_position}\n   Visual Demo: ${u.visual_demo_direction}\n   Competitor weakness: ${u.competitor_weakness}`)
+      .join('\n') || 'N/A'
+    const personas = creativeBrief.personas
+      ?.map((p) => `${p.name} (${p.demographics}): ${p.lifestyle_scene_direction}\n   Emotional trigger: ${p.emotional_trigger}`)
+      .join('\n') || 'N/A'
+    const phrases = creativeBrief.customer_voice_phrases
+      ?.map((p) => `"${p}"`)
+      .join(', ') || 'N/A'
+    const vd = creativeBrief.visual_direction
+    const colors = vd
+      ? `Primary: ${vd.primary_colors.join(', ')} | Secondary: ${vd.secondary_colors.join(', ')}`
+      : 'N/A'
+    const gaps = creativeBrief.competitor_visual_gaps
+      ?.map((g) => `[${g.priority}] ${g.gap}\n   Competitors show: ${g.what_competitors_show}\n   We should show: ${g.what_we_should_show}`)
+      .join('\n') || 'N/A'
+
+    briefSection = `\n=== CREATIVE BRIEF (USE AS PRIMARY DIRECTION) ===
+
+TOP PAIN POINTS TO ADDRESS VISUALLY:
+${painPoints}
+
+TOP USPs TO DEMONSTRATE:
+${usps}
+
+TARGET PERSONAS & LIFESTYLE SCENES:
+${personas}
+
+CUSTOMER VOICE (use these EXACT phrases as text overlays):
+${phrases}
+
+BRAND VISUAL DIRECTION:
+Colors: ${colors}
+Mood: ${vd?.mood?.join(', ') || 'N/A'}
+Style: ${vd?.style || 'N/A'}
+Photography: ${vd?.photography_style || 'N/A'}
+Typography: ${vd?.typography_direction || 'N/A'}
+
+COMPETITOR VISUAL GAPS (what they DON'T show):
+${gaps}
+
+${creativeBrief.product_description_from_photos ? `ACTUAL PRODUCT APPEARANCE (from uploaded photos):\n${creativeBrief.product_description_from_photos}\n` : ''}
+IMAGE POSITION STRATEGY:
+${creativeBrief.image_position_strategy || 'N/A'}
+
+=== END CREATIVE BRIEF ===
+`
+  }
+
+  if (!briefSection && !keywordSection && !reviewSection && !qnaSection && !competitorSection && !listingSection) {
     return '\nNo research data available. Use general best practices for Amazon product photography.\n'
   }
 
-  return `${keywordSection}${reviewSection}${qnaSection}${competitorSection}${listingSection}`
+  return `${briefSection}${keywordSection}${reviewSection}${qnaSection}${competitorSection}${listingSection}`
 }
 
 export interface WorkshopPromptInput {
@@ -3331,6 +3771,7 @@ export interface WorkshopPromptInput {
   listingTitle?: string | null
   bulletPoints?: string[]
   listingDescription?: string | null
+  creativeBrief?: import('@/types/api').CreativeBrief | null
 }
 
 export interface WorkshopPromptResult {
@@ -3356,11 +3797,11 @@ export interface WorkshopPromptResult {
 
 function buildWorkshopPromptsPrompt(input: WorkshopPromptInput): string {
   const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis,
-          competitorAnalysis, listingTitle, bulletPoints, listingDescription } = input
+          competitorAnalysis, listingTitle, bulletPoints, listingDescription, creativeBrief } = input
 
   const researchContext = buildImageResearchContext({
     keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
-    listingTitle, bulletPoints, listingDescription,
+    listingTitle, bulletPoints, listingDescription, creativeBrief,
   })
 
   return `You are an expert Amazon product photography director and visual strategist. Generate 12 highly detailed, production-ready main image prompts for an Amazon listing.
@@ -3453,6 +3894,7 @@ export interface SecondaryPromptInput {
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
   competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  creativeBrief?: import('@/types/api').CreativeBrief | null
 }
 
 export interface SecondaryConceptResult {
@@ -3481,11 +3923,11 @@ export interface SecondaryConceptResult {
 
 function buildSecondaryPromptsPrompt(input: SecondaryPromptInput): string {
   const { productName, brand, categoryName, listingTitle, bulletPoints, listingDescription,
-          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis } = input
+          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, creativeBrief } = input
 
   const researchContext = buildImageResearchContext({
     keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
-    listingTitle, bulletPoints, listingDescription,
+    listingTitle, bulletPoints, listingDescription, creativeBrief,
   })
 
   return `You are an expert Amazon listing image strategist and visual storyteller. Generate 9 highly detailed, production-ready secondary image concepts for an Amazon product listing.
@@ -3607,6 +4049,7 @@ export interface ThumbnailPromptInput {
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
   competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  creativeBrief?: import('@/types/api').CreativeBrief | null
 }
 
 export interface ThumbnailConceptResult {
@@ -3627,11 +4070,11 @@ export interface ThumbnailConceptResult {
 
 function buildThumbnailPromptsPrompt(input: ThumbnailPromptInput): string {
   const { productName, brand, categoryName, listingTitle, bulletPoints, listingDescription,
-          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis } = input
+          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, creativeBrief } = input
 
   const researchContext = buildImageResearchContext({
     keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
-    listingTitle, bulletPoints, listingDescription,
+    listingTitle, bulletPoints, listingDescription, creativeBrief,
   })
 
   return `You are an expert Amazon product video thumbnail designer and visual strategist. Generate 5 highly detailed video thumbnail concepts for an Amazon product listing video.
