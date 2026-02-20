@@ -11,6 +11,7 @@ import {
   Image,
   Sparkles,
   Package,
+  Store,
   ScanSearch,
   Settings,
   ChevronLeft,
@@ -24,6 +25,7 @@ const navItems = [
   { href: '/images', label: 'Images', icon: Image },
   { href: '/aplus', label: 'A+ Content', icon: Sparkles },
   { href: '/products', label: 'Products', icon: Package },
+  { href: '/seller-pull', label: 'Seller Pull', icon: Store },
   { href: '/asin-lookup', label: 'ASIN Lookup', icon: ScanSearch },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]

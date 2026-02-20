@@ -10,6 +10,7 @@ import toast from 'react-hot-toast'
 import type { LbAdminSetting } from '@/types'
 import { AIModelConfig } from '@/components/settings/AIModelConfig'
 import { ImageProviderSettings } from '@/components/settings/ImageProviderSettings'
+import { SellerIdsSettings } from '@/components/settings/SellerIdsSettings'
 
 interface AdminSettingsTabProps {
   initialSettings: LbAdminSetting[]
@@ -53,6 +54,7 @@ const API_KEY_SLOTS = [
 const MANAGED_KEYS = new Set([
   'claude_model',
   'image_provider_visibility',
+  'seller_ids',
   ...API_KEY_SLOTS.map((s) => s.key),
 ])
 
@@ -191,6 +193,8 @@ export function AdminSettingsTab({ initialSettings }: AdminSettingsTabProps) {
       <AIModelConfig currentModel={modelSetting?.value || ''} />
 
       <ImageProviderSettings />
+
+      <SellerIdsSettings />
 
       {/* API Keys — Pre-filled slots */}
       <div className="rounded-lg border bg-card">
