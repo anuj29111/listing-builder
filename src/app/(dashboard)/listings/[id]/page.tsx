@@ -9,8 +9,8 @@ export default async function ListingDetailPage({
 }) {
   const supabase = createClient()
 
-  // Fetch listing, sections, workshops, and images in parallel
-  const [listingResult, sectionsResult, workshopsResult] = await Promise.all([
+  // Fetch listing, sections, workshops, video project, and A+ modules in parallel
+  const [listingResult, sectionsResult, workshopsResult, videoProjectResult, aplusResult] = await Promise.all([
     supabase
       .from('lb_listings')
       .select(
@@ -27,6 +27,16 @@ export default async function ListingDetailPage({
       .select('*')
       .eq('listing_id', params.id)
       .order('created_at', { ascending: false }),
+    supabase
+      .from('lb_video_projects')
+      .select('*')
+      .eq('listing_id', params.id)
+      .maybeSingle(),
+    supabase
+      .from('lb_aplus_modules')
+      .select('*')
+      .eq('listing_id', params.id)
+      .order('created_at', { ascending: true }),
   ])
 
   if (!listingResult.data) {
@@ -70,6 +80,8 @@ export default async function ListingDetailPage({
       category={category}
       workshops={workshops}
       images={images}
+      videoProject={videoProjectResult.data || null}
+      aplusModules={aplusResult.data || []}
     />
   )
 }

@@ -3235,6 +3235,140 @@ export async function generateVideoStoryboard(
   return { result, model, tokensUsed }
 }
 
+// --- Video Script Generation ---
+
+export interface VideoScriptInput {
+  productName: string
+  brand: string
+  categoryName: string
+  keywordAnalysis?: KeywordAnalysisResult | null
+  reviewAnalysis?: ReviewAnalysisResult | null
+  qnaAnalysis?: QnAAnalysisResult | null
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  listingTitle?: string | null
+  bulletPoints?: string[]
+  listingDescription?: string | null
+  creativeBrief?: import('@/types/api').CreativeBrief | null
+  storyboard?: VideoStoryboardResult | null
+}
+
+export interface VideoScriptResult {
+  title: string
+  total_duration: string
+  tone: string
+  target_audience: string
+  hook: string
+  sections: Array<{
+    section_number: number
+    timestamp: string
+    duration: string
+    voiceover_text: string
+    on_screen_text: string
+    visual_direction: string
+    key_selling_point: string
+  }>
+  closing_cta: string
+  music_notes: string
+}
+
+function buildVideoScriptPrompt(input: VideoScriptInput): string {
+  const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis,
+          competitorAnalysis, listingTitle, bulletPoints, listingDescription, creativeBrief, storyboard } = input
+
+  const researchContext = buildImageResearchContext({
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    listingTitle, bulletPoints, listingDescription, creativeBrief,
+  })
+
+  let storyboardContext = ''
+  if (storyboard) {
+    storyboardContext = `\n=== EXISTING STORYBOARD (align script to these shots) ===
+Total runtime: ${storyboard.total_runtime}
+${storyboard.shots.map((s) =>
+  `Shot ${s.shot_number} (${s.timestamp}, ${s.runtime}): ${s.visual}\n  Text overlay: ${s.text_overlay}\n  USP: ${s.usp_demonstrated}`
+).join('\n')}
+Music direction: ${storyboard.music_direction}
+`
+  }
+
+  return `You are an expert Amazon product video scriptwriter. Generate a complete, production-ready video script for an Amazon product listing video.
+
+=== PRODUCT ===
+Product: ${brand} ${productName}
+Brand: ${brand}
+Category: ${categoryName}
+${researchContext}${storyboardContext}
+=== CONTEXT ===
+Amazon product videos appear on the listing page and auto-play in search results (muted). The script must:
+- Hook viewers in the first 3 seconds with a compelling opening line
+- Work WITH and WITHOUT audio — on-screen text carries the message for muted viewers
+- Be 30-45 seconds total (sweet spot for Amazon engagement)
+- Cover 5-7 key selling points, each backed by research data
+- Use customer language from reviews and Q&A
+- End with a clear call to action
+
+=== SCRIPT STRUCTURE ===
+For each section of the video:
+- Voiceover text: The spoken narration (conversational, benefit-focused, uses customer language)
+- On-screen text: Bold text overlay visible to muted viewers (5-10 words max per screen)
+- Visual direction: What the viewer sees (product angles, demos, lifestyle scenes)
+- Key selling point: Which specific USP or customer concern this section addresses
+
+=== TONE GUIDELINES ===
+- Speak directly to the customer ("you", "your")
+- Lead with benefits, not features
+- Use specific numbers and proof points from research
+- Address top customer concerns proactively
+- Match the brand voice and category expectations
+
+=== OUTPUT FORMAT ===
+Return valid JSON only, no markdown fences:
+{
+  "title": "Video title (internal reference, e.g. 'Product Name - Feature Showcase')",
+  "total_duration": "35-40 seconds",
+  "tone": "Brief tone description, e.g. 'Friendly, confident, educational'",
+  "target_audience": "Primary audience, e.g. 'Creative professionals and hobbyists looking for premium art supplies'",
+  "hook": "Opening hook line (first 3 seconds) — must stop the scroll",
+  "sections": [
+    {
+      "section_number": 1,
+      "timestamp": "00:00",
+      "duration": "4s",
+      "voiceover_text": "Full voiceover narration for this section (2-3 sentences, conversational tone)",
+      "on_screen_text": "Bold on-screen text (5-10 words) for muted viewers",
+      "visual_direction": "What the camera shows — product angles, demonstrations, lifestyle scenes (30-50 words)",
+      "key_selling_point": "Which specific USP or concern this addresses and why, based on research"
+    }
+  ],
+  "closing_cta": "Final call to action text and voiceover",
+  "music_notes": "Overall music style, mood progression, and pacing notes"
+}`
+}
+
+export async function generateVideoScript(
+  input: VideoScriptInput
+): Promise<{ result: VideoScriptResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildVideoScriptPrompt(input)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const result = JSON.parse(stripMarkdownFences(text)) as VideoScriptResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
 // --- Creative Brief Generation ---
 
 export interface CreativeBriefInput {

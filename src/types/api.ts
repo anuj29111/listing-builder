@@ -291,6 +291,49 @@ export interface VideoThumbnailConcept {
   compliance_notes: string
 }
 
+// --- Video Script ---
+
+export interface VideoScriptSection {
+  section_number: number
+  timestamp: string
+  duration: string
+  voiceover_text: string
+  on_screen_text: string
+  visual_direction: string
+  key_selling_point: string
+}
+
+export interface VideoScript {
+  title: string
+  total_duration: string
+  tone: string
+  target_audience: string
+  hook: string
+  sections: VideoScriptSection[]
+  closing_cta: string
+  music_notes: string
+}
+
+export interface GenerateVideoScriptRequest {
+  listing_id: string
+}
+
+export interface GenerateVideoScriptResponse {
+  video_project: import('./database').LbVideoProject
+  model: string
+  tokens_used: number
+}
+
+export interface GenerateVideoProjectStoryboardRequest {
+  listing_id: string
+}
+
+export interface UpdateVideoProjectRequest {
+  status?: string
+  notes?: string
+  assigned_to?: string | null
+}
+
 // --- Video Storyboard ---
 
 export interface VideoStoryboardShot {
