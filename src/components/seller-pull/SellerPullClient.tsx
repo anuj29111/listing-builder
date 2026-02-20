@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -23,6 +23,13 @@ import {
   Globe,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import type {
+  LbSellerPullJob,
+  SellerPullProduct,
+  SellerPullSummary,
+  SellerPullScrapeResult,
+  SellerPullVariationResult,
+} from '@/types'
 
 // ─── Types ──────────────────────────────────────────
 
@@ -36,86 +43,33 @@ interface Country {
   is_active: boolean
 }
 
-interface PulledProduct {
-  asin: string
-  title: string
-  price: number | null
-  rating: number | null
-  reviews_count: number | null
-  is_prime: boolean
-  url_image: string | null
-  manufacturer: string | null
-  sales_volume: string | null
-  is_bundle: boolean
-  has_sales: boolean
-  exists_in_system: boolean
-  suggested_category: string | null
-}
-
-interface PullSummary {
-  total: number
-  bundles: number
-  bundles_with_sales: number
-  non_bundles: number
-  already_in_system: number
-  new: number
-  pages_scraped: number
-  total_pages: number
-}
-
-interface ScrapeResult {
-  asin: string
-  success: boolean
-  error?: string
-  parent_asin?: string
-  title?: string
-}
-
-interface VariationResult {
-  asin: string
-  title: string
-  parent_asin: string
-  is_new: boolean
-  dimensions?: Record<string, string>
-}
-
 interface ConfiguredCountry {
   country_id: string
   seller_id: string
   country: Country
 }
 
-interface CountryPullData {
-  products: PulledProduct[]
-  summary: PullSummary | null
-  sellerId: string
-  selectedAsins: Set<string>
-  productCategories: Map<string, string>
-  importResult: { imported: number; skipped: number } | null
-  scrapeResults: ScrapeResult[]
-  scrapeProgress: { current: number; total: number }
-  variationResults: VariationResult[]
-  selectedVariations: Set<string>
-  currentStep: Step
+interface CountryJobState {
+  jobId: string | null
+  job: LbSellerPullJob | null
+  // Local selection overrides (null = use job values)
+  localSelectedAsins: Set<string> | null
+  localProductCategories: Map<string, string> | null
+  localSelectedVariations: Set<string> | null
 }
 
-type Step = 'pull' | 'import' | 'scrape' | 'variations' | 'done'
-
-function createDefaultPullData(): CountryPullData {
+function createDefaultJobState(): CountryJobState {
   return {
-    products: [],
-    summary: null,
-    sellerId: '',
-    selectedAsins: new Set(),
-    productCategories: new Map(),
-    importResult: null,
-    scrapeResults: [],
-    scrapeProgress: { current: 0, total: 0 },
-    variationResults: [],
-    selectedVariations: new Set(),
-    currentStep: 'pull',
+    jobId: null,
+    job: null,
+    localSelectedAsins: null,
+    localProductCategories: null,
+    localSelectedVariations: null,
   }
 }
+
+const POLL_INTERVAL = 3000
+const BACKGROUND_STATES = ['pulling', 'scraping', 'discovering_variations', 'importing', 'importing_variations']
 
 interface SellerPullClientProps {
   countries: Country[]
@@ -129,8 +83,8 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
   const [loadingConfig, setLoadingConfig] = useState(true)
   const [activeCountryId, setActiveCountryId] = useState<string>('')
 
-  // Per-country data
-  const [countryData, setCountryData] = useState<Record<string, CountryPullData>>({})
+  // Per-country job state
+  const [countryJobs, setCountryJobs] = useState<Record<string, CountryJobState>>({})
 
   // Global categories (shared across all countries from lb_products)
   const [categories, setCategories] = useState<string[]>([])
@@ -141,29 +95,142 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
   const [hideBundles, setHideBundles] = useState(false)
   const [searchFilter, setSearchFilter] = useState('')
 
-  // Loading states (global — one operation at a time)
-  const [pulling, setPulling] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [scraping, setScraping] = useState(false)
-  const [discoveringVariations, setDiscoveringVariations] = useState(false)
+  // Loading flag for quick actions (import)
+  const [actionLoading, setActionLoading] = useState(false)
 
-  // Active country data
-  const activeData = useMemo(
-    () => countryData[activeCountryId] || createDefaultPullData(),
-    [countryData, activeCountryId]
+  // Polling
+  const pollRef = useRef<NodeJS.Timeout | null>(null)
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }, [])
+
+  useEffect(() => () => stopPolling(), [stopPolling])
+
+  // Active country job state
+  const activeJobState = useMemo(
+    () => countryJobs[activeCountryId] || createDefaultJobState(),
+    [countryJobs, activeCountryId]
   )
 
-  const updateActiveData = useCallback(
-    (updater: (prev: CountryPullData) => CountryPullData) => {
-      setCountryData((prev) => ({
+  const activeJob = activeJobState.job
+
+  const updateCountryJob = useCallback(
+    (countryId: string, updater: (prev: CountryJobState) => CountryJobState) => {
+      setCountryJobs((prev) => ({
         ...prev,
-        [activeCountryId]: updater(prev[activeCountryId] || createDefaultPullData()),
+        [countryId]: updater(prev[countryId] || createDefaultJobState()),
       }))
     },
-    [activeCountryId]
+    []
   )
 
-  // Fetch configured seller IDs on mount
+  // Effective selections: local overrides > job values
+  const effectiveSelectedAsins = useMemo(() => {
+    if (activeJobState.localSelectedAsins) return activeJobState.localSelectedAsins
+    if (activeJob?.selected_asins) return new Set(activeJob.selected_asins)
+    return new Set<string>()
+  }, [activeJobState.localSelectedAsins, activeJob?.selected_asins])
+
+  const effectiveProductCategories = useMemo(() => {
+    if (activeJobState.localProductCategories) return activeJobState.localProductCategories
+    if (activeJob?.product_categories) return new Map(Object.entries(activeJob.product_categories))
+    return new Map<string, string>()
+  }, [activeJobState.localProductCategories, activeJob?.product_categories])
+
+  const effectiveSelectedVariations = useMemo(() => {
+    if (activeJobState.localSelectedVariations) return activeJobState.localSelectedVariations
+    if (activeJob?.selected_variations) return new Set(activeJob.selected_variations)
+    return new Set<string>()
+  }, [activeJobState.localSelectedVariations, activeJob?.selected_variations])
+
+  // Derived data from job
+  const products: SellerPullProduct[] = activeJob?.pull_result?.products || []
+  const summary: SellerPullSummary | null = activeJob?.pull_result?.summary || null
+  const scrapeResults: SellerPullScrapeResult[] = activeJob?.scrape_results || []
+  const variationResults: SellerPullVariationResult[] = activeJob?.variation_results || []
+  const scrapeProgress = activeJob?.scrape_progress || { current: 0, total: 0 }
+  const importResult = activeJob?.import_result || null
+  const jobStatus = activeJob?.status || null
+
+  const isBackgroundRunning = jobStatus ? BACKGROUND_STATES.includes(jobStatus) : false
+
+  // Filtered products
+  const filteredProducts = useMemo(() => {
+    let filtered = products
+    if (hideBundles) {
+      filtered = filtered.filter((p) => !p.is_bundle)
+    }
+    if (searchFilter.trim()) {
+      const q = searchFilter.toLowerCase()
+      filtered = filtered.filter(
+        (p) =>
+          p.asin.toLowerCase().includes(q) ||
+          p.title.toLowerCase().includes(q) ||
+          (p.manufacturer || '').toLowerCase().includes(q)
+      )
+    }
+    return filtered
+  }, [products, hideBundles, searchFilter])
+
+  // ─── POLLING ──────────────────────────────────────
+
+  const pollForJob = useCallback(
+    async (jobId: string, countryId: string) => {
+      try {
+        const res = await fetch(`/api/seller-pull/jobs/${jobId}`)
+        if (!res.ok) return
+        const job: LbSellerPullJob = await res.json()
+
+        updateCountryJob(countryId, (prev) => ({ ...prev, job }))
+
+        // Merge categories from pull_result
+        if (job.pull_result?.categories) {
+          setCategories((prev) => {
+            const merged = new Set([...prev, ...job.pull_result!.categories])
+            return Array.from(merged).sort()
+          })
+        }
+
+        // Stop polling on terminal/pause states
+        if (!BACKGROUND_STATES.includes(job.status)) {
+          stopPolling()
+
+          if (job.status === 'pulled') {
+            toast.success(
+              `Pulled ${job.pull_result?.summary.total || 0} products (${job.pull_result?.summary.new || 0} new)`
+            )
+          } else if (job.status === 'done') {
+            toast.success('Seller pull complete!')
+          } else if (job.status === 'awaiting_variation_selection') {
+            const newVars = (job.variation_results || []).filter((v) => v.is_new)
+            toast.success(`Found ${newVars.length} new variation siblings!`)
+          } else if (job.status === 'failed') {
+            toast.error(job.error || 'Job failed')
+          }
+        }
+      } catch {
+        // Network error, keep polling
+      }
+    },
+    [updateCountryJob, stopPolling]
+  )
+
+  const startPolling = useCallback(
+    (jobId: string, countryId: string) => {
+      stopPolling()
+      // Immediate first poll
+      pollForJob(jobId, countryId)
+      pollRef.current = setInterval(() => pollForJob(jobId, countryId), POLL_INTERVAL)
+    },
+    [stopPolling, pollForJob]
+  )
+
+  // ─── FETCH CONFIG + RESTORE JOBS ON MOUNT ──────────
+
   useEffect(() => {
     async function fetchConfig() {
       try {
@@ -185,9 +252,57 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
             .filter(Boolean) as ConfiguredCountry[]
 
           setConfiguredCountries(configured)
-          if (configured.length > 0) {
-            setActiveCountryId(configured[0].country_id)
+
+          let firstActiveCountry = ''
+          const restoredJobs: Record<string, CountryJobState> = {}
+
+          // Restore active jobs for each configured country
+          for (const cc of configured) {
+            try {
+              const jobsRes = await fetch(`/api/seller-pull/jobs?country_id=${cc.country_id}`)
+              const jobsJson = await jobsRes.json()
+              const recentJobs = jobsJson.jobs || []
+
+              // Find the most recent non-done/non-failed job, or the most recent job
+              const activeRecentJob = recentJobs.find(
+                (j: { status: string }) => !['done', 'failed'].includes(j.status)
+              )
+              const latestJob = recentJobs[0]
+
+              const jobToRestore = activeRecentJob || (latestJob?.status === 'done' ? latestJob : null)
+
+              if (jobToRestore) {
+                const fullRes = await fetch(`/api/seller-pull/jobs/${jobToRestore.id}`)
+                const fullJob: LbSellerPullJob = await fullRes.json()
+
+                restoredJobs[cc.country_id] = {
+                  jobId: fullJob.id,
+                  job: fullJob,
+                  localSelectedAsins: null,
+                  localProductCategories: null,
+                  localSelectedVariations: null,
+                }
+
+                if (activeRecentJob && !firstActiveCountry) {
+                  firstActiveCountry = cc.country_id
+                }
+
+                // Merge categories
+                if (fullJob.pull_result?.categories) {
+                  setCategories((prev) => {
+                    const merged = new Set([...prev, ...fullJob.pull_result!.categories])
+                    return Array.from(merged).sort()
+                  })
+                }
+              }
+            } catch {
+              // Failed to fetch jobs for this country, skip
+            }
           }
+
+          setCountryJobs(restoredJobs)
+          const initialCountry = firstActiveCountry || configured[0]?.country_id || ''
+          setActiveCountryId(initialCountry)
         }
       } catch {
         toast.error('Failed to load seller configuration')
@@ -198,91 +313,157 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
     fetchConfig()
   }, [countries])
 
-  // Derived
-  const filteredProducts = useMemo(() => {
-    let filtered = activeData.products
-    if (hideBundles) {
-      filtered = filtered.filter((p) => !p.is_bundle)
+  // Resume polling when active country changes if job is in background state
+  useEffect(() => {
+    if (!activeCountryId) return
+    const jobState = countryJobs[activeCountryId]
+    if (jobState?.jobId && jobState.job && BACKGROUND_STATES.includes(jobState.job.status)) {
+      startPolling(jobState.jobId, activeCountryId)
+    } else {
+      stopPolling()
     }
-    if (searchFilter.trim()) {
-      const q = searchFilter.toLowerCase()
-      filtered = filtered.filter(
-        (p) =>
-          p.asin.toLowerCase().includes(q) ||
-          p.title.toLowerCase().includes(q) ||
-          (p.manufacturer || '').toLowerCase().includes(q)
-      )
-    }
-    return filtered
-  }, [activeData.products, hideBundles, searchFilter])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCountryId])
 
   // ─── PULL ─────────────────────────────────────────
+
   const handlePull = useCallback(async () => {
     if (!activeCountryId) return
-    setPulling(true)
-    updateActiveData(() => createDefaultPullData())
 
     try {
-      const res = await fetch('/api/seller-pull', {
+      const res = await fetch('/api/seller-pull/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ country_id: activeCountryId }),
       })
 
       const json = await res.json()
-      if (!res.ok) throw new Error(json.error || 'Pull failed')
+      if (!res.ok) throw new Error(json.error || 'Failed to start pull')
 
-      const pulledProducts: PulledProduct[] = json.products
-      const apiCategories: string[] = json.categories || []
+      const jobId = json.job_id
 
-      // Merge categories globally
-      setCategories((prev) => {
-        const merged = new Set([...prev, ...apiCategories])
-        return Array.from(merged).sort()
-      })
-
-      // Auto-select non-bundle new products
-      const newNonBundles = pulledProducts
-        .filter((p) => !p.is_bundle && !p.exists_in_system)
-        .map((p) => p.asin)
-
-      // Build per-product categories from suggestions
-      const catMap = new Map<string, string>()
-      for (const p of pulledProducts) {
-        if (p.suggested_category) {
-          catMap.set(p.asin, p.suggested_category)
-        }
-      }
-
-      updateActiveData(() => ({
-        ...createDefaultPullData(),
-        products: pulledProducts,
-        summary: json.summary,
-        sellerId: json.seller_id,
-        selectedAsins: new Set(newNonBundles),
-        productCategories: catMap,
+      updateCountryJob(activeCountryId, () => ({
+        jobId,
+        job: json.existing
+          ? countryJobs[activeCountryId]?.job || null
+          : {
+              id: jobId,
+              country_id: activeCountryId,
+              seller_id: '',
+              status: 'pulling' as const,
+              pull_result: null,
+              selected_asins: [],
+              product_categories: {},
+              import_result: null,
+              scrape_results: [],
+              scrape_progress: { current: 0, total: 0 },
+              variation_results: [],
+              selected_variations: [],
+              variation_import_result: null,
+              error: null,
+              created_by: null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+        localSelectedAsins: null,
+        localProductCategories: null,
+        localSelectedVariations: null,
       }))
 
-      toast.success(
-        `Pulled ${json.summary.total} products (${json.summary.non_bundles} non-bundles, ${json.summary.new} new)`
-      )
+      if (json.existing) {
+        toast('Resuming existing pull job...')
+      } else {
+        toast.success('Pull started! You can navigate away — it runs in the background.')
+      }
+
+      startPolling(jobId, activeCountryId)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Pull failed')
-    } finally {
-      setPulling(false)
     }
-  }, [activeCountryId, updateActiveData])
+  }, [activeCountryId, updateCountryJob, countryJobs, startPolling])
+
+  // ─── IMPORT ───────────────────────────────────────
+
+  const handleImport = useCallback(async () => {
+    if (!activeJobState.jobId || effectiveSelectedAsins.size === 0) return
+
+    setActionLoading(true)
+    try {
+      const res = await fetch(`/api/seller-pull/jobs/${activeJobState.jobId}/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          selected_asins: Array.from(effectiveSelectedAsins),
+          product_categories: Object.fromEntries(effectiveProductCategories),
+        }),
+      })
+
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Import failed')
+
+      toast.success(`Imported ${json.import_result.imported} products. Scraping details in background...`)
+
+      // Clear local overrides, start polling for scrape
+      updateCountryJob(activeCountryId, (prev) => ({
+        ...prev,
+        localSelectedAsins: null,
+        localProductCategories: null,
+      }))
+
+      startPolling(activeJobState.jobId, activeCountryId)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Import failed')
+    } finally {
+      setActionLoading(false)
+    }
+  }, [activeJobState.jobId, effectiveSelectedAsins, effectiveProductCategories, activeCountryId, updateCountryJob, startPolling])
+
+  // ─── IMPORT VARIATIONS ────────────────────────────
+
+  const handleImportVariations = useCallback(async () => {
+    if (!activeJobState.jobId || effectiveSelectedVariations.size === 0) return
+
+    setActionLoading(true)
+    try {
+      const res = await fetch(`/api/seller-pull/jobs/${activeJobState.jobId}/import-variations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          selected_variations: Array.from(effectiveSelectedVariations),
+        }),
+      })
+
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Import failed')
+
+      toast.success(`Imported ${json.variation_import_result.imported} variation siblings`)
+
+      updateCountryJob(activeCountryId, (prev) => ({
+        ...prev,
+        localSelectedVariations: null,
+        job: prev.job ? { ...prev.job, status: 'done' as const, variation_import_result: json.variation_import_result } : null,
+      }))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Import failed')
+    } finally {
+      setActionLoading(false)
+    }
+  }, [activeJobState.jobId, effectiveSelectedVariations, activeCountryId, updateCountryJob])
 
   // ─── CATEGORY MANAGEMENT ──────────────────────────
+
   const setProductCategory = useCallback(
     (asin: string, category: string) => {
-      updateActiveData((prev) => {
-        const newCats = new Map(prev.productCategories)
+      updateCountryJob(activeCountryId, (prev) => {
+        const current = prev.localProductCategories || new Map(
+          Object.entries(prev.job?.product_categories || {})
+        )
+        const newCats = new Map(current)
         newCats.set(asin, category)
-        return { ...prev, productCategories: newCats }
+        return { ...prev, localProductCategories: newCats }
       })
     },
-    [updateActiveData]
+    [activeCountryId, updateCountryJob]
   )
 
   const addNewCategory = useCallback(() => {
@@ -298,218 +479,15 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
     toast.success(`Category "${name}" added`)
   }, [newCategoryName, categories])
 
-  // ─── IMPORT ───────────────────────────────────────
-  const handleImport = useCallback(async () => {
-    if (activeData.selectedAsins.size === 0) {
-      toast.error('No products selected')
-      return
-    }
-
-    setImporting(true)
-    try {
-      const selectedProducts = activeData.products
-        .filter((p) => activeData.selectedAsins.has(p.asin))
-        .map((p) => ({
-          asin: p.asin,
-          title: p.title,
-          brand: p.manufacturer || undefined,
-          category: activeData.productCategories.get(p.asin) || 'Uncategorized',
-        }))
-
-      const res = await fetch('/api/seller-pull/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ products: selectedProducts }),
-      })
-
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || 'Import failed')
-
-      updateActiveData((prev) => ({
-        ...prev,
-        importResult: { imported: json.imported, skipped: json.skipped },
-        currentStep: 'scrape',
-        products: prev.products.map((p) =>
-          prev.selectedAsins.has(p.asin) ? { ...p, exists_in_system: true } : p
-        ),
-      }))
-
-      toast.success(`Imported ${json.imported} products`)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Import failed')
-    } finally {
-      setImporting(false)
-    }
-  }, [activeData, updateActiveData])
-
-  // ─── SCRAPE ───────────────────────────────────────
-  const handleScrape = useCallback(async () => {
-    const asinsToScrape = Array.from(activeData.selectedAsins)
-    if (asinsToScrape.length === 0) {
-      toast.error('No products to scrape')
-      return
-    }
-
-    setScraping(true)
-    updateActiveData((prev) => ({
-      ...prev,
-      scrapeProgress: { current: 0, total: asinsToScrape.length },
-      scrapeResults: [],
-    }))
-
-    const batchSize = 5
-    const allResults: ScrapeResult[] = []
-
-    for (let i = 0; i < asinsToScrape.length; i += batchSize) {
-      const batch = asinsToScrape.slice(i, i + batchSize)
-
-      try {
-        const res = await fetch('/api/seller-pull/scrape', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            asins: batch,
-            country_id: activeCountryId,
-          }),
-        })
-
-        const json = await res.json()
-        if (!res.ok) throw new Error(json.error || 'Scrape failed')
-
-        allResults.push(...(json.results || []))
-        updateActiveData((prev) => ({
-          ...prev,
-          scrapeProgress: { current: i + batch.length, total: asinsToScrape.length },
-          scrapeResults: [...allResults],
-        }))
-      } catch (err) {
-        for (const asin of batch) {
-          allResults.push({
-            asin,
-            success: false,
-            error: err instanceof Error ? err.message : 'Request failed',
-          })
-        }
-        updateActiveData((prev) => ({
-          ...prev,
-          scrapeResults: [...allResults],
-        }))
-      }
-    }
-
-    const successful = allResults.filter((r) => r.success)
-    const parentAsins = Array.from(
-      new Set(successful.map((r) => r.parent_asin).filter((pa): pa is string => !!pa))
-    )
-
-    if (parentAsins.length > 0) {
-      updateActiveData((prev) => ({ ...prev, currentStep: 'variations' }))
-      toast.success(
-        `Scraped ${successful.length}/${asinsToScrape.length}. Found ${parentAsins.length} parent ASINs.`
-      )
-    } else {
-      updateActiveData((prev) => ({ ...prev, currentStep: 'done' }))
-      toast.success(`Scraped ${successful.length}/${asinsToScrape.length} products.`)
-    }
-
-    setScraping(false)
-  }, [activeData.selectedAsins, activeCountryId, updateActiveData])
-
-  // ─── VARIATIONS ───────────────────────────────────
-  const handleDiscoverVariations = useCallback(async () => {
-    const parentAsins = Array.from(
-      new Set(
-        activeData.scrapeResults
-          .filter((r) => r.success && r.parent_asin)
-          .map((r) => r.parent_asin!)
-      )
-    )
-
-    if (parentAsins.length === 0) {
-      toast.error('No parent ASINs to check')
-      return
-    }
-
-    setDiscoveringVariations(true)
-    try {
-      const res = await fetch('/api/seller-pull/variations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          parent_asins: parentAsins,
-          country_id: activeCountryId,
-        }),
-      })
-
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || 'Variation discovery failed')
-
-      const variations: VariationResult[] = json.variations || []
-      const newOnes = variations.filter((v) => v.is_new)
-
-      updateActiveData((prev) => ({
-        ...prev,
-        variationResults: variations,
-        selectedVariations: new Set(newOnes.map((v) => v.asin)),
-      }))
-
-      if (newOnes.length > 0) {
-        toast.success(`Found ${newOnes.length} new variation siblings!`)
-      } else {
-        updateActiveData((prev) => ({ ...prev, currentStep: 'done' }))
-        toast.success('All variation siblings are already in your system.')
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Variation discovery failed')
-    } finally {
-      setDiscoveringVariations(false)
-    }
-  }, [activeData.scrapeResults, activeCountryId, updateActiveData])
-
-  // ─── IMPORT VARIATIONS ────────────────────────────
-  const handleImportVariations = useCallback(async () => {
-    const toImport = activeData.variationResults.filter(
-      (v) => v.is_new && activeData.selectedVariations.has(v.asin)
-    )
-
-    if (toImport.length === 0) {
-      toast.error('No variations selected')
-      return
-    }
-
-    setImporting(true)
-    try {
-      const res = await fetch('/api/seller-pull/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          products: toImport.map((v) => ({
-            asin: v.asin,
-            title: v.title || v.asin,
-            parent_asin: v.parent_asin,
-          })),
-        }),
-      })
-
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || 'Import failed')
-
-      toast.success(`Imported ${json.imported} variation siblings`)
-      updateActiveData((prev) => ({ ...prev, currentStep: 'done' }))
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Import failed')
-    } finally {
-      setImporting(false)
-    }
-  }, [activeData.variationResults, activeData.selectedVariations, updateActiveData])
-
   // ─── SELECTION HELPERS ────────────────────────────
+
   const toggleAsin = (asin: string) => {
-    updateActiveData((prev) => {
-      const next = new Set(prev.selectedAsins)
+    updateCountryJob(activeCountryId, (prev) => {
+      const current = prev.localSelectedAsins || new Set(prev.job?.selected_asins || [])
+      const next = new Set(current)
       if (next.has(asin)) next.delete(asin)
       else next.add(asin)
-      return { ...prev, selectedAsins: next }
+      return { ...prev, localSelectedAsins: next }
     })
   }
 
@@ -517,20 +495,38 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
     const visibleAsins = filteredProducts
       .filter((p) => !p.exists_in_system)
       .map((p) => p.asin)
-    updateActiveData((prev) => ({
+    updateCountryJob(activeCountryId, (prev) => ({
       ...prev,
-      selectedAsins: new Set(visibleAsins),
+      localSelectedAsins: new Set(visibleAsins),
     }))
   }
 
   const deselectAll = () => {
-    updateActiveData((prev) => ({
+    updateCountryJob(activeCountryId, (prev) => ({
       ...prev,
-      selectedAsins: new Set(),
+      localSelectedAsins: new Set(),
     }))
   }
 
+  // ─── STATUS LABEL ─────────────────────────────────
+
+  function getStatusLabel(status: string | null): string {
+    switch (status) {
+      case 'pulling': return 'Pulling products...'
+      case 'pulled': return 'Ready for import'
+      case 'importing': return 'Importing...'
+      case 'scraping': return `Scraping details (${scrapeProgress.current}/${scrapeProgress.total})...`
+      case 'discovering_variations': return 'Discovering variations...'
+      case 'awaiting_variation_selection': return 'Select variations to import'
+      case 'importing_variations': return 'Importing variations...'
+      case 'done': return 'Complete'
+      case 'failed': return 'Failed'
+      default: return ''
+    }
+  }
+
   // ─── LOADING / EMPTY STATES ───────────────────────
+
   if (loadingConfig) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -580,8 +576,10 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
         <div className="flex gap-1 overflow-x-auto">
           {configuredCountries.map((cc) => {
             const isActive = cc.country_id === activeCountryId
-            const data = countryData[cc.country_id]
-            const hasPulled = !!data?.products.length
+            const jobState = countryJobs[cc.country_id]
+            const job = jobState?.job
+            const hasPulled = !!job?.pull_result?.products.length
+            const isRunning = job && BACKGROUND_STATES.includes(job.status)
             return (
               <button
                 key={cc.country_id}
@@ -589,7 +587,7 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                   setActiveCountryId(cc.country_id)
                   setSearchFilter('')
                 }}
-                disabled={pulling || importing || scraping || discoveringVariations}
+                disabled={actionLoading}
                 className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 disabled:opacity-50 ${
                   isActive
                     ? 'border-primary text-primary'
@@ -598,9 +596,12 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
               >
                 <span>{cc.country.flag_emoji}</span>
                 <span>{cc.country.name}</span>
-                {hasPulled && (
+                {isRunning && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
+                )}
+                {hasPulled && !isRunning && (
                   <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full bg-primary/10 text-primary text-xs font-semibold">
-                    {data?.summary?.non_bundles || 0}
+                    {job?.pull_result?.summary.non_bundles || 0}
                   </span>
                 )}
               </button>
@@ -609,7 +610,7 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
         </div>
       </div>
 
-      {/* Pull Controls */}
+      {/* Pull Controls + Status */}
       <div className="rounded-lg border bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -621,64 +622,73 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                 Seller: {activeConfig?.seller_id}
               </span>
             </span>
+            {jobStatus && (
+              <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${
+                isBackgroundRunning
+                  ? 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400'
+                  : jobStatus === 'failed'
+                    ? 'bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400'
+                    : jobStatus === 'done'
+                      ? 'bg-green-50 dark:bg-green-950 text-green-600 dark:text-green-400'
+                      : 'bg-muted text-muted-foreground'
+              }`}>
+                {isBackgroundRunning && <Loader2 className="h-3 w-3 animate-spin" />}
+                {jobStatus === 'done' && <Check className="h-3 w-3" />}
+                {jobStatus === 'failed' && <X className="h-3 w-3" />}
+                {getStatusLabel(jobStatus)}
+              </span>
+            )}
           </div>
           <Button
             onClick={handlePull}
-            disabled={pulling || importing || scraping || discoveringVariations}
+            disabled={isBackgroundRunning || actionLoading}
             className="gap-2"
           >
-            {pulling ? (
+            {jobStatus === 'pulling' ? (
               <Loader2 className="h-4 w-4 animate-spin" />
-            ) : activeData.products.length > 0 ? (
+            ) : products.length > 0 ? (
               <RefreshCw className="h-4 w-4" />
             ) : (
               <Download className="h-4 w-4" />
             )}
-            {pulling ? 'Pulling...' : activeData.products.length > 0 ? 'Re-Pull' : 'Pull Products'}
+            {jobStatus === 'pulling' ? 'Pulling...' : products.length > 0 ? 'Re-Pull' : 'Pull Products'}
           </Button>
         </div>
+
+        {/* Error display */}
+        {jobStatus === 'failed' && activeJob?.error && (
+          <div className="mt-3 p-3 rounded bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+            {activeJob.error}
+          </div>
+        )}
       </div>
 
       {/* Summary Cards */}
-      {activeData.summary && (
+      {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <SummaryCard label="Total Found" value={activeData.summary.total} icon={Store} />
+          <SummaryCard label="Total Found" value={summary.total} icon={Store} />
           <SummaryCard
             label="Bundles"
-            value={activeData.summary.bundles}
+            value={summary.bundles}
             icon={Package}
             muted
-            subtitle={`${activeData.summary.bundles_with_sales} with sales`}
+            subtitle={`${summary.bundles_with_sales} with sales`}
           />
-          <SummaryCard
-            label="Non-Bundles"
-            value={activeData.summary.non_bundles}
-            icon={ScanSearch}
-          />
-          <SummaryCard
-            label="Already Imported"
-            value={activeData.summary.already_in_system}
-            icon={Check}
-            muted
-          />
-          <SummaryCard
-            label="New Products"
-            value={activeData.summary.new}
-            icon={AlertCircle}
-            highlight
-          />
+          <SummaryCard label="Non-Bundles" value={summary.non_bundles} icon={ScanSearch} />
+          <SummaryCard label="Already Imported" value={summary.already_in_system} icon={Check} muted />
+          <SummaryCard label="New Products" value={summary.new} icon={AlertCircle} highlight />
           <SummaryCard
             label="Pages Scraped"
-            value={activeData.summary.pages_scraped}
+            value={summary.pages_scraped}
             icon={Globe}
             muted
-            subtitle={`of ${activeData.summary.total_pages}`}
+            subtitle={`of ${summary.total_pages}`}
           />
         </div>
       )}
 
       {/* Products Table */}
-      {activeData.products.length > 0 && (
+      {products.length > 0 && (
         <div className="rounded-lg border bg-card">
           {/* Table Header Controls */}
           <div className="p-4 border-b flex flex-wrap items-center justify-between gap-3">
@@ -693,9 +703,7 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
               >
                 <Package className="h-3.5 w-3.5" />
                 {hideBundles ? 'Bundles Hidden' : 'Showing All'}
-                <span className="text-xs opacity-75">
-                  ({activeData.summary?.bundles || 0})
-                </span>
+                <span className="text-xs opacity-75">({summary?.bundles || 0})</span>
               </button>
 
               <div className="relative">
@@ -714,7 +722,6 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
             </div>
 
             <div className="flex items-center gap-2">
-              {/* New Category Button */}
               {showNewCategory ? (
                 <div className="flex items-center gap-1">
                   <Input
@@ -731,33 +738,20 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                     }}
                     autoFocus
                   />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0"
-                    onClick={addNewCategory}
-                  >
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={addNewCategory}>
                     <Check className="h-3.5 w-3.5" />
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
                     className="h-7 w-7 p-0"
-                    onClick={() => {
-                      setShowNewCategory(false)
-                      setNewCategoryName('')
-                    }}
+                    onClick={() => { setShowNewCategory(false); setNewCategoryName('') }}
                   >
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowNewCategory(true)}
-                  className="h-7 gap-1 text-xs"
-                >
+                <Button size="sm" variant="outline" onClick={() => setShowNewCategory(true)} className="h-7 gap-1 text-xs">
                   <Plus className="h-3 w-3" />
                   New Category
                 </Button>
@@ -766,22 +760,12 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
               <div className="h-4 w-px bg-border" />
 
               <span className="text-sm text-muted-foreground">
-                {activeData.selectedAsins.size} selected
+                {effectiveSelectedAsins.size} selected
               </span>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={selectAllVisible}
-                className="h-7 text-xs"
-              >
+              <Button size="sm" variant="outline" onClick={selectAllVisible} className="h-7 text-xs">
                 Select All New
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={deselectAll}
-                className="h-7 text-xs"
-              >
+              <Button size="sm" variant="outline" onClick={deselectAll} className="h-7 text-xs">
                 Deselect All
               </Button>
             </div>
@@ -799,7 +783,7 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                         filteredProducts.filter((p) => !p.exists_in_system).length > 0 &&
                         filteredProducts
                           .filter((p) => !p.exists_in_system)
-                          .every((p) => activeData.selectedAsins.has(p.asin))
+                          .every((p) => effectiveSelectedAsins.has(p.asin))
                       }
                       onChange={(e) => {
                         if (e.target.checked) selectAllVisible()
@@ -820,31 +804,26 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
               </thead>
               <tbody className="divide-y">
                 {filteredProducts.map((product) => {
-                  const productCategory =
-                    activeData.productCategories.get(product.asin) || ''
+                  const productCategory = effectiveProductCategories.get(product.asin) || ''
                   return (
                     <tr
                       key={product.asin}
                       className={`hover:bg-muted/30 ${
                         product.exists_in_system ? 'opacity-50' : ''
-                      } ${activeData.selectedAsins.has(product.asin) ? 'bg-primary/5' : ''}`}
+                      } ${effectiveSelectedAsins.has(product.asin) ? 'bg-primary/5' : ''}`}
                     >
                       <td className="px-3 py-2">
                         <input
                           type="checkbox"
-                          checked={activeData.selectedAsins.has(product.asin)}
+                          checked={effectiveSelectedAsins.has(product.asin)}
                           onChange={() => toggleAsin(product.asin)}
-                          disabled={product.exists_in_system}
+                          disabled={product.exists_in_system || jobStatus !== 'pulled'}
                           className="rounded border-input"
                         />
                       </td>
                       <td className="px-3 py-2">
                         {product.url_image ? (
-                          <img
-                            src={product.url_image}
-                            alt=""
-                            className="w-10 h-10 object-contain rounded"
-                          />
+                          <img src={product.url_image} alt="" className="w-10 h-10 object-contain rounded" />
                         ) : (
                           <div className="w-10 h-10 bg-muted rounded flex items-center justify-center">
                             <Package className="h-4 w-4 text-muted-foreground" />
@@ -858,9 +837,7 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                           {product.manufacturer && (
-                            <span className="text-xs text-muted-foreground">
-                              {product.manufacturer}
-                            </span>
+                            <span className="text-xs text-muted-foreground">{product.manufacturer}</span>
                           )}
                           {product.is_bundle && (
                             <span className="text-xs bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 px-1.5 py-0.5 rounded">
@@ -878,27 +855,21 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                       <td className="px-3 py-2">
                         <select
                           value={productCategory}
-                          onChange={(e) =>
-                            setProductCategory(product.asin, e.target.value)
-                          }
+                          onChange={(e) => setProductCategory(product.asin, e.target.value)}
                           className={`w-full rounded border px-2 py-1 text-xs bg-background focus:outline-none focus:ring-1 focus:ring-ring ${
                             !productCategory && !product.exists_in_system
                               ? 'border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400'
                               : 'border-input text-foreground'
                           }`}
-                          disabled={product.exists_in_system}
+                          disabled={product.exists_in_system || jobStatus !== 'pulled'}
                         >
                           <option value="">— Select —</option>
                           {categories.map((cat) => (
-                            <option key={cat} value={cat}>
-                              {cat}
-                            </option>
+                            <option key={cat} value={cat}>{cat}</option>
                           ))}
                         </select>
                         {!productCategory && !product.exists_in_system && (
-                          <span className="text-[10px] text-orange-500 mt-0.5 block">
-                            Needs category
-                          </span>
+                          <span className="text-[10px] text-orange-500 mt-0.5 block">Needs category</span>
                         )}
                       </td>
                       <td className="px-3 py-2 text-right">
@@ -908,9 +879,7 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                         {product.rating ? `${product.rating}` : '\u2014'}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        {product.reviews_count
-                          ? product.reviews_count.toLocaleString()
-                          : '\u2014'}
+                        {product.reviews_count ? product.reviews_count.toLocaleString() : '\u2014'}
                       </td>
                       <td className="px-3 py-2 text-center">
                         {product.exists_in_system ? (
@@ -934,61 +903,37 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
           {/* Action Bar */}
           <div className="p-4 border-t bg-muted/30 flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm text-muted-foreground">
-              {activeData.selectedAsins.size} products selected for import
+              {effectiveSelectedAsins.size} products selected for import
             </div>
             <div className="flex items-center gap-2">
-              {activeData.currentStep === 'pull' && (
+              {jobStatus === 'pulled' && (
                 <Button
                   onClick={handleImport}
-                  disabled={importing || activeData.selectedAsins.size === 0}
+                  disabled={actionLoading || effectiveSelectedAsins.size === 0}
                   className="gap-2"
                 >
-                  {importing ? (
+                  {actionLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Download className="h-4 w-4" />
                   )}
-                  {importing
+                  {actionLoading
                     ? 'Importing...'
-                    : `Import ${activeData.selectedAsins.size} Products`}
+                    : `Import ${effectiveSelectedAsins.size} Products`}
                 </Button>
               )}
 
-              {(activeData.currentStep === 'scrape' ||
-                activeData.currentStep === 'pull') &&
-                activeData.importResult && (
-                  <Button
-                    onClick={handleScrape}
-                    disabled={scraping || activeData.selectedAsins.size === 0}
-                    variant="outline"
-                    className="gap-2"
-                  >
-                    {scraping ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <ScanSearch className="h-4 w-4" />
-                    )}
-                    {scraping
-                      ? `Scraping ${activeData.scrapeProgress.current}/${activeData.scrapeProgress.total}...`
-                      : `Scrape Details (${activeData.selectedAsins.size})`}
-                  </Button>
-                )}
+              {jobStatus === 'scraping' && (
+                <Button disabled variant="outline" className="gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Scraping {scrapeProgress.current}/{scrapeProgress.total}...
+                </Button>
+              )}
 
-              {activeData.currentStep === 'variations' && (
-                <Button
-                  onClick={handleDiscoverVariations}
-                  disabled={discoveringVariations}
-                  variant="outline"
-                  className="gap-2"
-                >
-                  {discoveringVariations ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <GitBranch className="h-4 w-4" />
-                  )}
-                  {discoveringVariations
-                    ? 'Discovering...'
-                    : 'Discover Variation Siblings'}
+              {jobStatus === 'discovering_variations' && (
+                <Button disabled variant="outline" className="gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Discovering variations...
                 </Button>
               )}
             </div>
@@ -997,30 +942,36 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
       )}
 
       {/* Import Result */}
-      {activeData.importResult && (
+      {importResult && (
         <div className="rounded-lg border bg-card p-4">
           <div className="flex items-center gap-2 text-green-600">
             <Check className="h-5 w-5" />
             <span className="font-medium">
-              Import Complete: {activeData.importResult.imported} imported
-              {activeData.importResult.skipped > 0 &&
-                `, ${activeData.importResult.skipped} skipped`}
+              Import Complete: {importResult.imported} imported
+              {importResult.skipped > 0 && `, ${importResult.skipped} skipped`}
             </span>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            Products are now in your system. Use &quot;Scrape Details&quot; to fetch full
-            Amazon data for each product.
-          </p>
+          {jobStatus === 'scraping' && (
+            <p className="text-sm text-muted-foreground mt-1">
+              Scraping product details in the background ({scrapeProgress.current}/{scrapeProgress.total})...
+              You can navigate away.
+            </p>
+          )}
+          {jobStatus !== 'scraping' && jobStatus !== 'pulling' && (
+            <p className="text-sm text-muted-foreground mt-1">
+              Products are now in your system.
+            </p>
+          )}
         </div>
       )}
 
       {/* Scrape Results */}
-      {activeData.scrapeResults.length > 0 && (
-        <ScrapeResultsPanel results={activeData.scrapeResults} />
+      {scrapeResults.length > 0 && (
+        <ScrapeResultsPanel results={scrapeResults} />
       )}
 
       {/* Variation Discovery Results */}
-      {activeData.variationResults.length > 0 && (
+      {variationResults.length > 0 && jobStatus === 'awaiting_variation_selection' && (
         <div className="rounded-lg border bg-card">
           <div className="p-4 border-b">
             <div className="flex items-center gap-2">
@@ -1040,25 +991,23 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                     <input
                       type="checkbox"
                       checked={
-                        activeData.variationResults.filter((v) => v.is_new).length > 0 &&
-                        activeData.variationResults
+                        variationResults.filter((v) => v.is_new).length > 0 &&
+                        variationResults
                           .filter((v) => v.is_new)
-                          .every((v) => activeData.selectedVariations.has(v.asin))
+                          .every((v) => effectiveSelectedVariations.has(v.asin))
                       }
                       onChange={(e) => {
                         if (e.target.checked) {
-                          updateActiveData((prev) => ({
+                          updateCountryJob(activeCountryId, (prev) => ({
                             ...prev,
-                            selectedVariations: new Set(
-                              prev.variationResults
-                                .filter((v) => v.is_new)
-                                .map((v) => v.asin)
+                            localSelectedVariations: new Set(
+                              variationResults.filter((v) => v.is_new).map((v) => v.asin)
                             ),
                           }))
                         } else {
-                          updateActiveData((prev) => ({
+                          updateCountryJob(activeCountryId, (prev) => ({
                             ...prev,
-                            selectedVariations: new Set(),
+                            localSelectedVariations: new Set(),
                           }))
                         }
                       }}
@@ -1072,7 +1021,7 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {activeData.variationResults.map((v) => (
+                {variationResults.map((v) => (
                   <tr
                     key={v.asin}
                     className={`hover:bg-muted/30 ${!v.is_new ? 'opacity-50' : ''}`}
@@ -1080,13 +1029,14 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                     <td className="px-3 py-2">
                       <input
                         type="checkbox"
-                        checked={activeData.selectedVariations.has(v.asin)}
+                        checked={effectiveSelectedVariations.has(v.asin)}
                         onChange={() => {
-                          updateActiveData((prev) => {
-                            const next = new Set(prev.selectedVariations)
+                          updateCountryJob(activeCountryId, (prev) => {
+                            const current = prev.localSelectedVariations || new Set(prev.job?.selected_variations || [])
+                            const next = new Set(current)
                             if (next.has(v.asin)) next.delete(v.asin)
                             else next.add(v.asin)
-                            return { ...prev, selectedVariations: next }
+                            return { ...prev, localSelectedVariations: next }
                           })
                         }}
                         disabled={!v.is_new}
@@ -1094,9 +1044,7 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                       />
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">{v.asin}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
-                      {v.parent_asin}
-                    </td>
+                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{v.parent_asin}</td>
                     <td className="px-3 py-2 text-xs">
                       {v.dimensions
                         ? Object.entries(v.dimensions)
@@ -1123,26 +1071,26 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
 
           <div className="p-4 border-t flex items-center justify-between">
             <span className="text-sm text-muted-foreground">
-              {activeData.selectedVariations.size} new variations selected
+              {effectiveSelectedVariations.size} new variations selected
             </span>
             <Button
               onClick={handleImportVariations}
-              disabled={importing || activeData.selectedVariations.size === 0}
+              disabled={actionLoading || effectiveSelectedVariations.size === 0}
               className="gap-2"
             >
-              {importing ? (
+              {actionLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Download className="h-4 w-4" />
               )}
-              Import {activeData.selectedVariations.size} Variations
+              Import {effectiveSelectedVariations.size} Variations
             </Button>
           </div>
         </div>
       )}
 
       {/* Done State */}
-      {activeData.currentStep === 'done' && (
+      {jobStatus === 'done' && (
         <div className="rounded-lg border bg-card p-6 text-center">
           <Check className="h-8 w-8 text-green-500 mx-auto mb-2" />
           <h3 className="font-semibold text-lg">All Done!</h3>
@@ -1153,11 +1101,7 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
             </a>{' '}
             to see them.
           </p>
-          <Button
-            variant="outline"
-            onClick={handlePull}
-            className="mt-4 gap-2"
-          >
+          <Button variant="outline" onClick={handlePull} className="mt-4 gap-2">
             <RefreshCw className="h-4 w-4" />
             Pull Again
           </Button>
@@ -1204,21 +1148,15 @@ function SummaryCard({
         />
         <span className="text-xs text-muted-foreground">{label}</span>
       </div>
-      <p
-        className={`text-2xl font-bold mt-1 ${
-          muted ? 'text-muted-foreground' : ''
-        }`}
-      >
+      <p className={`text-2xl font-bold mt-1 ${muted ? 'text-muted-foreground' : ''}`}>
         {value}
       </p>
-      {subtitle && (
-        <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
-      )}
+      {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
     </div>
   )
 }
 
-function ScrapeResultsPanel({ results }: { results: ScrapeResult[] }) {
+function ScrapeResultsPanel({ results }: { results: SellerPullScrapeResult[] }) {
   const [expanded, setExpanded] = useState(false)
   const successful = results.filter((r) => r.success)
   const failed = results.filter((r) => !r.success)
@@ -1239,11 +1177,7 @@ function ScrapeResultsPanel({ results }: { results: ScrapeResult[] }) {
             {parentAsins.length > 0 && ` | ${parentAsins.length} parent ASINs found`}
           </span>
         </div>
-        {expanded ? (
-          <ChevronUp className="h-4 w-4" />
-        ) : (
-          <ChevronDown className="h-4 w-4" />
-        )}
+        {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
       </button>
 
       {expanded && (
@@ -1252,9 +1186,7 @@ function ScrapeResultsPanel({ results }: { results: ScrapeResult[] }) {
             {results.map((r) => (
               <div
                 key={r.asin}
-                className={`flex items-center gap-2 ${
-                  r.success ? 'text-green-600' : 'text-red-500'
-                }`}
+                className={`flex items-center gap-2 ${r.success ? 'text-green-600' : 'text-red-500'}`}
               >
                 {r.success ? (
                   <Check className="h-3 w-3 flex-shrink-0" />
@@ -1263,13 +1195,9 @@ function ScrapeResultsPanel({ results }: { results: ScrapeResult[] }) {
                 )}
                 <span>{r.asin}</span>
                 {r.parent_asin && (
-                  <span className="text-muted-foreground">
-                    &rarr; parent: {r.parent_asin}
-                  </span>
+                  <span className="text-muted-foreground">&rarr; parent: {r.parent_asin}</span>
                 )}
-                {r.error && (
-                  <span className="text-red-400 truncate">{r.error}</span>
-                )}
+                {r.error && <span className="text-red-400 truncate">{r.error}</span>}
               </div>
             ))}
           </div>

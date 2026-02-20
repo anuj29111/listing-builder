@@ -493,6 +493,85 @@ export interface LbAsinQuestions {
   updated_at: string
 }
 
+// Seller Pull Jobs (background processing)
+export type SellerPullJobStatus =
+  | 'pulling'
+  | 'pulled'
+  | 'importing'
+  | 'scraping'
+  | 'discovering_variations'
+  | 'awaiting_variation_selection'
+  | 'importing_variations'
+  | 'done'
+  | 'failed'
+
+export interface SellerPullProduct {
+  asin: string
+  title: string
+  price: number | null
+  rating: number | null
+  reviews_count: number | null
+  is_prime: boolean
+  url_image: string | null
+  manufacturer: string | null
+  sales_volume: string | null
+  is_bundle: boolean
+  has_sales: boolean
+  exists_in_system: boolean
+  suggested_category: string | null
+}
+
+export interface SellerPullSummary {
+  total: number
+  bundles: number
+  bundles_with_sales: number
+  non_bundles: number
+  already_in_system: number
+  new: number
+  pages_scraped: number
+  total_pages: number
+}
+
+export interface SellerPullScrapeResult {
+  asin: string
+  success: boolean
+  error?: string
+  parent_asin?: string
+  title?: string
+}
+
+export interface SellerPullVariationResult {
+  asin: string
+  title: string
+  parent_asin: string
+  is_new: boolean
+  dimensions?: Record<string, string>
+}
+
+export interface LbSellerPullJob {
+  id: string
+  country_id: string
+  seller_id: string
+  status: SellerPullJobStatus
+  pull_result: {
+    products: SellerPullProduct[]
+    summary: SellerPullSummary
+    categories: string[]
+  } | null
+  selected_asins: string[]
+  product_categories: Record<string, string>
+  import_result: { imported: number; skipped: number; errors: string[]; total: number } | null
+  scrape_results: SellerPullScrapeResult[]
+  scrape_progress: { current: number; total: number }
+  variation_results: SellerPullVariationResult[]
+  selected_variations: string[]
+  variation_import_result: { imported: number; skipped: number; errors: string[]; total: number } | null
+  error: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 // Higgsfield prompt queue (shared table with higgsfield-automator)
 export type HfModel = 'nano-banana-pro' | 'chatgpt' | 'seedream' | 'soul'
 
