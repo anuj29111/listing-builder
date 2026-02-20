@@ -9,6 +9,7 @@ interface CollectionPickerProps {
   entityType: ResearchEntityType
   entityId: string
   compact?: boolean
+  defaultOpen?: boolean
   onMembershipChange?: () => void
 }
 
@@ -17,8 +18,8 @@ const PRESET_COLORS = [
   '#3b82f6', '#8b5cf6', '#ef4444', '#06b6d4',
 ]
 
-export function CollectionPicker({ entityType, entityId, compact, onMembershipChange }: CollectionPickerProps) {
-  const [open, setOpen] = useState(false)
+export function CollectionPicker({ entityType, entityId, compact, defaultOpen, onMembershipChange }: CollectionPickerProps) {
+  const [open, setOpen] = useState(defaultOpen ?? false)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState('#6366f1')
