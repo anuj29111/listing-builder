@@ -116,9 +116,9 @@ npm run lint         # ESLint
 23. **SectionCard approval** — `final_text` replaces `is_approved` toggle. Section is "approved" when `final_text.trim()` is non-empty. `is_approved` DB column is derived from `final_text` on save.
 24. **Phased generation (cascading keyword waterfall)** — Listing generation uses 4 sequential API calls: Title (16384 tokens) → Bullets (32768) → Description+SearchTerms (16384) → Backend (8192). Each phase sees full research data + confirmed output from prior phases + keyword coverage tracker. API route: `/api/listings/generate` with `phase` parameter. Batch route auto-cascades all 4 phases. Never limit token budgets — full data in every phase.
 25. **Competitor analysis** — Stored as `analysis_type='competitor_analysis'` in `lb_research_analysis`. Max 5 competitors, 5000 chars each. Uses dedicated API route `/api/research/analyze/competitors`.
-26. **Admin settings keys are lowercase** — `lb_admin_settings.key` is case-sensitive. Always use lowercase: `anthropic_api_key`, `openai_api_key`, `google_ai_api_key`, `higgsfield_api_key`, `higgsfield_api_secret`. UI now has pre-filled slots.
+26. **Admin settings keys are lowercase** — `lb_admin_settings.key` is case-sensitive. Always use lowercase: `anthropic_api_key`, `openai_api_key`, `google_ai_api_key`. UI has pre-filled slots. Higgsfield API keys removed (uses queue-based approach via automator).
 27. **Image providers renamed** — Provider IDs: `openai` (GPT Image 1.5), `gemini` (Flash + Nano Banana Pro), `higgsfield` (queue-based). Old `dalle3` ID removed. Providers route has legacy `dalle3` config compat. Gemini supports sub-model selection via `modelId`.
-33. **Higgsfield queue-based flow** — Higgsfield provider inserts into `hf_prompt_queue` (status: pending) instead of calling API directly. Python `push_prompts.py` script submits to `fnf.higgsfield.ai`. HfQueuePanel component in Image Builder shows queue status with filters, retry/skip/delete. Auto-refreshes every 15s.
+33. **Higgsfield queue-based flow (fully integrated)** — All image sections (Main, Secondary, Swatch, Video Thumbnail, Workshop) insert into `hf_prompt_queue` → Edge Function auto-submits to `fnf.higgsfield.ai`. Models: `nano-banana-pro`, `chatgpt`, `seedream`, `soul`. Old `platform.higgsfield.ai` API code deleted (`src/lib/higgsfield.ts`). No API keys needed — uses Clerk JWT + Creator plan. Model selection flows via `getEffectiveModelId()` → `model_id` → `generateAndStoreImage()` → queue insert.
 28. **Image builder 5 tabs** — Listing detail + standalone `/images` both show: Content, Main, Secondary, Video Thumbnails, Swatches. Tab bar has `overflow-x-auto` for mobile.
 29. **Image Builder drafts panel** — `/images` page shows saved workshops as clickable draft cards. Clicking resumes the draft by setting context + active tab.
 30. **SP Prompts xlsx parsing** — `sp_prompts` file type accepts xlsx/csv. xlsx is parsed server-side (dynamic `import('xlsx')`) → converted to clean CSV before Supabase storage. Wired into Q&A analysis pipeline with niche-filtering (Claude filters prompts by category).
@@ -158,10 +158,6 @@ npm run lint         # ESLint
 
 ## Pending Tasks
 
-- **Image Builder — Sub-model visibility in UI:**
-  1. All image dropdowns (listing detail tabs, standalone `/images`, workshop) should show which sub-model is active (e.g. "Gemini — Nano Banana Pro" not just "Google Gemini")
-  2. Add sub-model selector wherever provider dropdown exists (not just GenerationControls/Workshop)
-  3. Audit all image entry points for consistent model display and selection
 - **Phased Generation e2e Testing:**
   1. New listing wizard — verify 4-phase flow: Generate Titles → confirm → Generate Bullets → confirm → Description → Backend
   2. Keyword coverage panel — verify score climbs across phases (30% → 60% → 85% → 95%+)
