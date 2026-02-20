@@ -17,7 +17,7 @@ import { SwatchImageSection } from '@/components/listings/images/SwatchImageSect
 import { VideoScriptStoryboardSection } from '@/components/listings/video/VideoScriptStoryboardSection'
 import { ListingAPlusSection } from '@/components/listings/ListingAPlusSection'
 import { SECTION_TYPES, SECTION_TYPE_LABELS, SECTION_CHAR_LIMIT_MAP } from '@/lib/constants'
-import { Pencil, Save, Loader2, CheckCircle2, Tag, MapPin, ArrowLeft } from 'lucide-react'
+import { Pencil, Save, Loader2, CheckCircle2, Tag, MapPin, ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbListingSection, LbCategory, LbImageWorkshop, LbImageGeneration, LbVideoProject, LbAPlusModule } from '@/types/database'
 
@@ -131,6 +131,7 @@ export function ListingDetailClient({
   const [sections, setSections] = useState(initialSections)
   const [listingStatus, setListingStatus] = useState(listing.status as 'draft' | 'review' | 'approved' | 'exported')
   const [isSaving, setIsSaving] = useState(false)
+  const [bulletsExpanded, setBulletsExpanded] = useState(true)
 
   const images = rawImages as LbImageGeneration[]
 
@@ -361,20 +362,77 @@ export function ListingDetailClient({
             />
           )}
 
-          {/* Section Cards */}
-          <div className="space-y-3">
-            {sortedSections.map((section) => (
-              <SectionCard
-                key={section.id}
-                section={section}
-                label={SECTION_TYPE_LABELS[section.section_type] || section.section_type}
-                charLimit={getCharLimit(section.section_type)}
-                listingId={listing.id}
-                onFinalTextChange={updateFinalText}
-                onVariationAdded={addVariation}
-              />
-            ))}
-          </div>
+          {/* Section Cards — grouped: title, collapsible bullets, rest */}
+          {(() => {
+            const titleSections = sortedSections.filter((s) => s.section_type === 'title')
+            const bulletSections = sortedSections.filter((s) => s.section_type.startsWith('bullet_'))
+            const otherSections = sortedSections.filter(
+              (s) => !s.section_type.startsWith('bullet_') && s.section_type !== 'title'
+            )
+
+            return (
+              <div className="space-y-3">
+                {/* Title */}
+                {titleSections.map((section) => (
+                  <SectionCard
+                    key={section.id}
+                    section={section}
+                    label={SECTION_TYPE_LABELS[section.section_type] || section.section_type}
+                    charLimit={getCharLimit(section.section_type)}
+                    listingId={listing.id}
+                    onFinalTextChange={updateFinalText}
+                    onVariationAdded={addVariation}
+                  />
+                ))}
+
+                {/* Collapsible Bullet Group */}
+                {bulletSections.length > 0 && (
+                  <div className="rounded-lg border">
+                    <button
+                      onClick={() => setBulletsExpanded(!bulletsExpanded)}
+                      className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        {bulletsExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                        <span className="font-medium">Bullet Points ({bulletSections.length})</span>
+                      </div>
+                      <span className="text-sm text-muted-foreground">
+                        {bulletsExpanded ? 'Collapse All' : 'Expand All'}
+                      </span>
+                    </button>
+                    {bulletsExpanded && (
+                      <div className="px-4 pb-4 space-y-3">
+                        {bulletSections.map((section) => (
+                          <SectionCard
+                            key={section.id}
+                            section={section}
+                            label={SECTION_TYPE_LABELS[section.section_type] || section.section_type}
+                            charLimit={getCharLimit(section.section_type)}
+                            listingId={listing.id}
+                            onFinalTextChange={updateFinalText}
+                            onVariationAdded={addVariation}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Description, Search Terms, Subject Matter */}
+                {otherSections.map((section) => (
+                  <SectionCard
+                    key={section.id}
+                    section={section}
+                    label={SECTION_TYPE_LABELS[section.section_type] || section.section_type}
+                    charLimit={getCharLimit(section.section_type)}
+                    listingId={listing.id}
+                    onFinalTextChange={updateFinalText}
+                    onVariationAdded={addVariation}
+                  />
+                ))}
+              </div>
+            )
+          })()}
 
           {/* Backend Attributes */}
           {listing.backend_attributes && (
