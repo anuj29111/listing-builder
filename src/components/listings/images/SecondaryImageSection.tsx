@@ -327,6 +327,22 @@ export function SecondaryImageSection({
               onRegenerate={image ? () => handleGenerateSingle(concept) : undefined}
               onGenerate={!image ? () => handleGenerateSingle(concept) : undefined}
               showCheckbox={false}
+              details={[
+                { label: 'Sub-headline', value: concept.sub_headline || '' },
+                { label: 'Layout Type', value: concept.layout_type || '' },
+                { label: 'Target Audience', value: concept.target_audience || '' },
+                { label: 'Mood', value: concept.mood || '' },
+                { label: 'USP', value: concept.unique_selling_point || '' },
+                { label: 'Visual Reference', value: concept.visual_reference || '' },
+                { label: 'Hero Image', value: concept.hero_image || '' },
+                { label: 'Icons', value: concept.icon_descriptions || [] },
+                { label: 'Typography', value: concept.typography || '' },
+                { label: 'Color Palette', value: concept.color_palette || '' },
+                { label: 'Background', value: concept.background || '' },
+                { label: 'Camera Focus', value: concept.camera_focus || '' },
+                { label: 'Compliance', value: concept.compliance_notes || '' },
+                { label: 'Aesthetic Reference', value: concept.aesthetic_reference || '' },
+              ]}
             />
           )
         })}

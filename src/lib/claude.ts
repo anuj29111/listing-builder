@@ -586,8 +586,8 @@ export interface ListingGenerationInput {
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
   competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
-  optimizationMode?: 'new' | 'optimize_existing'
-  existingListingText?: { title: string; bullets: string[]; description: string } | null
+  optimizationMode?: 'new' | 'optimize_existing' | 'based_on_existing'
+  existingListingText?: { title: string; bullets: string[]; description: string; reference_asin?: string } | null
 }
 
 export interface ListingGenerationResult {
@@ -805,9 +805,30 @@ OPTIMIZATION INSTRUCTIONS:
 4. Preserve elements that are already strong (don't fix what isn't broken)
 5. Your generated variations should be OPTIMIZED versions of this listing, not entirely new listings
 6. Each variation strategy (SEO/Benefit/Balanced) should improve upon the original in its specific dimension`
+  } else if (optimizationMode === 'based_on_existing' && existingListingText) {
+    const bullets = existingListingText.bullets
+      .map((b, i) => `  Bullet ${i + 1}: ${b}`)
+      .join('\n')
+    existingListingSection = `
+
+=== REFERENCE PRODUCT LISTING ===
+This content is from a SIMILAR/REFERENCE product${existingListingText.reference_asin ? ` (ASIN: ${existingListingText.reference_asin})` : ''}. The user is creating a listing for a DIFFERENT but similar product based on this reference.
+
+Reference Title: ${existingListingText.title}
+Reference Bullets:
+${bullets}
+Reference Description: ${existingListingText.description}
+
+ADAPTATION INSTRUCTIONS:
+1. Use this reference listing as INSPIRATION for structure, tone, and selling approach
+2. DO NOT copy content verbatim — adapt everything for the product described in PRODUCT INFO above
+3. Identify what makes the reference listing effective (keyword patterns, benefit framing, structure)
+4. Apply those effective patterns to the new product's unique features and attributes
+5. The new listing should be BETTER than the reference — improve keyword coverage, benefit clarity, and competitive positioning
+6. If the products are similar (e.g., different size/color/pack count), adapt specifics while preserving proven phrasing patterns`
   }
 
-  return `You are an expert Amazon listing copywriter. ${optimizationMode === 'optimize_existing' ? 'Optimize an existing' : 'Generate an optimized'} product listing for the following product.
+  return `You are an expert Amazon listing copywriter. ${optimizationMode === 'optimize_existing' ? 'Optimize an existing' : optimizationMode === 'based_on_existing' ? 'Adapt and optimize a reference' : 'Generate an optimized'} product listing for the following product.
 
 === PRODUCT INFO ===
 Product: ${productName}
@@ -1147,6 +1168,27 @@ OPTIMIZATION INSTRUCTIONS:
 4. Preserve elements that are already strong (don't fix what isn't broken)
 5. Your generated variations should be OPTIMIZED versions of this listing, not entirely new listings
 6. Each variation strategy (SEO/Benefit/Balanced) should improve upon the original in its specific dimension`
+  } else if (optimizationMode === 'based_on_existing' && existingListingText) {
+    const bullets = existingListingText.bullets
+      .map((b, i) => `  Bullet ${i + 1}: ${b}`)
+      .join('\n')
+    existingListingSection = `
+
+=== REFERENCE PRODUCT LISTING ===
+This content is from a SIMILAR/REFERENCE product${existingListingText.reference_asin ? ` (ASIN: ${existingListingText.reference_asin})` : ''}. The user is creating a listing for a DIFFERENT but similar product based on this reference.
+
+Reference Title: ${existingListingText.title}
+Reference Bullets:
+${bullets}
+Reference Description: ${existingListingText.description}
+
+ADAPTATION INSTRUCTIONS:
+1. Use this reference listing as INSPIRATION for structure, tone, and selling approach
+2. DO NOT copy content verbatim — adapt everything for the product described in PRODUCT INFO above
+3. Identify what makes the reference listing effective (keyword patterns, benefit framing, structure)
+4. Apply those effective patterns to the new product's unique features and attributes
+5. The new listing should be BETTER than the reference — improve keyword coverage, benefit clarity, and competitive positioning
+6. If the products are similar (e.g., different size/color/pack count), adapt specifics while preserving proven phrasing patterns`
   }
 
   return `=== PRODUCT INFO ===
@@ -2777,6 +2819,299 @@ Return ONLY the JSON object, no markdown, no explanation.`
   return { content, model, tokensUsed }
 }
 
+// --- A+ Content Strategy (Full Visual Direction + Strategic Flow) ---
+
+export interface APlusStrategyResult {
+  modules: Array<{
+    position: number
+    strategic_role: string
+    template_type: string
+    title: string
+    text_content: Record<string, unknown>
+    visual_concept: string
+    image_description: string
+    key_features_highlighted: string[]
+    color_direction: string
+  }>
+  storytelling_flow: string
+}
+
+export interface APlusStrategyInput {
+  productName: string
+  brand: string
+  categoryName: string
+  keywordAnalysis?: KeywordAnalysisResult | null
+  reviewAnalysis?: ReviewAnalysisResult | null
+  qnaAnalysis?: QnAAnalysisResult | null
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  listingTitle?: string | null
+  bulletPoints?: string[]
+  listingDescription?: string | null
+}
+
+function buildAPlusStrategyPrompt(input: APlusStrategyInput): string {
+  const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis,
+          competitorAnalysis, listingTitle, bulletPoints, listingDescription } = input
+
+  const researchContext = buildImageResearchContext({
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    listingTitle, bulletPoints, listingDescription,
+  })
+
+  return `You are an expert Amazon A+ Content strategist and visual designer. Generate a complete A+ Content strategy with 7 modules in strategic storytelling order.
+
+=== PRODUCT ===
+Product: ${brand} ${productName}
+Category: ${categoryName}
+${researchContext}
+=== STRATEGIC CONTEXT ===
+A+ Content (Enhanced Brand Content) appears below the bullet points on an Amazon product detail page. It's a visual storytelling section that can increase conversion by 3-10%. The modules must flow as a cohesive narrative that takes the customer from curiosity to purchase confidence.
+
+=== STORYTELLING ARC ===
+Follow this proven 7-module strategic flow. Each module has a SPECIFIC role in the conversion journey:
+
+Module 1 — HOOK & BRAND INTRODUCTION (Standard Image Header with Text)
+Purpose: Stop the scroll, establish brand credibility, communicate the core value proposition in 3 seconds.
+Visual: Hero product image with vibrant styling, brand logo, tagline. High-impact, aspirational.
+Text: Compelling headline + 2-3 key benefit bullets.
+
+Module 2 — PROBLEM/SOLUTION (Standard Text & Image Sidebar)
+Purpose: Identify the customer's pain point and position the product as the solution.
+Visual: Split image — left shows the problem (frustration, mess, poor results), right shows the solution (clean, effective, happy outcome).
+Text: Problem description → how this product solves it.
+
+Module 3 — FEATURE DEEP-DIVE (Standard Four Images & Text)
+Purpose: Demonstrate 4 key features with visual evidence.
+Visual: 4 panels, each showing one feature in action — close-ups, annotations, clear demonstrations.
+Text: Feature name + 1-2 sentence benefit per panel.
+
+Module 4 — VERSATILITY/USE CASES (Standard Image & Light Text Overlay)
+Purpose: Expand perceived value by showing the product works across multiple scenarios/surfaces/use cases.
+Visual: Artistic composition showing the product used in 3-4 different contexts (from research use cases).
+Text: Light overlay highlighting versatility.
+
+Module 5 — COMPARISON/WHY CHOOSE US (Standard Comparison Chart)
+Purpose: Differentiate from competitors on 5-6 key metrics.
+Visual: Comparison table with bold checkmarks/X marks, color-coded.
+Metrics: Derived from competitor analysis — feature vibrancy, safety, ease of use, durability, value, etc.
+
+Module 6 — LIFESTYLE/SOCIAL PROOF (Standard Three Images & Text)
+Purpose: Show real-world impact across customer segments. Build aspirational connection.
+Visual: 3 lifestyle images showing different target personas using the product (e.g., educator, artist, parent).
+Text: Short testimonial-style caption per image.
+
+Module 7 — TRUST & GUARANTEE (Standard Image Header with Text)
+Purpose: Remove final purchase barriers. Build confidence.
+Visual: Trust badges (safety certifications, quality assurance, eco-friendly), satisfaction guarantee badge, brand promise imagery.
+Text: Guarantee statement + safety credentials + brand commitment.
+
+=== REQUIREMENTS PER MODULE ===
+For each module, provide BOTH text content AND visual direction:
+
+TEXT CONTENT:
+- Title: Module headline (max 80 chars, benefit-driven)
+- Template-appropriate text fields (headline, description, features list, comparison data, etc.)
+
+VISUAL DIRECTION:
+- Visual concept: Detailed scene/imagery description — what EXACTLY should the image show?
+- Image description: Production-ready description suitable for a designer or AI image generator (100+ words)
+- Color direction: Specific colors, gradients, palette for this module
+- Key features highlighted: Which product features this module emphasizes (from research data)
+
+=== RESEARCH-DRIVEN CONTENT ===
+Use ALL the research data to create specific, evidence-backed content:
+- Keyword analysis → use high-relevancy keywords naturally in headlines and descriptions
+- Review analysis → strengths become features/benefits, weaknesses become "solved" pain points, use cases inform lifestyle images
+- Q&A analysis → customer concerns inform problem/solution module, content gaps inform feature deep-dive
+- Competitor analysis → differentiation gaps become comparison chart metrics
+- Customer voice phrases → use authentic language in text content
+- Messaging framework → primary/support/proof points inform each module's emphasis
+
+=== OUTPUT FORMAT ===
+Return valid JSON only, no markdown fences:
+{
+  "modules": [
+    {
+      "position": 1,
+      "strategic_role": "Hook & Brand Introduction",
+      "template_type": "standard_image_header_text",
+      "title": "Module headline (max 80 chars)",
+      "text_content": {
+        "headline": "Main headline text",
+        "subheadline": "Supporting subheadline",
+        "description": "2-3 sentence description",
+        "key_points": ["point 1", "point 2", "point 3"]
+      },
+      "visual_concept": "Detailed scene description — what the image shows, the mood, the setting, the arrangement (50-100 words)",
+      "image_description": "Production-ready image prompt suitable for a designer or AI generator. Include composition, lighting, colors, product placement, props, background, and emotional tone (100-150 words)",
+      "key_features_highlighted": ["feature 1", "feature 2", "feature 3"],
+      "color_direction": "Specific colors for this module, e.g. 'Deep teal (#008080) hero background with white text overlay, vibrant product colors pop against dark backdrop'"
+    }
+  ],
+  "storytelling_flow": "Brief 2-3 sentence description of how the 7 modules flow together as a narrative — from hook to purchase confidence"
+}`
+}
+
+export async function generateAPlusStrategy(
+  input: APlusStrategyInput
+): Promise<{ result: APlusStrategyResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildAPlusStrategyPrompt(input)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const result = JSON.parse(stripMarkdownFences(text)) as APlusStrategyResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
+// --- Video Storyboard Generation ---
+
+export interface VideoStoryboardInput {
+  productName: string
+  brand: string
+  categoryName: string
+  keywordAnalysis?: KeywordAnalysisResult | null
+  reviewAnalysis?: ReviewAnalysisResult | null
+  qnaAnalysis?: QnAAnalysisResult | null
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  listingTitle?: string | null
+  bulletPoints?: string[]
+  listingDescription?: string | null
+}
+
+export interface VideoStoryboardResult {
+  total_runtime: string
+  shots: Array<{
+    shot_number: number
+    timestamp: string
+    runtime: string
+    visual: string
+    setting_props: string
+    camera: string
+    text_overlay: string
+    audio_notes: string
+    thumbnail: string
+    usp_demonstrated: string
+  }>
+  music_direction: string
+  brand_integration: string
+}
+
+function buildVideoStoryboardPrompt(input: VideoStoryboardInput): string {
+  const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis,
+          competitorAnalysis, listingTitle, bulletPoints, listingDescription } = input
+
+  const researchContext = buildImageResearchContext({
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    listingTitle, bulletPoints, listingDescription,
+  })
+
+  return `You are an expert Amazon product video director and storyboard artist. Generate a complete, shot-by-shot video storyboard for an Amazon product listing video.
+
+=== PRODUCT ===
+Product: ${brand} ${productName}
+Brand: ${brand}
+Category: ${categoryName}
+${researchContext}
+=== CONTEXT ===
+Amazon product videos appear on the listing page and auto-play in search results (muted). The video must:
+- Communicate value proposition within the first 3 seconds (hook)
+- Work WITHOUT audio (most viewers watch muted) — text overlays carry the message
+- Be 30-45 seconds total (sweet spot for Amazon engagement)
+- Showcase 5-7 key product features/USPs, each mapped to a specific shot
+- Build from "attention" → "features" → "proof" → "call to action"
+- Every shot should answer a customer concern or demonstrate a selling point from the research data
+
+=== VIDEO STRUCTURE ===
+Follow this proven Amazon product video arc:
+Shot 1 (0-4s): HOOK — Dramatic product reveal or eye-catching visual. Must stop the scroll instantly. Text overlay with main value proposition.
+Shot 2 (4-9s): PRIMARY USP — Demonstrate the #1 selling point. Show the feature in action with text overlay explaining the benefit.
+Shot 3 (9-15s): SECONDARY FEATURE — Show next most important feature. Hands interacting with product to show ease of use.
+Shot 4 (15-20s): ADDRESS CONCERN — Visually address the top customer concern from Q&A/reviews. Turn a negative into a positive.
+Shot 5 (20-26s): VERSATILITY — Show the product working across multiple use cases/surfaces/scenarios. Quick cuts between 2-3 settings.
+Shot 6 (26-31s): QUALITY/SAFETY — Close-up on quality, certifications, safety features. Build trust and credibility.
+Shot 7 (31-36s): COMPLETE PACKAGE + CTA — Show everything included (unboxing-style), then end with brand logo and call to action.
+
+Adapt the number of shots (5-8) based on the product — some products need fewer, more impactful shots. Total runtime should be 30-45 seconds.
+
+=== SHOT DETAIL REQUIREMENTS ===
+For each shot, provide comprehensive production direction:
+- Visual: Detailed description of what the camera sees — subjects, actions, product state, visual effects
+- Setting/Props: Physical environment and props needed
+- Camera: Specific camera angle, movement, and technique (close-up, pan, zoom, static, tracking, dolly)
+- Text overlay: Bold text that appears on screen (5-10 words). This carries the message for muted viewers.
+- Audio notes: Music mood, sound effects, transitions
+- Runtime: Seconds for this shot
+- Thumbnail: Description of the best still frame from this shot (for video thumbnail)
+- USP demonstrated: Which specific product feature or customer concern this shot addresses
+
+=== RESEARCH-DRIVEN SHOTS ===
+Map each shot to specific research findings:
+- Shot features should match top keyword demands and feature requests
+- Shot addressing concerns should match top Q&A pain points and negative review themes
+- Lifestyle shots should match top use cases from review analysis
+- Text overlays should use customer voice phrases from positive reviews
+- Comparison/quality shots should address competitor differentiation gaps
+
+=== OUTPUT FORMAT ===
+Return valid JSON only, no markdown fences:
+{
+  "total_runtime": "35-40 seconds",
+  "shots": [
+    {
+      "shot_number": 1,
+      "timestamp": "00:00",
+      "runtime": "4s",
+      "visual": "Detailed description of what the camera sees — subjects, actions, product state, visual effects (50-100 words)",
+      "setting_props": "Physical setting and specific props, e.g. 'Clean white studio table with scattered colorful art supplies, neutral gray background'",
+      "camera": "Camera angle + movement, e.g. 'Close-up, center-focused, slow zoom in over 3 seconds'",
+      "text_overlay": "Bold on-screen text (5-10 words) that works for muted viewing",
+      "audio_notes": "Music and sound, e.g. 'Upbeat electronic music begins, rising intensity. Soft whoosh on reveal.'",
+      "thumbnail": "Best still frame description from this shot, e.g. 'Product emerging from colorful ink splash, dramatic lighting'",
+      "usp_demonstrated": "Which product feature/benefit this shot demonstrates and WHY based on research data"
+    }
+  ],
+  "music_direction": "Overall music style and mood progression across the video, e.g. 'Upbeat, modern electronic. Builds from gentle curiosity (shots 1-2) to confident energy (shots 3-5) to warm resolution (shots 6-7). 120 BPM.'",
+  "brand_integration": "How the brand appears throughout, e.g. 'Logo watermark bottom-right throughout. Brand colors (teal, pink) appear in text overlays. Final frame: centered logo with tagline on brand color background.'"
+}`
+}
+
+export async function generateVideoStoryboard(
+  input: VideoStoryboardInput
+): Promise<{ result: VideoStoryboardResult; model: string; tokensUsed: number }> {
+  const client = await getClient()
+  const model = await getModel()
+  const prompt = buildVideoStoryboardPrompt(input)
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+
+  const result = JSON.parse(stripMarkdownFences(text)) as VideoStoryboardResult
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+  return { result, model, tokensUsed }
+}
+
 // --- Workshop: AI Image Prompt Generation ---
 
 export interface ImageResearchContext {
@@ -3003,6 +3338,15 @@ export interface WorkshopPromptResult {
     label: string
     prompt: string
     approach: string
+    frame_fill: string
+    camera_angle: string
+    lighting: string
+    emotional_target: string[]
+    props: string[]
+    post_processing: string
+    compliance_notes: string
+    color_direction: string
+    callout: string
   }>
   callout_suggestions: Array<{
     type: 'keyword' | 'benefit' | 'usp'
@@ -3019,7 +3363,7 @@ function buildWorkshopPromptsPrompt(input: WorkshopPromptInput): string {
     listingTitle, bulletPoints, listingDescription,
   })
 
-  return `You are an expert Amazon product photography director. Generate 12 diverse main image prompts for an Amazon listing.
+  return `You are an expert Amazon product photography director and visual strategist. Generate 12 highly detailed, production-ready main image prompts for an Amazon listing.
 
 === PRODUCT ===
 Product: ${productName}
@@ -3027,29 +3371,44 @@ Brand: ${brand}
 Category: ${categoryName}
 ${researchContext}
 === TASK ===
-Generate exactly 12 different main image prompts. Each must be a detailed, specific prompt suitable for AI image generation (DALL-E 3, Gemini, etc). The prompts are for the MAIN IMAGE on Amazon — the first image customers see in search results.
+Generate exactly 12 different main image prompts. Each must be a comprehensive, production-level prompt suitable for AI image generation (DALL-E 3, Gemini, GPT Image). The prompts are for the MAIN IMAGE on Amazon — the first image customers see in search results. This is the most important image — it determines click-through rate.
 
-Amazon main image requirements: white background, product must be the focus, no text/graphics/watermarks on the image itself.
+=== AMAZON MAIN IMAGE REQUIREMENTS ===
+- Pure white background (#FFFFFF)
+- Product must fill 85% or more of the image frame
+- No text, graphics, watermarks, or badges on the image itself
+- No additional objects that may confuse what the product is
+- 2000x2000px minimum, 300 DPI for print-quality zoom
+- Must be clear and recognizable at mobile thumbnail size (100x100px)
 
-Each prompt MUST be meaningfully different — not just rephrased. Vary these dimensions:
-1. Camera angle (front, 45-degree, top-down, slight tilt, eye-level)
-2. Product presentation (single product, product with accessories, product open/in-use-pose, product with packaging)
-3. Composition (centered, rule-of-thirds, close-up detail, full product with space)
-4. Lighting style (studio flat, dramatic side light, soft diffused, high-key bright)
-5. Visual storytelling (clean minimal, premium/luxury feel, practical/functional, colorful/vibrant)
-6. Props/context hints (if allowed — e.g., the product resting on a surface that suggests use, hands holding it)
+=== VARIATION DIMENSIONS ===
+Each prompt MUST be meaningfully different — not just rephrased. Vary across ALL of these:
+1. Camera angle — specify exact angle: ¾ hero view, straight-on front, 45-degree elevated, top-down flat lay, eye-level, slight tilt (5-10°), low angle looking up
+2. Product presentation — single product hero, product with packaging/box, product with accessories laid out, product partially opened/uncapped to show features, product in use-ready pose
+3. Composition & frame fill — specify percentage: 80-85% centered, 85-90% slightly off-center for dynamic feel, rule-of-thirds placement, close-up detail (90-95% fill), full product with breathing room (75-80%)
+4. Lighting — be specific: soft diffused studio (2-point), dramatic side light with natural shadow, high-key bright even lighting, rim/backlight for premium glow, overhead butterfly lighting
+5. Visual storytelling mood — clean minimal/modern, premium/luxury/aspirational, practical/functional/reliable, colorful/vibrant/energetic, professional/authoritative
+6. Props/context — subtle contextual hints: product resting on surface that suggests use, fanned/arranged to show color range, accessories visible, texture/material close-up
 
-Use ALL the research data to inform your prompts:
+=== RESEARCH-DRIVEN DIRECTION ===
+Use ALL the research data to make each prompt specific and strategic:
 - Feature demand + surface demand → emphasize those features and contexts visually
 - Use cases → suggest compositions that hint at those use cases
-- Strengths → make them visually obvious
-- Customer concerns + high-risk questions → address them visually (e.g., if "durability" is a concern, show robust construction)
+- Strengths → make them visually obvious (e.g., if "vibrant colors" is top strength, ensure composition showcases the full color spectrum)
+- Customer concerns + high-risk questions → address them visually (e.g., if "durability" is a concern, show robust construction; if "size" is a concern, include scale reference)
 - Positive language + messaging framework → inform the mood/feeling of the image
-- Competitor differentiation gaps → visually demonstrate our USPs
+- Competitor differentiation gaps → visually demonstrate our USPs that competitors miss
 - Image optimization opportunities from reviews → directly follow review-driven image suggestions
 - Listing content (if available) → ensure visual consistency with copy claims
 
-Also generate 3 callout text suggestions (these are text badges/overlays that go ON TOP of the image in post-production, NOT in the AI prompt):
+=== SCROLL-STOPPER ELEMENTS ===
+For each prompt, think about what makes a customer STOP scrolling in Amazon search results:
+- A visually striking element (color contrast, unusual angle, unexpected arrangement)
+- Immediate recognition of product quality or completeness
+- Visual cue that answers the customer's primary concern at a glance
+
+=== CALLOUT SUGGESTIONS ===
+Also generate 3 callout text suggestions (text badges/overlays added in post-production, NOT in the AI prompt):
 1. A keyword-focused callout (most-searched term)
 2. A benefit-focused callout (what customers love most)
 3. A USP callout (what makes this product unique vs competitors)
@@ -3060,8 +3419,17 @@ Return valid JSON only, no markdown fences:
   "prompts": [
     {
       "label": "Short 3-6 word description of this variation",
-      "prompt": "Full detailed image generation prompt (50-150 words)",
-      "approach": "one of: studio-clean, studio-premium, lifestyle, feature-closeup, bundle-flatlay, scale-reference, in-use, emotional, concern-address, brand-story, dramatic, minimal"
+      "prompt": "Full detailed image generation prompt (100-200 words). Be extremely specific about product positioning, arrangement, angle, surface, shadow direction, color representation, material texture, and any visual elements that communicate product quality or features.",
+      "approach": "one of: studio-clean, studio-premium, lifestyle, feature-closeup, bundle-flatlay, scale-reference, in-use, emotional, concern-address, brand-story, dramatic, minimal",
+      "frame_fill": "Percentage of frame product fills, e.g. '85-90%'",
+      "camera_angle": "Exact camera angle, e.g. '¾ hero view, slightly elevated'",
+      "lighting": "Detailed lighting setup, e.g. 'Soft diffused 2-point studio lighting with natural shadow falling to bottom-right'",
+      "emotional_target": ["3-4 mood keywords, e.g. 'professional', 'premium', 'vibrant', 'trustworthy'"],
+      "props": ["specific props if any, e.g. 'color swatches', 'brush tip close-up', 'retail packaging'"],
+      "post_processing": "Retouching notes, e.g. 'Micro-retouching for dust removal, enhance color saturation by 10%, premium matte finish'",
+      "compliance_notes": "Amazon-specific compliance note for this variation, e.g. 'Pure white BG, no floating text, product only'",
+      "color_direction": "Primary colors to emphasize, e.g. 'Showcase full rainbow spectrum with deep teal and vibrant pink accents'",
+      "callout": "Suggested text badge for this specific image, e.g. 'Non-Toxic & Easy Erase!'"
     }
   ],
   "callout_suggestions": [
@@ -3099,6 +3467,15 @@ export interface SecondaryConceptResult {
     background: string
     unique_selling_point: string
     prompt: string
+    layout_type: string
+    icon_descriptions: string[]
+    typography: string
+    color_palette: string
+    target_audience: string
+    mood: string
+    camera_focus: string
+    compliance_notes: string
+    aesthetic_reference: string
   }>
 }
 
@@ -3111,7 +3488,7 @@ function buildSecondaryPromptsPrompt(input: SecondaryPromptInput): string {
     listingTitle, bulletPoints, listingDescription,
   })
 
-  return `You are an expert Amazon listing image strategist. Generate 9 secondary image concepts for an Amazon product listing.
+  return `You are an expert Amazon listing image strategist and visual storyteller. Generate 9 highly detailed, production-ready secondary image concepts for an Amazon product listing.
 
 === PRODUCT ===
 Product: ${productName}
@@ -3119,37 +3496,49 @@ Brand: ${brand}
 Category: ${categoryName}
 ${researchContext}
 === TASK ===
-Generate exactly 9 secondary image concepts. These are the supporting images (positions 2-10) in an Amazon listing after the main image. Each concept should tell a different part of the product story.
+Generate exactly 9 secondary image concepts for listing positions 2-10. Each concept tells a DIFFERENT part of the product story, building a compelling visual narrative that converts browsers into buyers.
 
-Standard Amazon secondary image types to cover (adapt based on product):
-1. Lifestyle/In-Use — Show the product being used in a real setting
-2. Key Features Infographic — Highlight 4-6 key features with callout text
-3. How It Works / How To Use — Step-by-step usage guide
-4. Size/Dimensions/Contents — Show what's included, dimensions, scale reference
-5. Materials/Ingredients/Quality — Close-up on quality, materials, certifications
-6. Comparison/Why Choose Us — Compare vs competitors or alternatives
-7. Benefits Infographic — Customer benefits with icons and supporting text
-8. Social Proof/Awards/Trust — Certifications, awards, customer testimonials
-9. Brand Story/Packaging — Brand values, packaging design, unboxing experience
+=== IMAGE POSITION STRATEGY ===
+Use this proven storytelling arc — adapt based on the product and research data:
+Position 2: Lifestyle/In-Use — Show the product being used by a specific target persona in a real, aspirational setting. Make the viewer imagine themselves using it.
+Position 3: Key Features Infographic — Highlight 4-6 key features with specific icon descriptions, callout arrows, and benefit text. Use split-screen or annotated layout.
+Position 4: How It Works / How To Use — Step-by-step usage guide (3-4 steps). Show hands interacting with product. Clear, instructional.
+Position 5: Size/Dimensions/Contents — Show what's included, dimensions with rulers/scale reference, packaging contents laid out. Build value perception.
+Position 6: Materials/Quality/Safety — Close-up on quality, materials, certifications (non-toxic, eco-friendly, FDA approved). Address customer safety concerns from Q&A.
+Position 7: Comparison/Why Choose Us — Visual comparison table or split-screen showing your product vs generic alternatives. Highlight 4-5 differentiators from competitor analysis.
+Position 8: Benefits Infographic — Customer benefits (not features) with specific icons and supporting emotional copy. Address top pain points from reviews.
+Position 9: Use Cases/Versatility — Show 3-4 different usage scenarios side by side. Demonstrate versatility across customer segments identified in research.
+Position 10: Brand Story/Trust/Guarantee — Brand values, satisfaction guarantee, trust badges, customer testimonial highlight. Build purchase confidence.
 
-For each concept, provide:
-- A clear title describing the image type
-- A bold headline (text overlay for the image, 5-10 words)
-- A sub-headline (supporting tagline, 8-15 words)
-- Visual reference description (layout, composition, scene)
-- Hero image description (the main visual element)
-- Supporting visuals (icons, badges, callouts)
-- Background style/color
-- Unique selling point this image communicates
-- Full image generation prompt (50-150 words, suitable for DALL-E 3 / Gemini)
+=== DETAIL REQUIREMENTS ===
+For each concept, provide comprehensive creative direction:
+- Title: Clear image type description
+- Headline: Bold text overlay (5-10 words) — the first thing the eye reads
+- Sub-headline: Supporting tagline (8-15 words) — explains or reinforces headline
+- Visual reference: Detailed layout and composition description
+- Hero image: Main visual element description with specific scene narrative
+- Supporting visuals: SPECIFIC icon descriptions (e.g., "clock icon with circular arrows showing longevity", "shield with checkmark for safety certification")
+- Background: Specific colors, gradients, and style
+- USP: What this image communicates strategically
+- Layout type: The exact visual layout (split-screen, grid, single-hero, before-after, annotated, step-by-step, comparison-table, infographic)
+- Icon descriptions: List of specific icons with visual description for each
+- Typography: Font style, weight, size guidance, and color for headline/sub-headline text
+- Color palette: Specific colors/gradients for this concept (e.g., "deep teal (#008080) to white gradient background, vibrant pink (#FF1493) accent badges")
+- Target audience: WHO this specific image speaks to (e.g., "teachers and educators", "parents with young children", "professional event planners")
+- Mood: Emotional atmosphere (e.g., "warm + inviting, quiet afternoon simplicity", "professional + authoritative + trustworthy")
+- Camera focus: What the camera focuses on (e.g., "focus on hands engaged in detailed strokes, product visible with logo")
+- Compliance notes: Per-image Amazon compliance considerations
+- Aesthetic reference: Style inspiration (e.g., "Apple's clean brightness + Nike's energetic feel", "IKEA catalog warmth")
 
-Use ALL the research data to decide which features, benefits, and concerns to emphasize in each image:
+=== RESEARCH-DRIVEN DIRECTION ===
+Use ALL the research data strategically:
 - Feature demand + surface demand → which features to highlight in infographics
 - Strengths + use cases → lifestyle and benefit images
 - Weaknesses + concerns + high-risk questions → address proactively in comparison/trust images
 - Competitor differentiation gaps → comparison chart and "why choose us" images
 - Image optimization opportunities from reviews → directly follow review-driven image suggestions
 - Messaging framework → inform headlines and sub-headlines
+- Customer voice phrases → use authentic language in text overlays
 - Listing content (if available) → ensure visual story aligns with copy claims
 
 === OUTPUT FORMAT ===
@@ -3159,14 +3548,23 @@ Return valid JSON only, no markdown fences:
     {
       "position": 1,
       "title": "Image type title",
-      "headline": "Bold headline text for overlay",
-      "sub_headline": "Supporting tagline text",
-      "visual_reference": "Layout and composition description",
-      "hero_image": "Main visual element description",
-      "supporting_visuals": "Icons, badges, and callout descriptions",
-      "background": "Background style and color",
-      "unique_selling_point": "What this image communicates",
-      "prompt": "Full detailed image generation prompt (50-150 words)"
+      "headline": "Bold headline text for overlay (5-10 words)",
+      "sub_headline": "Supporting tagline text (8-15 words)",
+      "visual_reference": "Detailed layout and composition description including spatial arrangement",
+      "hero_image": "Main visual element with specific scene narrative (who, what, where, doing what)",
+      "supporting_visuals": "Detailed descriptions of each icon, badge, and callout element",
+      "background": "Specific background with colors, gradients, and style description",
+      "unique_selling_point": "What this image strategically communicates to the customer",
+      "prompt": "Full detailed image generation prompt (100-200 words). Describe scene, subjects, composition, lighting, colors, product placement, mood, and atmosphere. Be specific enough for a photographer or AI to execute exactly.",
+      "layout_type": "one of: split-screen, grid, single-hero, before-after, annotated, step-by-step, comparison-table, infographic, lifestyle-scene",
+      "icon_descriptions": ["Specific icon descriptions, e.g. 'Clock with circular arrows symbolizing long-lasting', 'Droplet with checkmark for water-resistant'"],
+      "typography": "Font style and color guidance, e.g. 'Bold sans-serif (Open Sans or Montserrat), white text on dark overlay, headline 24pt, sub-headline 14pt'",
+      "color_palette": "Specific colors for this concept, e.g. 'Deep teal (#008080) background gradient, white text, vibrant pink (#FF1493) accent badges'",
+      "target_audience": "Who this image speaks to, e.g. 'Teachers and educators looking for classroom supplies'",
+      "mood": "Emotional atmosphere, e.g. 'Warm + inviting, inspirational, playful yet educational'",
+      "camera_focus": "What the camera focuses on, e.g. 'Focus on hands creating vibrant artwork, product logo subtly visible'",
+      "compliance_notes": "Amazon compliance notes for this image type, e.g. 'Realistic scene, avoid unsubstantiated claims, keep text readable at mobile size'",
+      "aesthetic_reference": "Style inspiration, e.g. 'Apple product page clean minimalism with Crayola's vibrant energy'"
     }
   ]
 }`
@@ -3219,6 +3617,11 @@ export interface ThumbnailConceptResult {
     description: string
     text_overlay: string
     prompt: string
+    camera_angle: string
+    lighting: string
+    mood: string
+    color_direction: string
+    compliance_notes: string
   }>
 }
 
@@ -3231,7 +3634,7 @@ function buildThumbnailPromptsPrompt(input: ThumbnailPromptInput): string {
     listingTitle, bulletPoints, listingDescription,
   })
 
-  return `You are an expert Amazon product video thumbnail designer. Generate 3 to 5 video thumbnail concepts for an Amazon product listing video.
+  return `You are an expert Amazon product video thumbnail designer and visual strategist. Generate 5 highly detailed video thumbnail concepts for an Amazon product listing video.
 
 === PRODUCT ===
 Product: ${productName}
@@ -3239,23 +3642,26 @@ Brand: ${brand}
 Category: ${categoryName}
 ${researchContext}
 === TASK ===
-Generate 3 to 5 video thumbnail concepts. These are static images used as the thumbnail/cover frame for product videos on Amazon. They must be eye-catching, clickable, and communicate a clear value proposition in under 1 second of viewing.
+Generate exactly 5 video thumbnail concepts. These are static images used as the thumbnail/cover frame for product videos on Amazon. They must be eye-catching, clickable, and communicate a clear value proposition in under 1 second of viewing. The thumbnail is the "scroll stopper" that determines if a customer clicks to watch the video.
 
-Each concept should use a DIFFERENT approach from this list:
-1. Hero Shot — Product front-and-center with bold benefit text. High contrast, clean background.
-2. Before/After — Split-screen showing transformation or problem-to-solution.
-3. Lifestyle Action — Product in use, mid-action, conveying energy and real-world context.
-4. Feature Callout — Close-up on 2-3 key features with annotation arrows or circles.
-5. Unboxing/What's Included — Everything laid out, showing value and completeness.
+=== APPROACH OPTIONS ===
+Each concept MUST use a DIFFERENT approach:
+1. Hero Shot — Product front-and-center with bold benefit text. High contrast, clean or gradient background. Product fills 60-70% of frame.
+2. Before/After — Split-screen showing transformation or problem-to-solution. Left = pain point, Right = solution with product. Clear visual contrast.
+3. Lifestyle Action — Product in use, mid-action, conveying energy and real-world context. Specific person/scenario from research data.
+4. Feature Callout — Close-up on 2-3 key features with annotation arrows, circles, or zoom-in bubbles. Technical but visually engaging.
+5. Unboxing/What's Included — Everything laid out in flat-lay style, showing value and completeness. Birds-eye view, organized arrangement.
 
-Video thumbnail best practices:
-- Visually distinct from the main listing image (different angle, background, energy)
-- Text overlays are expected — suggest bold, short text (5-12 words)
-- Bright, high-contrast colors for clickability in search results
+=== THUMBNAIL BEST PRACTICES ===
+- Visually DISTINCT from the main listing image (different angle, background, energy)
+- Text overlays are expected — suggest bold, short text (5-12 words) in high-contrast colors
+- Bright, high-contrast colors for clickability in search results and mobile
 - Show the product clearly but with MORE context/energy than the main image
-- Consider mobile viewing: large text, clear focal point, high contrast
+- Consider mobile viewing: text must be legible at small size (large font, high contrast)
 - 16:9 landscape orientation is standard for video thumbnails
+- Use a "play button" mentality — the image should suggest motion/action
 
+=== RESEARCH-DRIVEN DIRECTION ===
 Use ALL research data to pick the most compelling angles:
 - Feature demand + surface demand → which features to spotlight
 - Customer concerns + high-risk questions → what to address visually
@@ -3273,9 +3679,14 @@ Return valid JSON only, no markdown fences:
       "position": 1,
       "title": "Short descriptive title (3-6 words)",
       "approach": "one of: hero_shot, before_after, lifestyle_action, feature_callout, unboxing",
-      "description": "What this thumbnail communicates and why (1-2 sentences)",
+      "description": "What this thumbnail communicates and why this angle was chosen based on research (2-3 sentences)",
       "text_overlay": "Suggested bold text overlay for the thumbnail (5-12 words)",
-      "prompt": "Full image generation prompt (50-150 words). Describe scene, composition, lighting, colors, product placement. Do NOT include text in the prompt — text overlays are added separately."
+      "prompt": "Full image generation prompt (100-200 words). Describe scene, subjects, composition, lighting, colors, product placement, mood, atmosphere. Be specific about spatial arrangement, props, and visual narrative. Do NOT include text in the prompt — text overlays are added separately.",
+      "camera_angle": "Specific camera angle, e.g. '¾ elevated view looking down at 30 degrees'",
+      "lighting": "Detailed lighting description, e.g. 'Bright studio key light from upper left with warm fill light, soft shadow to bottom-right'",
+      "mood": "Emotional atmosphere, e.g. 'Energetic, creative, inspiring, approachable'",
+      "color_direction": "Primary colors and contrast strategy, e.g. 'Vibrant product colors against deep teal gradient background, white text with drop shadow'",
+      "compliance_notes": "Amazon video thumbnail compliance notes, e.g. 'No misleading imagery, product must be recognizable, text readable at mobile size'"
     }
   ]
 }`

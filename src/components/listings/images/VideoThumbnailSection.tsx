@@ -318,6 +318,15 @@ export function VideoThumbnailSection({
               onRegenerate={image ? () => handleGenerateSingle(concept) : undefined}
               onGenerate={!image ? () => handleGenerateSingle(concept) : undefined}
               showCheckbox={false}
+              details={[
+                { label: 'Description', value: concept.description || '' },
+                { label: 'Text Overlay', value: concept.text_overlay || '' },
+                { label: 'Camera Angle', value: concept.camera_angle || '' },
+                { label: 'Lighting', value: concept.lighting || '' },
+                { label: 'Mood', value: concept.mood || '' },
+                { label: 'Color Direction', value: concept.color_direction || '' },
+                { label: 'Compliance', value: concept.compliance_notes || '' },
+              ]}
             />
           )
         })}

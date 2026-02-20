@@ -8,8 +8,13 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { Check, ChevronDown, ChevronUp, Loader2, RefreshCw, ImageIcon, ZoomIn } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, Loader2, RefreshCw, ImageIcon, ZoomIn, Info } from 'lucide-react'
 import type { LbImageGeneration } from '@/types/database'
+
+export interface ConceptDetailItem {
+  label: string
+  value: string | string[]
+}
 
 interface ConceptCardProps {
   index: number
@@ -24,6 +29,7 @@ interface ConceptCardProps {
   onRegenerate?: () => void
   onGenerate?: () => void
   showCheckbox?: boolean
+  details?: ConceptDetailItem[]
 }
 
 export function ConceptCard({
@@ -39,11 +45,13 @@ export function ConceptCard({
   onRegenerate,
   onGenerate,
   showCheckbox = true,
+  details,
 }: ConceptCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editValue, setEditValue] = useState(prompt)
   const [showPreview, setShowPreview] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
 
   const handleSaveEdit = () => {
     onEditPrompt(editValue)
@@ -54,6 +62,11 @@ export function ConceptCard({
     setEditValue(prompt)
     setEditing(false)
   }
+
+  const filteredDetails = details?.filter((d) => {
+    if (Array.isArray(d.value)) return d.value.length > 0
+    return d.value && d.value.trim() !== ''
+  })
 
   return (
     <div
@@ -134,6 +147,17 @@ export function ConceptCard({
                 Edit
               </Button>
             )}
+            {filteredDetails && filteredDetails.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setShowDetails(!showDetails)}
+              >
+                <Info className="h-3 w-3 mr-1" />
+                {showDetails ? 'Hide Details' : 'Details'}
+              </Button>
+            )}
             {image && onRegenerate && (
               <Button
                 variant="ghost"
@@ -195,6 +219,34 @@ export function ConceptCard({
           )}
         </div>
       </div>
+
+      {/* Enriched Details Panel */}
+      {showDetails && filteredDetails && filteredDetails.length > 0 && (
+        <div className="border-t px-4 py-3 bg-muted/20">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+            {filteredDetails.map((detail) => (
+              <div key={detail.label} className="min-w-0">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {detail.label}
+                </span>
+                {Array.isArray(detail.value) ? (
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {detail.value.map((v, i) => (
+                      <Badge key={i} variant="outline" className="text-[10px] font-normal">
+                        {v}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-foreground/80 mt-0.5 leading-relaxed">
+                    {detail.value}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Full-size preview dialog */}
       {image?.preview_url && (

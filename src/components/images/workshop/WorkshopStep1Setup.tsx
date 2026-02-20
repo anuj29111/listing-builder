@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { IMAGE_ORIENTATION_LABELS } from '@/lib/constants'
-import { Loader2, Sparkles, ImageIcon, Check } from 'lucide-react'
+import { Loader2, Sparkles, ImageIcon, Check, Info, ChevronDown, ChevronUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { ProviderInfo } from '@/app/api/images/providers/route'
 
@@ -29,6 +29,121 @@ function getCostPerImage(provider: string, geminiModel: string | null): number {
   if (provider === 'openai') return 3
   if (provider === 'gemini') return geminiModel === 'gemini-2.5-flash-image' ? 2 : 4
   return 0 // higgsfield TBD
+}
+
+import type { WorkshopPrompt } from '@/types/api'
+
+function MainImagePromptCard({ prompt: p, index, isSelected, onToggle }: {
+  prompt: WorkshopPrompt
+  index: number
+  isSelected: boolean
+  onToggle: () => void
+}) {
+  const [showDetails, setShowDetails] = useState(false)
+  const [promptExpanded, setPromptExpanded] = useState(false)
+
+  const hasDetails = p.frame_fill || p.camera_angle || p.lighting || p.emotional_target?.length || p.callout
+
+  return (
+    <div
+      className={`text-left border rounded-lg transition-colors ${
+        isSelected ? 'border-primary bg-primary/5' : 'border-muted opacity-60 hover:opacity-80'
+      }`}
+    >
+      <button onClick={onToggle} className="w-full text-left p-4">
+        <div className="flex items-start gap-3">
+          <div className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 ${
+            isSelected ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/30'
+          }`}>
+            {isSelected && <Check className="h-3 w-3" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <span className="font-medium text-sm">{p.label}</span>
+              <Badge variant="secondary" className="text-xs">{p.approach}</Badge>
+              {p.frame_fill && (
+                <Badge variant="outline" className="text-[10px]">{p.frame_fill}</Badge>
+              )}
+            </div>
+            <p className={`text-xs text-muted-foreground ${promptExpanded ? '' : 'line-clamp-2'}`}>
+              {p.prompt}
+            </p>
+          </div>
+        </div>
+      </button>
+
+      {/* Expand/Details toggles */}
+      <div className="flex items-center gap-2 px-4 pb-2">
+        <button
+          onClick={(e) => { e.stopPropagation(); setPromptExpanded(!promptExpanded) }}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          {promptExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          {promptExpanded ? 'Less' : 'Expand'}
+        </button>
+        {hasDetails && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowDetails(!showDetails) }}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Info className="h-3 w-3" />
+            {showDetails ? 'Hide Details' : 'Details'}
+          </button>
+        )}
+      </div>
+
+      {/* Enriched Details */}
+      {showDetails && hasDetails && (
+        <div className="border-t px-4 py-3 bg-muted/20">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+            {p.camera_angle && (
+              <DetailItem label="Camera Angle" value={p.camera_angle} />
+            )}
+            {p.lighting && (
+              <DetailItem label="Lighting" value={p.lighting} />
+            )}
+            {p.emotional_target?.length > 0 && (
+              <DetailItem label="Mood" value={p.emotional_target} />
+            )}
+            {p.color_direction && (
+              <DetailItem label="Color Direction" value={p.color_direction} />
+            )}
+            {p.props?.length > 0 && (
+              <DetailItem label="Props" value={p.props} />
+            )}
+            {p.post_processing && (
+              <DetailItem label="Post-Processing" value={p.post_processing} />
+            )}
+            {p.callout && (
+              <DetailItem label="Callout" value={p.callout} />
+            )}
+            {p.compliance_notes && (
+              <DetailItem label="Compliance" value={p.compliance_notes} />
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DetailItem({ label, value }: { label: string; value: string | string[] }) {
+  return (
+    <div className="min-w-0">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      {Array.isArray(value) ? (
+        <div className="flex flex-wrap gap-1 mt-0.5">
+          {value.map((v, i) => (
+            <Badge key={i} variant="outline" className="text-[10px] font-normal">{v}</Badge>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-foreground/80 mt-0.5 leading-relaxed">{value}</p>
+      )}
+    </div>
+  )
 }
 
 export function WorkshopStep1Setup({ listings, categories, countries }: Step1Props) {
@@ -394,34 +509,13 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
             {store.generatedPrompts.map((p, i) => {
               const isSelected = store.selectedPromptIndices.includes(i)
               return (
-                <button
+                <MainImagePromptCard
                   key={i}
-                  onClick={() => store.togglePromptSelection(i)}
-                  className={`text-left p-4 border rounded-lg transition-colors ${
-                    isSelected
-                      ? 'border-primary bg-primary/5'
-                      : 'border-muted opacity-60 hover:opacity-80'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 ${
-                      isSelected ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/30'
-                    }`}>
-                      {isSelected && <Check className="h-3 w-3" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium text-sm">{p.label}</span>
-                        <Badge variant="secondary" className="text-xs">
-                          {p.approach}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground line-clamp-2">
-                        {p.prompt}
-                      </p>
-                    </div>
-                  </div>
-                </button>
+                  prompt={p}
+                  index={i}
+                  isSelected={isSelected}
+                  onToggle={() => store.togglePromptSelection(i)}
+                />
               )
             })}
           </div>

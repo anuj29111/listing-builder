@@ -174,6 +174,15 @@ export interface WorkshopPrompt {
   label: string
   prompt: string
   approach: string
+  frame_fill: string
+  camera_angle: string
+  lighting: string
+  emotional_target: string[]
+  props: string[]
+  post_processing: string
+  compliance_notes: string
+  color_direction: string
+  callout: string
 }
 
 export interface GenerateWorkshopPromptsRequest {
@@ -237,6 +246,15 @@ export interface SecondaryImageConcept {
   background: string
   unique_selling_point: string
   prompt: string
+  layout_type: string
+  icon_descriptions: string[]
+  typography: string
+  color_palette: string
+  target_audience: string
+  mood: string
+  camera_focus: string
+  compliance_notes: string
+  aesthetic_reference: string
 }
 
 export interface GenerateSecondaryPromptsRequest {
@@ -261,6 +279,46 @@ export interface VideoThumbnailConcept {
   description: string
   text_overlay: string
   prompt: string
+  camera_angle: string
+  lighting: string
+  mood: string
+  color_direction: string
+  compliance_notes: string
+}
+
+// --- Video Storyboard ---
+
+export interface VideoStoryboardShot {
+  shot_number: number
+  timestamp: string
+  runtime: string
+  visual: string
+  setting_props: string
+  camera: string
+  text_overlay: string
+  audio_notes: string
+  thumbnail: string
+  usp_demonstrated: string
+}
+
+export interface VideoStoryboard {
+  total_runtime: string
+  shots: VideoStoryboardShot[]
+  music_direction: string
+  brand_integration: string
+}
+
+export interface GenerateVideoStoryboardRequest {
+  product_name: string
+  brand: string
+  category_id: string
+  country_id: string
+  listing_id?: string
+}
+
+export interface GenerateVideoStoryboardResponse {
+  workshop: import('./database').LbImageWorkshop
+  storyboard: VideoStoryboard
 }
 
 export interface GenerateThumbnailPromptsRequest {
@@ -362,6 +420,39 @@ export interface GenerateAPlusContentRequest {
   category_name: string
   category_id?: string
   country_id?: string
+}
+
+// --- A+ Content Strategy (Full Visual Direction) ---
+
+export interface APlusStrategyModule {
+  position: number
+  strategic_role: string
+  template_type: string
+  title: string
+  text_content: Record<string, unknown>
+  visual_concept: string
+  image_description: string
+  key_features_highlighted: string[]
+  color_direction: string
+}
+
+export interface APlusStrategy {
+  modules: APlusStrategyModule[]
+  storytelling_flow: string
+}
+
+export interface GenerateAPlusStrategyRequest {
+  product_name: string
+  brand: string
+  category_id: string
+  country_id: string
+  listing_id?: string
+}
+
+export interface GenerateAPlusStrategyResponse {
+  strategy: APlusStrategy
+  model: string
+  tokensUsed: number
 }
 
 // --- Listing Enhancement Types ---
