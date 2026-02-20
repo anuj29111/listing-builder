@@ -308,7 +308,7 @@ export async function POST(request: Request) {
       // Generate bullets
       const { result, model, tokensUsed } = await generateBulletsPhase(input, confirmedTitle, existingCoverage)
 
-      // Insert 5 bullet sections
+      // Upsert bullet sections (ON CONFLICT replaces if re-generating)
       const bulletRows = result.bullets.map((bullet, i) => ({
         listing_id: listing_id,
         section_type: `bullet_${i + 1}`,
@@ -319,7 +319,7 @@ export async function POST(request: Request) {
 
       const { data: sections, error: sectionsError } = await adminClient
         .from('lb_listing_sections')
-        .insert(bulletRows)
+        .upsert(bulletRows, { onConflict: 'listing_id,section_type' })
         .select()
 
       if (sectionsError) {
@@ -434,7 +434,7 @@ export async function POST(request: Request) {
 
       const { data: newSections, error: sectionsError } = await adminClient
         .from('lb_listing_sections')
-        .insert(sectionRows)
+        .upsert(sectionRows, { onConflict: 'listing_id,section_type' })
         .select()
 
       if (sectionsError) {
@@ -531,13 +531,13 @@ export async function POST(request: Request) {
 
       const { data: newSections, error: sectionsError } = await adminClient
         .from('lb_listing_sections')
-        .insert({
+        .upsert({
           listing_id: listing_id,
           section_type: 'subject_matter',
           variations: subjectVariations,
           selected_variation: 0,
           is_approved: false,
-        })
+        }, { onConflict: 'listing_id,section_type' })
         .select()
 
       if (sectionsError) {
