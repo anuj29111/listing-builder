@@ -1260,30 +1260,49 @@ function buildTitlePhasePrompt(input: ListingGenerationInput): string {
   const shared = buildSharedContext(input)
   const { brand, charLimits, language } = input
 
+  const minChars = charLimits.title - 15
+  const targetChars = charLimits.title - 5
+
   return `You are an expert Amazon listing copywriter specializing in title optimization for A9/A10 algorithm ranking.
 
 ${shared}
 
 === YOUR TASK: GENERATE 5 TITLE VARIATIONS ===
 
-Title is the HIGHEST WEIGHT element in Amazon's search algorithm. Place the most important, highest-volume keywords here.
+Title is the HIGHEST WEIGHT element in Amazon's search algorithm. Every unused character is a WASTED keyword indexing opportunity.
 
-KEYWORD PLACEMENT PRIORITY FOR TITLES:
-- First 80 characters: Place the highest relevancy (0.8-1.0) and highest search volume keywords
-- Remaining characters: Place medium-high relevancy (0.6-0.8) keywords
+**CRITICAL LENGTH REQUIREMENT — THIS IS THE #1 PRIORITY:**
+- Amazon allows ${charLimits.title} characters for titles in this marketplace.
+- Each title MUST be at least ${minChars} characters long. Titles under ${minChars} characters are UNACCEPTABLE and will be rejected.
+- Target ${targetChars}-${charLimits.title} characters per title.
+- After writing each title, COUNT its characters. If it's under ${minChars}, add more keywords, features, or specifications until it reaches ${minChars}+.
+- Example: If your title is 140 characters, you have ${charLimits.title - 140} MORE characters to fill with valuable keywords. ADD THEM.
+
+KEYWORD PLACEMENT PRIORITY:
+- First 80 characters: Highest relevancy (0.8-1.0) and highest search volume keywords
+- Characters 80-150: Medium-high relevancy keywords and key features
+- Characters 150-${charLimits.title}: Additional keywords, specifications, use cases, materials, quantities
 - All titles MUST start with "${brand}"
 
-Generate 5 DISTINCT title variations. AIM for ${charLimits.title - 10}-${charLimits.title} characters each. Use EVERY available character — titles MUST be between ${charLimits.title - 20} and ${charLimits.title} characters. Shorter titles waste indexable keyword space.
-1. **SEO-dense** — Maximum keyword coverage while readable. Pack in the most high-volume terms.
-2. **Benefit-focused** — Lead with customer benefits and desires, weave keywords naturally.
-3. **Balanced** — Keywords + benefits combined seamlessly.
-4. **Feature-rich** — Highlight specific product features and specifications.
-5. **Concise/clean** — Punchy, premium feel but still maximize character usage.
+TECHNIQUES TO REACH ${minChars}+ CHARACTERS:
+- Add product specifications (size, quantity, weight, dimensions)
+- Add use cases ("for Home, Office, School, Kids, Adults")
+- Add materials and features ("Non-Toxic, Washable, Premium Quality")
+- Add who it's for ("for Artists, Beginners, Professionals")
+- Use " - " or " | " separators to add keyword phrases
+- Add pack/set information ("Set of 24", "48 Count Pack")
+
+Generate 5 DISTINCT title variations:
+1. **SEO-dense** — Maximum keyword packing. Stuff every high-volume term possible while maintaining readability.
+2. **Benefit-focused** — Lead with customer benefits, weave keywords naturally, still hit ${minChars}+ chars.
+3. **Balanced** — Keywords + benefits combined. Must still be ${minChars}+ characters.
+4. **Feature-rich** — Highlight specific product features and specifications. Easy to fill ${minChars}+ with features.
+5. **Long-tail** — Target long-tail keyword phrases and niche use cases. Fill the full ${charLimits.title} characters.
 
 === OUTPUT FORMAT ===
 Return a JSON object with this EXACT structure:
 {
-  "titles": ["title 1", "title 2", "title 3", "title 4", "title 5"],
+  "titles": ["title 1 (MUST be ${minChars}-${charLimits.title} chars)", "title 2", "title 3", "title 4", "title 5"],
   "keywordCoverage": {
     "placed": [
       { "keyword": "keyword text", "searchVolume": 18000, "relevancy": 0.95, "placedIn": "title", "position": "first 80 chars" }
@@ -1304,8 +1323,9 @@ Return a JSON object with this EXACT structure:
 
 === RULES ===
 1. ALL content in ${language}
-2. STRICT character target: AIM for ${charLimits.title - 10}-${charLimits.title} characters per title — maximize keyword space. Absolutely no more than ${charLimits.title}.
-3. Only return valid JSON, no markdown fences or explanation`
+2. MINIMUM ${minChars} characters per title. This is NON-NEGOTIABLE. Any title under ${minChars} characters is a failure. Count characters before finalizing.
+3. Maximum ${charLimits.title} characters per title.
+4. Only return valid JSON, no markdown fences or explanation`
 }
 
 export async function generateTitlePhase(
@@ -1314,27 +1334,61 @@ export async function generateTitlePhase(
   const client = await getClient()
   const model = await getModel()
   const prompt = buildTitlePhasePrompt(input)
+  const minChars = input.charLimits.title - 15
+  const maxChars = input.charLimits.title
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: 16384,
-    messages: [{ role: 'user', content: prompt }],
-  })
+  let totalTokens = 0
+  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: prompt }]
 
-  if (response.stop_reason === 'max_tokens') {
-    throw new Error('Title generation was cut off due to token limit. This should not happen — please report this issue.')
+  // Try up to 2 rounds: initial generation + 1 retry for short titles
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await client.messages.create({
+      model,
+      max_tokens: 16384,
+      messages,
+    })
+
+    if (response.stop_reason === 'max_tokens') {
+      throw new Error('Title generation was cut off due to token limit. This should not happen — please report this issue.')
+    }
+
+    const text = response.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+
+    totalTokens += (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+    const jsonText = stripMarkdownFences(text)
+    const result = JSON.parse(jsonText) as TitlePhaseResult
+
+    // Validate title lengths — LLMs are bad at counting characters
+    const shortTitles = result.titles
+      .map((t, i) => ({ index: i + 1, title: t, len: t.length }))
+      .filter((t) => t.len < minChars)
+
+    if (shortTitles.length === 0 || attempt === 1) {
+      // Also enforce max length by trimming
+      result.titles = result.titles.map((t) => t.length > maxChars ? t.slice(0, maxChars) : t)
+      return { result, model, tokensUsed: totalTokens }
+    }
+
+    // Titles too short — send a follow-up asking to lengthen them
+    const feedback = shortTitles
+      .map((t) => `- Title ${t.index}: ${t.len} chars (NEED ${minChars}+)`)
+      .join('\n')
+
+    messages.push(
+      { role: 'assistant', content: text },
+      {
+        role: 'user',
+        content: `PROBLEM: ${shortTitles.length} of your titles are TOO SHORT. Amazon allows ${maxChars} characters and you are wasting keyword indexing space.\n\n${feedback}\n\nRewrite ALL 5 titles to be ${minChars}-${maxChars} characters each. Add more keywords, features, specifications, use cases, materials, or audience descriptors to fill the space. Return the same JSON format with the lengthened titles. Every character you don't use is a missed keyword opportunity.`,
+      }
+    )
   }
 
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    .map((b) => b.text)
-    .join('')
-
-  const jsonText = stripMarkdownFences(text)
-  const result = JSON.parse(jsonText) as TitlePhaseResult
-  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
-
-  return { result, model, tokensUsed }
+  // Should not reach here, but just in case
+  throw new Error('Title generation failed after retry')
 }
 
 // --- Phase 2: Bullets Generation ---
