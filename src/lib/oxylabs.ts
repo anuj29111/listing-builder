@@ -344,6 +344,7 @@ export async function fetchReviews(
 
   if (!response.ok) {
     const text = await response.text()
+    console.error(`[fetchReviews] Oxylabs HTTP ${response.status} for ${asin} on ${domain}:`, text)
     return {
       success: false,
       error: `Oxylabs API error (${response.status}): ${text}`,
@@ -354,7 +355,10 @@ export async function fetchReviews(
 
   const content = json.results?.[0]?.content
   if (!content) {
-    return { success: false, error: 'No reviews returned from Oxylabs' }
+    const statusCode = json.results?.[0]?.status_code
+    const parseStatus = json.results?.[0]?.content?.parse_status_code
+    console.error(`[fetchReviews] No content for ${asin} on ${domain}. status_code=${statusCode}, parse_status=${parseStatus}, results_count=${json.results?.length}`)
+    return { success: false, error: `No reviews content returned (status_code=${statusCode})` }
   }
 
   return { success: true, data: content as OxylabsReviewsResponse }

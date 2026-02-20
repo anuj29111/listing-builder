@@ -9,6 +9,7 @@ interface CollectionPickerProps {
   entityType: ResearchEntityType
   entityId: string
   compact?: boolean
+  onMembershipChange?: () => void
 }
 
 const PRESET_COLORS = [
@@ -16,7 +17,7 @@ const PRESET_COLORS = [
   '#3b82f6', '#8b5cf6', '#ef4444', '#06b6d4',
 ]
 
-export function CollectionPicker({ entityType, entityId, compact }: CollectionPickerProps) {
+export function CollectionPicker({ entityType, entityId, compact, onMembershipChange }: CollectionPickerProps) {
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -86,6 +87,7 @@ export function CollectionPicker({ entityType, entityId, compact }: CollectionPi
       setEntityCollections((prev) => [...prev, collectionId])
       await addToCollection(collectionId, entityType, entityId)
     }
+    onMembershipChange?.()
   }
 
   const handleCreate = async () => {
@@ -94,6 +96,7 @@ export function CollectionPicker({ entityType, entityId, compact }: CollectionPi
     if (c) {
       await addToCollection(c.id, entityType, entityId)
       setEntityCollections((prev) => [...prev, c.id])
+      onMembershipChange?.()
     }
     setNewName('')
     setCreating(false)
@@ -229,6 +232,51 @@ export function CollectionDots({ collectionIds }: { collectionIds: string[] }) {
       ))}
       {matched.length > 3 && (
         <span className="text-[10px] text-muted-foreground">+{matched.length - 3}</span>
+      )}
+    </span>
+  )
+}
+
+function getInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((w) => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
+}
+
+function getContrastColor(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return luminance > 0.5 ? '#000000' : '#ffffff'
+}
+
+// Colored badge showing collection initials (e.g. green "CM" for Chalk Markers)
+export function CollectionBadges({
+  memberships,
+}: {
+  memberships: Array<{ collection_id: string; name: string; color: string }>
+}) {
+  if (!memberships || memberships.length === 0) return null
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      {memberships.slice(0, 3).map((m) => (
+        <span
+          key={m.collection_id}
+          className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-semibold leading-4"
+          style={{ backgroundColor: m.color, color: getContrastColor(m.color) }}
+          title={m.name}
+        >
+          {getInitials(m.name)}
+        </span>
+      ))}
+      {memberships.length > 3 && (
+        <span className="text-[10px] text-muted-foreground">+{memberships.length - 3}</span>
       )}
     </span>
   )

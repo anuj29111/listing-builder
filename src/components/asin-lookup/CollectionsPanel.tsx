@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Trash2, Edit2, Check, X, FolderOpen, ScanSearch, Search, MessageSquare, BarChart3, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Trash2, Edit2, Check, X, FolderOpen, ScanSearch, Search, MessageSquare, BarChart3, ChevronDown, ChevronUp, Star, TrendingUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { useCollectionStore } from '@/stores/collection-store'
 import type { LbCollection } from '@/types'
@@ -295,41 +296,21 @@ export function CollectionsPanel() {
                                 <Icon className="h-3.5 w-3.5" />
                                 {config.label} ({items.length})
                               </h4>
-                              <div className="space-y-1">
+                              <div className="space-y-1 divide-y rounded border bg-card overflow-hidden">
                                 {items.map((item) => (
-                                  <div
-                                    key={item.id as string}
-                                    className="rounded border bg-card px-3 py-2 text-sm flex items-center justify-between"
-                                  >
-                                    <div className="min-w-0">
-                                      {type === 'asin_lookup' && (
-                                        <span>
-                                          <span className="font-mono text-xs">{String(item.asin || '')}</span>
-                                          {item.title ? (
-                                            <span className="text-muted-foreground ml-2 text-xs truncate">
-                                              {String(item.title)}
-                                            </span>
-                                          ) : null}
-                                        </span>
-                                      )}
-                                      {type === 'keyword_search' && (
-                                        <span className="text-xs">&ldquo;{String(item.keyword || '')}&rdquo;</span>
-                                      )}
-                                      {type === 'asin_review' && (
-                                        <span>
-                                          <span className="font-mono text-xs">{String(item.asin || '')}</span>
-                                          <span className="text-muted-foreground ml-2 text-xs">
-                                            {String(item.total_reviews ?? 0)} reviews
-                                          </span>
-                                        </span>
-                                      )}
-                                      {type === 'market_intelligence' && (
-                                        <span className="text-xs">{String(item.keyword || '')}</span>
-                                      )}
-                                    </div>
-                                    <span className="text-[10px] text-muted-foreground flex-shrink-0 ml-2">
-                                      {String(item.marketplace_domain || '')}
-                                    </span>
+                                  <div key={item.id as string}>
+                                    {type === 'asin_lookup' && (
+                                      <AsinLookupRow item={item} />
+                                    )}
+                                    {type === 'keyword_search' && (
+                                      <KeywordSearchRow item={item} />
+                                    )}
+                                    {type === 'asin_review' && (
+                                      <ReviewRow item={item} />
+                                    )}
+                                    {type === 'market_intelligence' && (
+                                      <MarketIntelRow item={item} />
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -347,4 +328,175 @@ export function CollectionsPanel() {
       )}
     </div>
   )
+}
+
+// Rich row for ASIN Lookup items (same layout as ASIN Lookup history)
+function AsinLookupRow({ item }: { item: Record<string, unknown> }) {
+  const firstImage = (item.images as string[] | undefined)?.[0]
+  const bsr = (item.sales_rank as Array<{ rank: number }> | undefined)?.[0]
+  const brand = item.brand ? String(item.brand) : null
+  const amazonChoice = Boolean(item.amazon_choice)
+  const salesVolume = item.sales_volume ? String(item.sales_volume) : null
+
+  return (
+    <div className="p-3 flex items-center gap-3">
+      {firstImage && (
+        <div className="w-10 h-10 flex-shrink-0 rounded overflow-hidden bg-muted">
+          <img src={firstImage} alt="" className="w-full h-full object-contain" />
+        </div>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate">
+          {String(item.title || item.asin || '')}
+        </p>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+          <span className="font-mono">{String(item.asin || '')}</span>
+          <span>{String(item.marketplace_domain || '')}</span>
+          {brand && (
+            <Badge variant="secondary" className="text-[10px] px-1 py-0">
+              {brand}
+            </Badge>
+          )}
+          {amazonChoice && (
+            <Badge className="text-[10px] px-1 py-0 bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300">
+              Choice
+            </Badge>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3 flex-shrink-0 text-sm">
+        {salesVolume && (
+          <span className="text-[10px] text-green-600 dark:text-green-400 font-medium hidden sm:inline">
+            {salesVolume}
+          </span>
+        )}
+        {item.price != null && (
+          <span className="font-medium">
+            {String(item.currency || '$')}
+            {Number(item.price).toFixed(2)}
+          </span>
+        )}
+        {item.rating != null && (
+          <span className="flex items-center gap-0.5 text-muted-foreground">
+            <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+            {String(item.rating)}
+            {item.reviews_count != null && (
+              <span className="text-[10px]">({Number(item.reviews_count).toLocaleString()})</span>
+            )}
+          </span>
+        )}
+        {bsr && (
+          <span className="flex items-center gap-0.5 text-muted-foreground hidden sm:flex">
+            <TrendingUp className="h-3 w-3" />#{bsr.rank?.toLocaleString()}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Row for keyword search items
+function KeywordSearchRow({ item }: { item: Record<string, unknown> }) {
+  return (
+    <div className="p-3 flex items-center justify-between">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">&ldquo;{String(item.keyword || '')}&rdquo;</p>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{String(item.marketplace_domain || '')}</span>
+          {item.total_results_count != null && (
+            <span>{Number(item.total_results_count).toLocaleString()} results</span>
+          )}
+          {item.pages_fetched != null && (
+            <span>{String(item.pages_fetched)} pages fetched</span>
+          )}
+        </div>
+      </div>
+      <span className="text-xs text-muted-foreground flex-shrink-0">
+        {formatTimeAgo(String(item.updated_at || ''))}
+      </span>
+    </div>
+  )
+}
+
+// Row for review items
+function ReviewRow({ item }: { item: Record<string, unknown> }) {
+  const sortBy = item.sort_by ? String(item.sort_by) : null
+
+  return (
+    <div className="p-3 flex items-center justify-between">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">
+          <span className="font-mono">{String(item.asin || '')}</span>
+        </p>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{String(item.marketplace_domain || '')}</span>
+          {item.total_reviews != null && (
+            <span>{Number(item.total_reviews).toLocaleString()} reviews</span>
+          )}
+          {item.overall_rating != null && (
+            <span className="flex items-center gap-0.5">
+              <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+              {String(item.overall_rating)}
+            </span>
+          )}
+          {sortBy && (
+            <Badge variant="secondary" className="text-[10px] px-1 py-0">
+              {sortBy}
+            </Badge>
+          )}
+        </div>
+      </div>
+      <span className="text-xs text-muted-foreground flex-shrink-0">
+        {formatTimeAgo(String(item.updated_at || ''))}
+      </span>
+    </div>
+  )
+}
+
+// Row for market intelligence items
+function MarketIntelRow({ item }: { item: Record<string, unknown> }) {
+  const status = item.status ? String(item.status) : ''
+  const topAsins = item.top_asins as string[] | null
+  const statusColor = status === 'completed'
+    ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
+    : status === 'failed'
+    ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+    : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300'
+
+  return (
+    <div className="p-3 flex items-center justify-between">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{String(item.keyword || '')}</p>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{String(item.marketplace_domain || '')}</span>
+          {topAsins && topAsins.length > 0 && (
+            <span>{topAsins.length} ASINs</span>
+          )}
+          {status && (
+            <Badge className={`text-[10px] px-1 py-0 ${statusColor}`}>
+              {status}
+            </Badge>
+          )}
+        </div>
+      </div>
+      <span className="text-xs text-muted-foreground flex-shrink-0">
+        {formatTimeAgo(String(item.created_at || ''))}
+      </span>
+    </div>
+  )
+}
+
+function formatTimeAgo(dateStr: string): string {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  if (diffMins < 1) return 'just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) return `${diffHours}h ago`
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays < 30) return `${diffDays}d ago`
+  return date.toLocaleDateString()
 }

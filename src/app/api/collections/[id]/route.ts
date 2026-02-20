@@ -41,7 +41,7 @@ export async function GET(
     if (grouped.asin_lookup?.length) {
       const { data } = await supabase
         .from('lb_asin_lookups')
-        .select('id, asin, title, brand, price, currency, rating, reviews_count, images, country_id, marketplace_domain, tags, notes, updated_at')
+        .select('id, asin, title, brand, price, currency, rating, reviews_count, images, country_id, marketplace_domain, sales_rank, sales_volume, amazon_choice, tags, notes, updated_at')
         .in('id', grouped.asin_lookup)
       entityData.asin_lookup = data || []
     }
