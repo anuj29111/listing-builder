@@ -156,10 +156,6 @@ npm run lint         # ESLint
 
 ## Pending Tasks
 
-- **Listing Builder — 3 remaining fixes (resume on `claude/determined-shockley` branch):**
-  1. DB migration: ALTER `lb_listing_sections_section_type_check` to add `bullet_6` through `bullet_10`
-  2. Bullet character length validation with retry (same pattern as title validation in `generateTitlePhase`)
-  3. Reduce bullet variations from 9 (3 strategies × 3 lengths) to 3 total per bullet — merge all styles into one approach
 - **e2e Testing (all modules):** Phased generation (4-phase wizard + keyword coverage), Image Builder (all 5 tabs + drafts), ASIN Lookup (expanded fields + Q&A), Keyword Search (organic/sponsored tabs), Market Intelligence (single + multi-keyword, product selection, 4-phase analysis, Q&A, lightbox, CSV export, Our Product badges, live search), Seller Pull (multi-country, smart categories, bundle toggle, import/scrape/variations flow), Collections/Tags/Notes (CRUD, tag autocomplete, collection picker, inline editing, tag filter)
 - **Oxylabs Plan Upgrade + Full Reviews Testing:**
   1. Upgrade Oxylabs plan to unlock `amazon_reviews` source

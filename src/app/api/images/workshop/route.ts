@@ -195,7 +195,11 @@ export async function GET(request: Request) {
       if (listingId) {
         workshopQuery = workshopQuery.eq('listing_id', listingId)
       } else {
-        workshopQuery = workshopQuery.eq('category_id', categoryId!).eq('country_id', countryId!)
+        // Research path: only return standalone workshops (not ones belonging to specific listings)
+        workshopQuery = workshopQuery
+          .eq('category_id', categoryId!)
+          .eq('country_id', countryId!)
+          .is('listing_id', null)
       }
 
       const { data: workshops } = await workshopQuery

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useWorkshopStore } from '@/stores/workshop-store'
-import { ConceptCard } from './ConceptCard'
+import { ConceptCard, type ConceptMetadataItem } from './ConceptCard'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -12,10 +12,22 @@ import {
   DialogContent,
 } from '@/components/ui/dialog'
 import { ProviderModelBar, getEffectiveModelId } from './ProviderModelBar'
-import { Loader2, Sparkles, ImageIcon, Tag, ArrowRight, X, ZoomIn } from 'lucide-react'
+import { Loader2, Sparkles, ImageIcon, Tag, ArrowRight, X, ZoomIn, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { WorkshopProductPhotos } from '@/components/images/workshop/WorkshopProductPhotos'
+import { CreativeBriefPanel } from '@/components/images/workshop/CreativeBriefPanel'
 import type { LbImageGeneration, LbImageWorkshop } from '@/types/database'
 import type { WorkshopPrompt } from '@/types/api'
+
+/** Build metadata items for the inline bar based on WorkshopPrompt */
+function buildMainImageMetadata(p: WorkshopPrompt): ConceptMetadataItem[] {
+  const items: ConceptMetadataItem[] = []
+  if (p.camera_angle) items.push({ label: 'Camera', value: p.camera_angle })
+  if (p.frame_fill) items.push({ label: 'Fill', value: p.frame_fill })
+  if (p.lighting) items.push({ label: 'Lighting', value: p.lighting })
+  if (p.emotional_target?.length) items.push({ label: 'Mood', value: p.emotional_target.join(', ') })
+  return items
+}
 
 interface MainImageSectionProps {
   listingId?: string | null
@@ -40,8 +52,11 @@ export function MainImageSection({
   const [tagInputs, setTagInputs] = useState<Record<string, string>>({})
   const [showFinalPreview, setShowFinalPreview] = useState(false)
 
-  // Find existing main workshop for this context
-  const existingWorkshop = workshops.find((w) => w.image_type === 'main')
+  // Find existing main workshop for this context (match listing_id to avoid cross-contamination)
+  const existingWorkshop = workshops.find((w) =>
+    w.image_type === 'main' &&
+    (listingId ? w.listing_id === listingId : !w.listing_id)
+  )
   const existingImages = existingWorkshop
     ? images.filter((img) => img.workshop_id === existingWorkshop.id)
     : []
@@ -95,6 +110,40 @@ export function MainImageSection({
       toast.success(`Generated ${prompts.length} image concepts!`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to generate prompts')
+    } finally {
+      store.setIsGeneratingPrompts(false)
+    }
+  }
+
+  // Regenerate all prompts (picks up creative brief if it exists)
+  const handleRegeneratePrompts = async () => {
+    store.setIsGeneratingPrompts(true)
+    try {
+      const res = await fetch('/api/images/workshop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_name: productName,
+          brand,
+          category_id: categoryId,
+          country_id: countryId,
+          listing_id: listingId || undefined,
+          image_type: 'main',
+          workshop_id: store.workshopId || undefined,
+        }),
+      })
+
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to regenerate prompts')
+
+      const { workshop, prompts, callout_suggestions } = json.data
+      store.setWorkshopId(workshop.id)
+      store.setWorkshop(workshop)
+      store.setGeneratedPrompts(prompts, callout_suggestions)
+      store.setCalloutTexts(callout_suggestions)
+      toast.success(`Regenerated ${prompts.length} image prompts!`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to regenerate prompts')
     } finally {
       store.setIsGeneratingPrompts(false)
     }
@@ -372,6 +421,37 @@ export function MainImageSection({
         </div>
       </div>
 
+      {/* Product Photos + Creative Brief + Regenerate */}
+      {!hasImages && (
+        <div className="space-y-4">
+          <WorkshopProductPhotos />
+
+          <CreativeBriefPanel
+            categoryId={categoryId}
+            countryId={countryId}
+            listingId={listingId || undefined}
+          />
+
+          {/* Regenerate Prompts Button */}
+          <div className="flex items-center justify-center">
+            <Button
+              variant="outline"
+              onClick={handleRegeneratePrompts}
+              disabled={store.isGeneratingPrompts}
+            >
+              {store.isGeneratingPrompts ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              )}
+              {store.creativeBrief
+                ? 'Regenerate Prompts with Creative Brief'
+                : 'Regenerate All Prompts'}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Provider + Model + Orientation bar */}
       {!hasImages && (
         <ProviderModelBar
@@ -405,6 +485,19 @@ export function MainImageSection({
                 onEditPrompt={(newPrompt) => handleEditPrompt(i, newPrompt)}
                 onRegenerate={image ? () => handleRegenerateSingle(p) : undefined}
                 showCheckbox={!hasImages}
+                imageType="main"
+                metadata={buildMainImageMetadata(p)}
+                details={[
+                  { label: 'Camera Angle', value: p.camera_angle || '' },
+                  { label: 'Lighting', value: p.lighting || '' },
+                  { label: 'Frame Fill', value: p.frame_fill || '' },
+                  { label: 'Color Direction', value: p.color_direction || '' },
+                  { label: 'Mood', value: p.emotional_target || [] },
+                  { label: 'Props', value: p.props || [] },
+                  { label: 'Post-Processing', value: p.post_processing || '' },
+                  { label: 'Callout', value: p.callout || '' },
+                  { label: 'Compliance', value: p.compliance_notes || '' },
+                ]}
               />
 
               {/* Tagging UI for images that exist */}

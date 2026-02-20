@@ -42,8 +42,11 @@ export function SecondaryImageSection({
   const [geminiModel, setGeminiModel] = useState<string | null>(null)
   const [hfModel, setHfModel] = useState<string | null>(null)
 
-  // Find existing secondary workshop
-  const existingWorkshop = workshops.find((w) => w.image_type === 'secondary')
+  // Find existing secondary workshop (match listing_id to avoid cross-contamination)
+  const existingWorkshop = workshops.find((w) =>
+    w.image_type === 'secondary' &&
+    (listingId ? w.listing_id === listingId : !w.listing_id)
+  )
   const existingImages = existingWorkshop
     ? images.filter((img) => img.workshop_id === existingWorkshop.id)
     : []

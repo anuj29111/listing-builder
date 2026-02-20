@@ -51,8 +51,11 @@ export function SwatchImageSection({
   // Variant input state
   const [variants, setVariants] = useState<SwatchVariant[]>([{ ...EMPTY_VARIANT }])
 
-  // Find existing swatch workshop
-  const existingWorkshop = workshops.find((w) => w.image_type === 'swatch')
+  // Find existing swatch workshop (match listing_id to avoid cross-contamination)
+  const existingWorkshop = workshops.find((w) =>
+    w.image_type === 'swatch' &&
+    (listingId ? w.listing_id === listingId : !w.listing_id)
+  )
   const existingImages = existingWorkshop
     ? images.filter((img) => img.workshop_id === existingWorkshop.id)
     : []

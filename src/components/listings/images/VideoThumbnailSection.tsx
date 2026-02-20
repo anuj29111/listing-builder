@@ -42,8 +42,11 @@ export function VideoThumbnailSection({
   const [geminiModel, setGeminiModel] = useState<string | null>(null)
   const [hfModel, setHfModel] = useState<string | null>(null)
 
-  // Find existing video thumbnail workshop
-  const existingWorkshop = workshops.find((w) => w.image_type === 'video_thumbnail')
+  // Find existing video thumbnail workshop (match listing_id to avoid cross-contamination)
+  const existingWorkshop = workshops.find((w) =>
+    w.image_type === 'video_thumbnail' &&
+    (listingId ? w.listing_id === listingId : !w.listing_id)
+  )
   const existingImages = existingWorkshop
     ? images.filter((img) => img.workshop_id === existingWorkshop.id)
     : []

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { MainImageSection } from '@/components/listings/images/MainImageSection'
 import { SecondaryImageSection } from '@/components/listings/images/SecondaryImageSection'
 import { VideoThumbnailSection } from '@/components/listings/images/VideoThumbnailSection'
@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { HfQueuePanel } from '@/components/images/HfQueuePanel'
-import { ImageIcon, ArrowRight, X, Clock, Palette, Video, Image, Zap } from 'lucide-react'
+import { ImageIcon, ArrowRight, Clock, Palette, Video, Image, Plus } from 'lucide-react'
 import type { LbCategory, LbCountry, LbImageWorkshop, LbImageGeneration } from '@/types/database'
 
 interface ListingOption {
@@ -35,7 +35,6 @@ interface ImageBuilderClientProps {
 }
 
 type Tab = 'main' | 'secondary' | 'video_thumbnail' | 'swatch' | 'hf_queue'
-type ContextMode = 'listing' | 'research' | null
 
 interface ResolvedContext {
   listingId: string | null
@@ -59,10 +58,22 @@ interface DraftWorkshop {
   updated_at: string
 }
 
+interface DraftGroup {
+  key: string
+  listingId: string | null
+  productName: string
+  brand: string
+  categoryId: string | null
+  countryId: string | null
+  imageTypes: string[]
+  updatedAt: string
+  drafts: DraftWorkshop[]
+}
+
 const IMAGE_TYPE_LABELS: Record<string, string> = {
-  main: 'Main Image',
-  secondary: 'Secondary Images',
-  video_thumbnail: 'Video Thumbnail',
+  main: 'Main',
+  secondary: 'Secondary',
+  video_thumbnail: 'Thumbnail',
   swatch: 'Swatch',
 }
 
@@ -73,12 +84,7 @@ const IMAGE_TYPE_ICONS: Record<string, typeof ImageIcon> = {
   swatch: Palette,
 }
 
-const IMAGE_TYPE_TO_TAB: Record<string, Tab> = {
-  main: 'main',
-  secondary: 'secondary',
-  video_thumbnail: 'video_thumbnail',
-  swatch: 'swatch',
-}
+const IMAGE_TYPE_ORDER = ['main', 'secondary', 'video_thumbnail', 'swatch']
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime()
@@ -91,18 +97,61 @@ function timeAgo(dateStr: string): string {
   return `${days}d ago`
 }
 
+/** Group flat draft list by product context */
+function groupDrafts(drafts: DraftWorkshop[]): DraftGroup[] {
+  const map = new Map<string, DraftGroup>()
+
+  for (const draft of drafts) {
+    // Group key: listing_id if present, otherwise product+category+country
+    const key = draft.listing_id
+      || `${draft.product_name}::${draft.category_id}::${draft.country_id}`
+
+    const existing = map.get(key)
+    if (existing) {
+      if (!existing.imageTypes.includes(draft.image_type)) {
+        existing.imageTypes.push(draft.image_type)
+      }
+      existing.drafts.push(draft)
+      // Track most recent update
+      if (draft.updated_at > existing.updatedAt) {
+        existing.updatedAt = draft.updated_at
+      }
+    } else {
+      map.set(key, {
+        key,
+        listingId: draft.listing_id,
+        productName: draft.product_name,
+        brand: draft.brand,
+        categoryId: draft.category_id,
+        countryId: draft.country_id,
+        imageTypes: [draft.image_type],
+        updatedAt: draft.updated_at,
+        drafts: [draft],
+      })
+    }
+  }
+
+  // Sort groups by most recent update, sort image types by standard order
+  const groups = Array.from(map.values())
+  groups.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  for (const g of groups) {
+    g.imageTypes.sort((a, b) => IMAGE_TYPE_ORDER.indexOf(a) - IMAGE_TYPE_ORDER.indexOf(b))
+  }
+  return groups
+}
+
 export function ImageBuilderClient({
   listings,
   categories,
   countries,
 }: ImageBuilderClientProps) {
-  // Context picker state
-  const [contextMode, setContextMode] = useState<ContextMode>(null)
-  const [selectedListingId, setSelectedListingId] = useState<string>('')
+  // Form state
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('')
   const [selectedCountryId, setSelectedCountryId] = useState<string>('')
   const [productName, setProductName] = useState('')
   const [brandName, setBrandName] = useState('')
+  const [selectedListingId, setSelectedListingId] = useState<string>('')
+  const [showNewForm, setShowNewForm] = useState(false)
 
   // Resolved context (locked in after selection)
   const [resolvedContext, setResolvedContext] = useState<ResolvedContext | null>(null)
@@ -116,6 +165,9 @@ export function ImageBuilderClient({
   // Drafts
   const [drafts, setDrafts] = useState<DraftWorkshop[]>([])
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(true)
+
+  // Grouped drafts
+  const draftGroups = useMemo(() => groupDrafts(drafts), [drafts])
 
   // Fetch drafts on mount
   useEffect(() => {
@@ -169,33 +221,49 @@ export function ImageBuilderClient({
     }
   }, [resolvedContext, fetchWorkshops])
 
-  // --- Context picker handlers ---
+  // --- Handlers ---
 
-  const handleSelectListing = (listingId: string) => {
+  const handleCategorySelect = (catId: string) => {
+    setSelectedCategoryId(catId)
+    const cat = categories.find((c) => c.id === catId)
+    if (cat?.brand && !brandName) setBrandName(cat.brand || '')
+    // Clear listing if category changed
+    setSelectedListingId('')
+  }
+
+  const handleListingAttach = (listingId: string) => {
     setSelectedListingId(listingId)
     const listing = listings.find((l) => l.id === listingId)
     if (listing) {
-      const ctx: ResolvedContext = {
-        listingId: listing.id,
-        categoryId: listing.product_type?.category_id || '',
-        countryId: listing.country_id,
-        productName: listing.product_type?.name ||
-          (listing.generation_context?.productName as string) || 'Product',
-        brand: (listing.generation_context?.brand as string) || '',
+      // Auto-fill fields from listing
+      const name = listing.product_type?.name ||
+        (listing.generation_context?.productName as string) || ''
+      const catId = listing.product_type?.category_id || ''
+      const brand = (listing.generation_context?.brand as string) || ''
+
+      if (name) setProductName(name)
+      if (catId) {
+        setSelectedCategoryId(catId)
+        if (!brand) {
+          const cat = categories.find((c) => c.id === catId)
+          if (cat?.brand) setBrandName(cat.brand)
+        }
       }
-      if (!ctx.brand && listing.product_type?.category_id) {
-        const cat = categories.find((c) => c.id === listing.product_type?.category_id)
-        if (cat) ctx.brand = cat.brand || ''
-      }
-      setResolvedContext(ctx)
+      if (brand) setBrandName(brand)
+      if (listing.country_id) setSelectedCountryId(listing.country_id)
     }
   }
 
-  const handleResearchGo = () => {
+  const handleStartBuilder = () => {
     if (!selectedCategoryId || !selectedCountryId || !productName.trim()) return
+
     const cat = categories.find((c) => c.id === selectedCategoryId)
+    const listing = selectedListingId
+      ? listings.find((l) => l.id === selectedListingId)
+      : null
+
     setResolvedContext({
-      listingId: null,
+      listingId: listing?.id || null,
       categoryId: selectedCategoryId,
       countryId: selectedCountryId,
       productName: productName.trim(),
@@ -208,20 +276,30 @@ export function ImageBuilderClient({
     setWorkshops([])
     setImages([])
     setSelectedListingId('')
-    setContextMode(null)
+    setSelectedCategoryId('')
+    setSelectedCountryId('')
+    setProductName('')
+    setBrandName('')
+    setShowNewForm(false)
   }
 
-  // Resume a draft — build context from the draft and jump to the right tab
-  const handleResumeDraft = (draft: DraftWorkshop) => {
-    const ctx: ResolvedContext = {
-      listingId: draft.listing_id,
-      categoryId: draft.category_id || '',
-      countryId: draft.country_id || '',
-      productName: draft.product_name,
-      brand: draft.brand,
-    }
-    setResolvedContext(ctx)
-    setActiveTab(IMAGE_TYPE_TO_TAB[draft.image_type] || 'main')
+  // Resume a draft group — open the most recently updated tab
+  const handleResumeGroup = (group: DraftGroup) => {
+    // Find the most recently updated draft to determine which tab to open
+    const mostRecent = group.drafts.reduce((a, b) =>
+      a.updated_at > b.updated_at ? a : b
+    )
+
+    setResolvedContext({
+      listingId: group.listingId,
+      categoryId: group.categoryId || '',
+      countryId: group.countryId || '',
+      productName: group.productName,
+      brand: group.brand,
+    })
+
+    const tabKey = mostRecent.image_type as Tab
+    setActiveTab(tabKey === 'hf_queue' ? 'main' : tabKey)
   }
 
   const getListingLabel = (l: ListingOption) => {
@@ -229,6 +307,13 @@ export function ImageBuilderClient({
     const asin = l.product_type?.asin
     return asin ? `${name} (${asin})` : name
   }
+
+  // Filter listings by selected category for the optional attachment dropdown
+  const filteredListings = selectedCategoryId
+    ? listings.filter((l) => l.product_type?.category_id === selectedCategoryId)
+    : listings
+
+  const canStart = !!selectedCategoryId && !!selectedCountryId && !!productName.trim()
 
   // --- Render ---
 
@@ -244,38 +329,41 @@ export function ImageBuilderClient({
           </p>
         </div>
 
-        {/* Drafts Section */}
-        {!contextMode && drafts.length > 0 && (
+        {/* Grouped Drafts Section */}
+        {!showNewForm && draftGroups.length > 0 && (
           <div className="mb-8">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-              Your Drafts
+              Your Products
             </h2>
             <div className="space-y-2">
-              {drafts.map((draft) => {
-                const IconComponent = IMAGE_TYPE_ICONS[draft.image_type] || ImageIcon
-                const typeLabel = IMAGE_TYPE_LABELS[draft.image_type] || draft.image_type
-                const country = countries.find((c) => c.id === draft.country_id)
-                const category = categories.find((c) => c.id === draft.category_id)
+              {draftGroups.map((group) => {
+                const country = countries.find((c) => c.id === group.countryId)
+                const category = categories.find((c) => c.id === group.categoryId)
+                const listing = group.listingId
+                  ? listings.find((l) => l.id === group.listingId)
+                  : null
 
                 return (
                   <button
-                    key={draft.id}
-                    onClick={() => handleResumeDraft(draft)}
+                    key={group.key}
+                    onClick={() => handleResumeGroup(group)}
                     className="w-full flex items-center gap-4 p-4 border rounded-lg hover:border-primary hover:bg-muted/30 transition-colors text-left"
                   >
                     <div className="flex-shrink-0 h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
-                      <IconComponent className="h-5 w-5 text-muted-foreground" />
+                      <ImageIcon className="h-5 w-5 text-muted-foreground" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium truncate">
-                          {draft.brand} {draft.product_name}
+                          {group.brand} {group.productName}
                         </span>
-                        <Badge variant="secondary" className="text-xs flex-shrink-0">
-                          {typeLabel}
-                        </Badge>
+                        {listing?.product_type?.asin && (
+                          <Badge variant="outline" className="text-[10px] font-mono">
+                            {listing.product_type.asin}
+                          </Badge>
+                        )}
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1 flex-wrap">
                         {country && (
                           <span>{country.flag_emoji} {country.name}</span>
                         )}
@@ -288,8 +376,24 @@ export function ImageBuilderClient({
                         <span>·</span>
                         <span className="flex items-center gap-1">
                           <Clock className="h-3 w-3" />
-                          {timeAgo(draft.updated_at)}
+                          {timeAgo(group.updatedAt)}
                         </span>
+                      </div>
+                      {/* Image type badges */}
+                      <div className="flex items-center gap-1.5 mt-1.5">
+                        {group.imageTypes.map((type) => {
+                          const Icon = IMAGE_TYPE_ICONS[type] || ImageIcon
+                          return (
+                            <Badge
+                              key={type}
+                              variant="secondary"
+                              className="text-[10px] h-5 gap-1"
+                            >
+                              <Icon className="h-3 w-3" />
+                              {IMAGE_TYPE_LABELS[type] || type}
+                            </Badge>
+                          )
+                        })}
                       </div>
                     </div>
                     <ArrowRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -306,84 +410,36 @@ export function ImageBuilderClient({
           </div>
         )}
 
-        {/* Divider when drafts exist */}
-        {!contextMode && drafts.length > 0 && (
-          <div className="relative mb-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-3 text-muted-foreground">or start new</span>
-            </div>
+        {/* Start New button / Divider */}
+        {!showNewForm && draftGroups.length > 0 && (
+          <div className="flex justify-center">
+            <Button
+              variant="outline"
+              onClick={() => setShowNewForm(true)}
+              className="gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Start New Product
+            </Button>
           </div>
         )}
 
-        {/* Mode selection */}
-        {!contextMode && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button
-              onClick={() => setContextMode('listing')}
-              className="p-6 border rounded-lg hover:border-primary hover:bg-muted/30 transition-colors text-left"
-            >
-              <h3 className="font-semibold mb-1">From a Listing</h3>
-              <p className="text-sm text-muted-foreground">
-                Select an existing listing. Product info, research, and context are auto-filled.
-              </p>
-            </button>
-            <button
-              onClick={() => setContextMode('research')}
-              className="p-6 border rounded-lg hover:border-primary hover:bg-muted/30 transition-colors text-left"
-            >
-              <h3 className="font-semibold mb-1">From Research</h3>
-              <p className="text-sm text-muted-foreground">
-                Pick a category and country. AI uses your research data to generate image concepts.
-              </p>
-            </button>
-          </div>
-        )}
-
-        {/* Listing picker */}
-        {contextMode === 'listing' && (
+        {/* New Product Form — shown when no drafts or user clicks "Start New" */}
+        {(showNewForm || (!isLoadingDrafts && draftGroups.length === 0)) && (
           <div className="space-y-4 border rounded-lg p-6">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold">Select a Listing</h3>
-              <Button variant="ghost" size="sm" onClick={() => setContextMode(null)}>
-                <X className="h-4 w-4" />
-              </Button>
+              <h3 className="font-semibold">New Image Builder</h3>
+              {draftGroups.length > 0 && (
+                <Button variant="ghost" size="sm" onClick={() => setShowNewForm(false)}>
+                  Back to drafts
+                </Button>
+              )}
             </div>
-            <Select value={selectedListingId} onValueChange={handleSelectListing}>
-              <SelectTrigger>
-                <SelectValue placeholder="Choose a listing..." />
-              </SelectTrigger>
-              <SelectContent>
-                {listings.map((l) => (
-                  <SelectItem key={l.id} value={l.id}>
-                    {getListingLabel(l)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {listings.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                No listings found. Create a listing first.
-              </p>
-            )}
-          </div>
-        )}
 
-        {/* Research picker */}
-        {contextMode === 'research' && (
-          <div className="space-y-4 border rounded-lg p-6">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">Select Research Context</h3>
-              <Button variant="ghost" size="sm" onClick={() => setContextMode(null)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="text-xs">Category</Label>
-                <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
+                <Label className="text-xs">Category *</Label>
+                <Select value={selectedCategoryId} onValueChange={handleCategorySelect}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select category..." />
                   </SelectTrigger>
@@ -397,7 +453,7 @@ export function ImageBuilderClient({
                 </Select>
               </div>
               <div>
-                <Label className="text-xs">Country</Label>
+                <Label className="text-xs">Marketplace *</Label>
                 <Select value={selectedCountryId} onValueChange={setSelectedCountryId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select country..." />
@@ -412,17 +468,18 @@ export function ImageBuilderClient({
                 </Select>
               </div>
             </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="text-xs">Product Name</Label>
+                <Label className="text-xs">Product Name *</Label>
                 <Input
                   value={productName}
                   onChange={(e) => setProductName(e.target.value)}
-                  placeholder="e.g. Acrylic Paint Markers"
+                  placeholder="e.g. Acrylic Paint Markers 20-Pack"
                 />
               </div>
               <div>
-                <Label className="text-xs">Brand (optional)</Label>
+                <Label className="text-xs">Brand</Label>
                 <Input
                   value={brandName}
                   onChange={(e) => setBrandName(e.target.value)}
@@ -430,10 +487,37 @@ export function ImageBuilderClient({
                 />
               </div>
             </div>
+
+            {/* Optional listing attachment */}
+            <div>
+              <Label className="text-xs">
+                Attach a Listing{' '}
+                <span className="text-muted-foreground font-normal">(optional — adds title & bullets as AI context)</span>
+              </Label>
+              <Select value={selectedListingId} onValueChange={handleListingAttach}>
+                <SelectTrigger>
+                  <SelectValue placeholder="No listing attached" />
+                </SelectTrigger>
+                <SelectContent>
+                  {filteredListings.map((l) => (
+                    <SelectItem key={l.id} value={l.id}>
+                      {getListingLabel(l)}
+                    </SelectItem>
+                  ))}
+                  {filteredListings.length === 0 && (
+                    <SelectItem value="__none" disabled>
+                      No listings for this category
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
             <Button
-              onClick={handleResearchGo}
-              disabled={!selectedCategoryId || !selectedCountryId || !productName.trim()}
+              onClick={handleStartBuilder}
+              disabled={!canStart}
               className="w-full gap-2"
+              size="lg"
             >
               <ArrowRight className="h-4 w-4" />
               Start Image Builder
@@ -445,8 +529,8 @@ export function ImageBuilderClient({
   }
 
   // Context is resolved — show tabs + image sections
-  const selectedListing = selectedListingId
-    ? listings.find((l) => l.id === selectedListingId)
+  const selectedListing = resolvedContext.listingId
+    ? listings.find((l) => l.id === resolvedContext.listingId)
     : null
   const selectedCategory = categories.find((c) => c.id === resolvedContext.categoryId)
   const selectedCountry = countries.find((c) => c.id === resolvedContext.countryId)
