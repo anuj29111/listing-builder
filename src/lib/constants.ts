@@ -179,6 +179,20 @@ export const APLUS_TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   brand_story: 'Brand narrative with company values and mission',
 }
 
+// --- Video Project ---
+
+export const VIDEO_PROJECT_STATUSES = [
+  'draft', 'in_review', 'approved', 'in_production', 'completed',
+] as const
+
+export const VIDEO_PROJECT_STATUS_LABELS: Record<string, string> = {
+  draft: 'Draft',
+  in_review: 'In Review',
+  approved: 'Approved',
+  in_production: 'In Production',
+  completed: 'Completed',
+}
+
 // --- AI Model Configuration ---
 
 export interface ClaudeModelConfig {

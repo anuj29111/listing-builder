@@ -14,10 +14,60 @@ import { MainImageSection } from '@/components/listings/images/MainImageSection'
 import { SecondaryImageSection } from '@/components/listings/images/SecondaryImageSection'
 import { VideoThumbnailSection } from '@/components/listings/images/VideoThumbnailSection'
 import { SwatchImageSection } from '@/components/listings/images/SwatchImageSection'
+import { VideoScriptStoryboardSection } from '@/components/listings/video/VideoScriptStoryboardSection'
+import { ListingAPlusSection } from '@/components/listings/ListingAPlusSection'
 import { SECTION_TYPES, SECTION_TYPE_LABELS, SECTION_CHAR_LIMIT_MAP } from '@/lib/constants'
 import { Pencil, Save, Loader2, CheckCircle2, Tag, MapPin, ArrowLeft } from 'lucide-react'
 import toast from 'react-hot-toast'
-import type { LbListingSection, LbCategory, LbImageWorkshop, LbImageGeneration } from '@/types/database'
+import type { LbListingSection, LbCategory, LbImageWorkshop, LbImageGeneration, LbVideoProject, LbAPlusModule } from '@/types/database'
+
+// --- Two-tier tab system ---
+type PrimaryTab = 'content' | 'images' | 'video' | 'aplus'
+type ImageSubTab = 'main' | 'secondary' | 'swatch'
+type VideoSubTab = 'thumbnails' | 'script_storyboard'
+type SubTab = ImageSubTab | VideoSubTab
+
+interface TabConfig {
+  key: PrimaryTab
+  label: string
+  subTabs?: { key: SubTab; label: string }[]
+}
+
+const TABS: TabConfig[] = [
+  { key: 'content', label: 'Content' },
+  {
+    key: 'images',
+    label: 'Images',
+    subTabs: [
+      { key: 'main', label: 'Main Image' },
+      { key: 'secondary', label: 'Secondary' },
+      { key: 'swatch', label: 'Swatches' },
+    ],
+  },
+  {
+    key: 'video',
+    label: 'Video',
+    subTabs: [
+      { key: 'thumbnails', label: 'Thumbnails' },
+      { key: 'script_storyboard', label: 'Script & Storyboard' },
+    ],
+  },
+  { key: 'aplus', label: 'A+ Content' },
+]
+
+const DEFAULT_SUB_TABS: Record<string, SubTab> = {
+  images: 'main',
+  video: 'thumbnails',
+}
+
+// Backward compatibility: map old flat tab keys to new 2-tier system
+const LEGACY_TAB_MAP: Record<string, { tab: PrimaryTab; sub?: SubTab }> = {
+  content: { tab: 'content' },
+  main: { tab: 'images', sub: 'main' },
+  secondary: { tab: 'images', sub: 'secondary' },
+  video_thumbnail: { tab: 'video', sub: 'thumbnails' },
+  swatch: { tab: 'images', sub: 'swatch' },
+}
 
 interface ListingDetailClientProps {
   listing: Record<string, unknown> & {
@@ -39,9 +89,9 @@ interface ListingDetailClientProps {
   category: LbCategory | null
   workshops: LbImageWorkshop[]
   images: unknown[]
+  videoProject: LbVideoProject | null
+  aplusModules: LbAPlusModule[]
 }
-
-type Tab = 'content' | 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
 
 export function ListingDetailClient({
   listing,
@@ -49,12 +99,35 @@ export function ListingDetailClient({
   category,
   workshops,
   images: rawImages,
+  videoProject,
+  aplusModules,
 }: ListingDetailClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const tabParam = searchParams.get('tab') as Tab | null
 
-  const [activeTab, setActiveTab] = useState<Tab>(tabParam || 'content')
+  // Parse tab from URL with backward compatibility
+  const tabParam = searchParams.get('tab') || 'content'
+  const subParam = searchParams.get('sub')
+
+  let initialTab: PrimaryTab = 'content'
+  let initialSub: SubTab | null = null
+
+  if (LEGACY_TAB_MAP[tabParam]) {
+    // Backward compat: old flat tab → new 2-tier
+    initialTab = LEGACY_TAB_MAP[tabParam].tab
+    initialSub = LEGACY_TAB_MAP[tabParam].sub || null
+  } else if (['content', 'images', 'video', 'aplus'].includes(tabParam)) {
+    initialTab = tabParam as PrimaryTab
+    initialSub = (subParam as SubTab) || null
+  }
+
+  // If primary tab has sub-tabs but none selected, use default
+  if (!initialSub && DEFAULT_SUB_TABS[initialTab]) {
+    initialSub = DEFAULT_SUB_TABS[initialTab]
+  }
+
+  const [activeTab, setActiveTab] = useState<PrimaryTab>(initialTab)
+  const [activeSubTab, setActiveSubTab] = useState<SubTab | null>(initialSub)
   const [sections, setSections] = useState(initialSections)
   const [listingStatus, setListingStatus] = useState(listing.status as 'draft' | 'review' | 'approved' | 'exported')
   const [isSaving, setIsSaving] = useState(false)
@@ -67,12 +140,27 @@ export function ListingDetailClient({
   const countryId = listing.country_id
 
   // Tab navigation with URL persistence
-  const handleTabChange = (tab: Tab) => {
+  const handleTabChange = (tab: PrimaryTab) => {
     setActiveTab(tab)
-    const params = new URLSearchParams(searchParams.toString())
+    const defaultSub = DEFAULT_SUB_TABS[tab] || null
+    setActiveSubTab(defaultSub)
+
+    const params = new URLSearchParams()
     params.set('tab', tab)
+    if (defaultSub) params.set('sub', defaultSub)
     router.replace(`/listings/${listing.id}?${params.toString()}`, { scroll: false })
   }
+
+  const handleSubTabChange = (sub: SubTab) => {
+    setActiveSubTab(sub)
+    const params = new URLSearchParams()
+    params.set('tab', activeTab)
+    params.set('sub', sub)
+    router.replace(`/listings/${listing.id}?${params.toString()}`, { scroll: false })
+  }
+
+  // Get current primary tab config
+  const activeTabConfig = TABS.find((t) => t.key === activeTab)
 
   // --- Content tab logic ---
   const charLimits = {
@@ -146,14 +234,6 @@ export function ListingDetailClient({
 
   const approvedCount = sections.filter((s) => (s.final_text?.trim() || '').length > 0).length
 
-  const TABS: { key: Tab; label: string }[] = [
-    { key: 'content', label: 'Content' },
-    { key: 'main', label: 'Main Image' },
-    { key: 'secondary', label: 'Secondary Images' },
-    { key: 'video_thumbnail', label: 'Video Thumbnails' },
-    { key: 'swatch', label: 'Swatches' },
-  ]
-
   return (
     <div className="max-w-7xl mx-auto">
       {/* Header */}
@@ -205,13 +285,13 @@ export function ListingDetailClient({
         </Button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b overflow-x-auto">
+      {/* Primary Tabs */}
+      <div className="flex gap-1 border-b overflow-x-auto">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => handleTabChange(tab.key)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
               activeTab === tab.key
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -222,7 +302,31 @@ export function ListingDetailClient({
         ))}
       </div>
 
-      {/* Tab Content */}
+      {/* Sub-tabs (pill style) */}
+      {activeTabConfig?.subTabs && (
+        <div className="flex gap-1 mt-3 mb-6">
+          {activeTabConfig.subTabs.map((sub) => (
+            <button
+              key={sub.key}
+              onClick={() => handleSubTabChange(sub.key)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
+                activeSubTab === sub.key
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80'
+              }`}
+            >
+              {sub.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Spacing when no sub-tabs */}
+      {!activeTabConfig?.subTabs && <div className="mb-6" />}
+
+      {/* === Tab Content === */}
+
+      {/* Content Tab */}
       {activeTab === 'content' && (
         <div className="space-y-6">
           {/* Status + Save bar */}
@@ -287,7 +391,8 @@ export function ListingDetailClient({
         </div>
       )}
 
-      {activeTab === 'main' && (
+      {/* Images Tab — Main */}
+      {activeTab === 'images' && activeSubTab === 'main' && (
         <MainImageSection
           listingId={listing.id}
           categoryId={categoryId}
@@ -299,7 +404,8 @@ export function ListingDetailClient({
         />
       )}
 
-      {activeTab === 'secondary' && (
+      {/* Images Tab — Secondary */}
+      {activeTab === 'images' && activeSubTab === 'secondary' && (
         <SecondaryImageSection
           listingId={listing.id}
           categoryId={categoryId}
@@ -311,7 +417,21 @@ export function ListingDetailClient({
         />
       )}
 
-      {activeTab === 'video_thumbnail' && (
+      {/* Images Tab — Swatches */}
+      {activeTab === 'images' && activeSubTab === 'swatch' && (
+        <SwatchImageSection
+          listingId={listing.id}
+          categoryId={categoryId}
+          countryId={countryId}
+          productName={productName}
+          brand={brandName}
+          workshops={workshops}
+          images={images}
+        />
+      )}
+
+      {/* Video Tab — Thumbnails */}
+      {activeTab === 'video' && activeSubTab === 'thumbnails' && (
         <VideoThumbnailSection
           listingId={listing.id}
           categoryId={categoryId}
@@ -323,15 +443,22 @@ export function ListingDetailClient({
         />
       )}
 
-      {activeTab === 'swatch' && (
-        <SwatchImageSection
+      {/* Video Tab — Script & Storyboard */}
+      {activeTab === 'video' && activeSubTab === 'script_storyboard' && (
+        <VideoScriptStoryboardSection
           listingId={listing.id}
-          categoryId={categoryId}
-          countryId={countryId}
-          productName={productName}
-          brand={brandName}
-          workshops={workshops}
-          images={images}
+          initialVideoProject={videoProject}
+        />
+      )}
+
+      {/* A+ Content Tab */}
+      {activeTab === 'aplus' && (
+        <ListingAPlusSection
+          listingId={listing.id}
+          listing={{ id: listing.id, title: listing.title, generation_context: listing.generation_context }}
+          category={category ? { id: category.id, name: category.name, brand: category.brand } : null}
+          country={listing.country ? { id: countryId, name: listing.country.name, code: listing.country.code } : null}
+          initialModules={aplusModules}
         />
       )}
     </div>

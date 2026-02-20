@@ -273,6 +273,23 @@ export interface LbAPlusModule {
   updated_at: string
 }
 
+export interface LbVideoProject {
+  id: string
+  listing_id: string
+  script: Record<string, unknown> | null
+  script_model: string | null
+  script_tokens_used: number
+  storyboard: Record<string, unknown> | null
+  storyboard_model: string | null
+  storyboard_tokens_used: number
+  status: 'draft' | 'in_review' | 'approved' | 'in_production' | 'completed'
+  notes: string | null
+  assigned_to: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface LbProduct {
   id: string
   asin: string
