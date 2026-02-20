@@ -28,6 +28,12 @@ export type {
   LbCollection,
   LbCollectionItem,
   ResearchEntityType,
+  LbSellerPullJob,
+  SellerPullJobStatus,
+  SellerPullProduct,
+  SellerPullSummary,
+  SellerPullScrapeResult,
+  SellerPullVariationResult,
 } from './database'
 
 export type {
