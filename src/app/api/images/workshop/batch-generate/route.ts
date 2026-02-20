@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
-import { generateAndStoreImage } from '@/lib/image-generation'
+import { generateAndStoreImage, fetchReferenceImages } from '@/lib/image-generation'
 import type { BatchGenerateRequest, BatchGenerateResponse } from '@/types/api'
 import type { LbImageGeneration } from '@/types/database'
 
@@ -26,16 +26,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid provider' }, { status: 400 })
     }
 
-    // Verify workshop exists
+    // Verify workshop exists and fetch product photos for reference
     const { data: workshop } = await adminClient
       .from('lb_image_workshops')
-      .select('id')
+      .select('id, product_photos')
       .eq('id', workshop_id)
       .single()
 
     if (!workshop) {
       return NextResponse.json({ error: 'Workshop not found' }, { status: 404 })
     }
+
+    // Fetch product photos ONCE as reference images (reused across all prompts)
+    const productPhotoUrls = (workshop.product_photos as string[]) || []
+    const referenceImages = provider !== 'higgsfield' && productPhotoUrls.length > 0
+      ? await fetchReferenceImages(productPhotoUrls)
+      : []
 
     const results: BatchGenerateResponse['results'] = []
 
@@ -54,6 +60,7 @@ export async function POST(request: Request) {
             position: position ?? null,
             createdBy: lbUser.id,
             adminClient,
+            referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
           })
         )
       )

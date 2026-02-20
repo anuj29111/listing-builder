@@ -1,7 +1,58 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { generateOpenAIImage, orientationToSize } from '@/lib/openai'
 import { generateGeminiImage, orientationToAspect } from '@/lib/gemini'
+import type { ReferenceImage } from '@/lib/openai'
+import type { GeminiReferenceImage } from '@/lib/gemini'
 import type { LbImageGeneration, HfModel } from '@/types/database'
+
+/** Fetched reference image data in both formats needed by providers */
+export interface FetchedReferenceImage {
+  buffer: Buffer
+  base64: string
+  mimeType: string
+}
+
+/**
+ * Fetch image URLs and return data in formats needed by OpenAI (Buffer) and Gemini (base64).
+ * Call this ONCE per batch, then pass the results to each `generateAndStoreImage()` call.
+ */
+export async function fetchReferenceImages(urls: string[]): Promise<FetchedReferenceImage[]> {
+  if (!urls || urls.length === 0) return []
+
+  const results: FetchedReferenceImage[] = []
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) {
+        console.warn(`Failed to fetch reference image: ${url}`)
+        continue
+      }
+      const arrayBuffer = await response.arrayBuffer()
+      const buffer = Buffer.from(arrayBuffer)
+      const base64 = buffer.toString('base64')
+      const contentType = response.headers.get('content-type') || 'image/jpeg'
+      const mimeType = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(contentType)
+        ? contentType
+        : 'image/jpeg'
+      results.push({ buffer, base64, mimeType })
+    } catch (err) {
+      console.warn(`Error fetching reference image ${url}:`, err)
+    }
+  }
+
+  return results
+}
+
+/** Convert fetched images to OpenAI format (Buffer + mimeType) */
+export function toOpenAIReferenceImages(fetched: FetchedReferenceImage[]): ReferenceImage[] {
+  return fetched.map((img) => ({ buffer: img.buffer, mimeType: img.mimeType }))
+}
+
+/** Convert fetched images to Gemini format (base64 + mimeType) */
+export function toGeminiReferenceImages(fetched: FetchedReferenceImage[]): GeminiReferenceImage[] {
+  return fetched.map((img) => ({ base64: img.base64, mimeType: img.mimeType }))
+}
 
 export interface GenerateAndStoreParams {
   prompt: string
@@ -14,6 +65,8 @@ export interface GenerateAndStoreParams {
   position?: number | null
   createdBy: string
   adminClient: SupabaseClient
+  // Reference images (pre-fetched) — passed to OpenAI/Gemini as visual references
+  referenceImages?: FetchedReferenceImage[]
   // Higgsfield-specific
   hfModel?: HfModel
   hfAspectRatio?: string
@@ -24,13 +77,16 @@ export interface GenerateAndStoreParams {
  * Generate an image via the selected provider, upload to Supabase Storage,
  * and insert a record into lb_image_generations.
  *
+ * When referenceImages are provided, they are passed to OpenAI/Gemini so the
+ * generated image features the actual product appearance, packaging, and branding.
+ *
  * For Higgsfield: inserts into hf_prompt_queue instead of calling the API directly.
  * The Python push_prompts.py script handles actual submission to Higgsfield's internal API.
  */
 export async function generateAndStoreImage(
   params: GenerateAndStoreParams
 ): Promise<LbImageGeneration> {
-  const { prompt, provider, orientation, modelId, listingId, workshopId, imageType, position, createdBy, adminClient } = params
+  const { prompt, provider, orientation, modelId, listingId, workshopId, imageType, position, createdBy, adminClient, referenceImages } = params
 
   let previewUrl: string | null = null
   let storagePath: string | null = null
@@ -41,6 +97,7 @@ export async function generateAndStoreImage(
       prompt: prompt.trim(),
       size: orientationToSize(orientation),
       quality: 'medium',
+      referenceImages: referenceImages ? toOpenAIReferenceImages(referenceImages) : undefined,
     })
 
     const imageBuffer = Buffer.from(result.base64Data, 'base64')
@@ -61,6 +118,7 @@ export async function generateAndStoreImage(
       prompt: prompt.trim(),
       aspectRatio: orientationToAspect(orientation),
       modelId: modelId || undefined,
+      referenceImages: referenceImages ? toGeminiReferenceImages(referenceImages) : undefined,
     })
 
     const imageBuffer = Buffer.from(result.base64Data, 'base64')
@@ -81,6 +139,7 @@ export async function generateAndStoreImage(
     // Higgsfield: queue-based flow via hf_prompt_queue
     // Inserts into queue → Supabase Edge Function auto-submits to Higgsfield's internal API.
     // modelId comes from the provider bar (e.g. 'nano-banana-pro', 'seedream', etc.)
+    // Note: Higgsfield doesn't support reference images
     const hfModel = (params.modelId as HfModel) || params.hfModel || 'nano-banana-pro'
     const hfAspectRatio = params.hfAspectRatio || '1:1'
     const hfResolution = params.hfResolution || '2k'

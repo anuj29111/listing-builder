@@ -1,4 +1,4 @@
-import OpenAI from 'openai'
+import OpenAI, { toFile } from 'openai'
 import { createAdminClient } from '@/lib/supabase/server'
 
 async function getApiKey(): Promise<string> {
@@ -26,14 +26,21 @@ async function getClient(): Promise<OpenAI> {
 }
 
 const DEFAULT_MODEL = 'gpt-image-1.5'
+const EDIT_MODEL = 'gpt-image-1' // images.edit() endpoint model
 
 export type OpenAIImageSize = '1024x1024' | '1536x1024' | '1024x1536'
 export type OpenAIImageQuality = 'low' | 'medium' | 'high'
+
+export interface ReferenceImage {
+  buffer: Buffer
+  mimeType: string
+}
 
 export interface OpenAIGenerateInput {
   prompt: string
   size?: OpenAIImageSize
   quality?: OpenAIImageQuality
+  referenceImages?: ReferenceImage[]
 }
 
 export interface OpenAIGenerateResult {
@@ -53,6 +60,35 @@ export function orientationToSize(orientation: string): OpenAIImageSize {
 export async function generateOpenAIImage(input: OpenAIGenerateInput): Promise<OpenAIGenerateResult> {
   const client = await getClient()
 
+  // When reference images are provided, use images.edit() so the AI sees the actual product
+  if (input.referenceImages && input.referenceImages.length > 0) {
+    const imageFiles = await Promise.all(
+      input.referenceImages.map(async (img, i) => {
+        const ext = img.mimeType.includes('png') ? 'png' : img.mimeType.includes('webp') ? 'webp' : 'jpg'
+        return toFile(img.buffer, `reference-${i}.${ext}`, { type: img.mimeType })
+      })
+    )
+
+    const editPrompt = `Use these reference photos to match the exact product appearance, packaging, labels, and branding. ${input.prompt}`
+
+    const response = await client.images.edit({
+      model: EDIT_MODEL,
+      image: imageFiles,
+      prompt: editPrompt,
+      n: 1,
+      size: input.size || '1024x1024',
+      quality: input.quality || 'medium',
+    })
+
+    const image = response.data?.[0]
+    if (!image || !image.b64_json) {
+      throw new Error('GPT Image edit returned no image data')
+    }
+
+    return { base64Data: image.b64_json }
+  }
+
+  // Standard text-only generation (no reference images)
   const response = await client.images.generate({
     model: DEFAULT_MODEL,
     prompt: input.prompt,

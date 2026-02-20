@@ -29,10 +29,16 @@ async function getClient(): Promise<GoogleGenerativeAI> {
 
 export type GeminiAspectRatio = '1:1' | '9:16' | '16:9'
 
+export interface GeminiReferenceImage {
+  base64: string
+  mimeType: string
+}
+
 export interface GeminiGenerateInput {
   prompt: string
   aspectRatio?: GeminiAspectRatio
   modelId?: string
+  referenceImages?: GeminiReferenceImage[]
 }
 
 export interface GeminiGenerateResult {
@@ -61,10 +67,31 @@ export async function generateGeminiImage(input: GeminiGenerateInput): Promise<G
     },
   })
 
+  // Build parts: reference images first, then text prompt
+  const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = []
+
+  if (input.referenceImages && input.referenceImages.length > 0) {
+    // Add reference images as inlineData parts
+    for (const img of input.referenceImages) {
+      parts.push({
+        inlineData: {
+          mimeType: img.mimeType,
+          data: img.base64,
+        },
+      })
+    }
+    // Prefix prompt with reference instruction
+    parts.push({
+      text: `Use these reference photos to match the exact product appearance, packaging, labels, and branding. Generate a product image: ${input.prompt}`,
+    })
+  } else {
+    parts.push({ text: `Generate a product image: ${input.prompt}` })
+  }
+
   const result = await model.generateContent({
     contents: [{
       role: 'user',
-      parts: [{ text: `Generate a product image: ${input.prompt}` }],
+      parts,
     }],
   })
 
