@@ -110,29 +110,25 @@ npm run lint         # ESLint
 14. **Analysis source column** — `lb_research_analysis` has `source` column (`csv`/`file`/`merged`). UNIQUE on `(category_id, country_id, analysis_type, source)`. All consumers pick best source: merged > csv > file. Legacy `'primary'` was migrated out.
 15. **Research page coordination** — `ResearchPageClient` wraps `ResearchStatusMatrix` + `ResearchClient`. Matrix click → sets selection → scrolls to research section. State lives in parent, passed as `externalCategoryId`/`externalCountryId`.
 19. **Supabase join returns array** — `select('field:table(cols)')` returns array not object. Normalize with `Array.isArray(x) ? x[0] || null : x` before passing to components.
-20. **Image builder dual entry** — `/listings/[id]` (tabs: Content/Main/Secondary/Video Thumbnails/Swatches) and `/images` (standalone with context picker + drafts panel). Both use shared section components.
-21. **Workshop image_type column** — `lb_image_workshops.image_type` supports `'main'`, `'secondary'`, `'video_thumbnail'`, `'swatch'`. Filter workshops by `image_type` when loading for each tab.
-22. **Bullet variations format** — New listings store 9 variations per bullet as flat array: `[seo_concise, seo_medium, seo_longer, benefit_concise, ..., balanced_longer]`. Old listings may have 3-element arrays. `flattenBullet()` in API route handles both.
+20. **Image builder dual entry** — `/listings/[id]` and `/images` (standalone). Both show 5 tabs: Content/Main/Secondary/Video Thumbnails/Swatches. `image_type` column filters workshops per tab.
+22. **Bullet variations format** — 9 variations per bullet as flat array. Old listings may have 3-element arrays. `flattenBullet()` handles both.
 23. **SectionCard approval** — `final_text` replaces `is_approved` toggle. Section is "approved" when `final_text.trim()` is non-empty. `is_approved` DB column is derived from `final_text` on save.
-24. **Phased generation (cascading keyword waterfall)** — Listing generation uses 4 sequential API calls: Title (16384 tokens) → Bullets (32768) → Description+SearchTerms (16384) → Backend (8192). Each phase sees full research data + confirmed output from prior phases + keyword coverage tracker. API route: `/api/listings/generate` with `phase` parameter. Batch route auto-cascades all 4 phases. Never limit token budgets — full data in every phase.
+24. **Phased generation** — 4 sequential API calls: Title → Bullets → Description+SearchTerms → Backend. Each phase sees full research + prior confirmed output + keyword tracker. API: `/api/listings/generate` with `phase` param. Batch route auto-cascades.
 25. **Competitor analysis** — Stored as `analysis_type='competitor_analysis'` in `lb_research_analysis`. Max 5 competitors, 5000 chars each. Uses dedicated API route `/api/research/analyze/competitors`.
 26. **Admin settings keys are lowercase** — `lb_admin_settings.key` is case-sensitive. Always use lowercase: `anthropic_api_key`, `openai_api_key`, `google_ai_api_key`. UI has pre-filled slots. Higgsfield API keys removed (uses queue-based approach via automator).
-27. **Image providers renamed** — Provider IDs: `openai` (GPT Image 1.5), `gemini` (Flash + Nano Banana Pro), `higgsfield` (queue-based). Old `dalle3` ID removed. Providers route has legacy `dalle3` config compat. Gemini supports sub-model selection via `modelId`.
-33. **Higgsfield queue-based flow (fully integrated)** — All image sections (Main, Secondary, Swatch, Video Thumbnail, Workshop) insert into `hf_prompt_queue` → Edge Function auto-submits to `fnf.higgsfield.ai`. Models: `nano-banana-pro`, `chatgpt`, `seedream`, `soul`. Old `platform.higgsfield.ai` API code deleted (`src/lib/higgsfield.ts`). No API keys needed — uses Clerk JWT + Creator plan. Model selection flows via `getEffectiveModelId()` → `model_id` → `generateAndStoreImage()` → queue insert.
-28. **Image builder 5 tabs** — Listing detail + standalone `/images` both show: Content, Main, Secondary, Video Thumbnails, Swatches. Tab bar has `overflow-x-auto` for mobile.
-29. **Image Builder drafts panel** — `/images` page shows saved workshops as clickable draft cards. Clicking resumes the draft by setting context + active tab.
+27. **Image providers** — IDs: `openai` (GPT Image 1.5), `gemini` (Flash + Nano Banana Pro), `higgsfield` (queue-based via `hf_prompt_queue` → Edge Function → `fnf.higgsfield.ai`). Models: `nano-banana-pro`, `chatgpt`, `seedream`, `soul`. Model selection: `getEffectiveModelId()` → `model_id` → queue insert.
+29. **Image Builder drafts panel** — `/images` page shows saved workshops as clickable draft cards. Clicking resumes the draft.
 30. **SP Prompts xlsx parsing** — `sp_prompts` file type accepts xlsx/csv. xlsx is parsed server-side (dynamic `import('xlsx')`) → converted to clean CSV before Supabase storage. Wired into Q&A analysis pipeline with niche-filtering (Claude filters prompts by category).
 31. **Product Mapper** — `lb_products` table (ASIN unique key). `/products` page with search, category filter, CRUD, xlsx/csv import. Import upserts on ASIN in batches of 100.
 32. **Railway worktrees** — `railway up` uploads ALL worktrees. If any worktree has stale code with build errors, deploy fails. Always `git merge main --ff-only` in all worktrees before deploying.
 34. **`.railwayignore`** — Created to exclude worktrees/non-code dirs from `railway up` uploads. Without it, upload times out.
 35. **ASIN Lookup via Oxylabs** — `/asin-lookup` page uses Oxylabs E-Commerce Scraper API (`realtime.oxylabs.io/v1/queries`). Credentials stored as `oxylabs_username`/`oxylabs_password` in `lb_admin_settings`. `source: "amazon_product"`, `domain` derived from `lb_countries.amazon_domain` by stripping `amazon.` prefix. Free tier: 2,000 results. Paid: $0.50/1K.
-36. **`lb_asin_lookups` table** — Stores fetched ASIN data. UNIQUE on `(asin, country_id)` — re-lookups upsert. `raw_response` JSONB preserves full Oxylabs payload. Extracted fields: title, brand, price (+ price_upper, price_sns, price_initial, price_shipping), currency, rating, reviews_count, bullet_points, description, images, sales_rank, category, featured_merchant, variations, is_prime_eligible, stock, deal_type, coupon, coupon_discount_percentage, discount_percentage, amazon_choice, parent_asin, answered_questions_count, has_videos, sales_volume, max_quantity, pricing_count, product_dimensions, product_details, product_overview, delivery, buybox, lightning_deal, rating_stars_distribution, sns_discounts, top_reviews.
-37. **`lb_keyword_searches` table** — Caches Amazon keyword search results via Oxylabs `amazon_search` source. UNIQUE on `(keyword, country_id)`. Stores organic_results, sponsored_results, amazons_choices, suggested_results as JSONB arrays. Each result item has: asin, title, price, rating, reviews_count, pos, url_image, is_prime, is_amazons_choice, best_seller, manufacturer, sales_volume.
+36. **`lb_asin_lookups` table** — UNIQUE on `(asin, country_id)`, upserts on re-lookup. `raw_response` JSONB preserves full payload. 30+ extracted fields.
+37. **`lb_keyword_searches` table** — UNIQUE on `(keyword, country_id)`. Stores organic_results, sponsored_results, amazons_choices, suggested_results as JSONB arrays.
 38. **ASIN Lookup page is 4-tabbed** — `/asin-lookup` has: "ASIN Lookup" | "Keyword Search" | "Reviews" | "Market Intelligence". `AsinLookupPageClient` wraps all 4 clients.
 39. **`lb_asin_reviews` table** — Stores reviews per ASIN+country+sort. UNIQUE on `(asin, country_id, sort_by)`. Reviews stored as JSONB array. Each review: id, title, author, rating, content, timestamp, is_verified, helpful_count, product_attributes, images.
 40. **Oxylabs `amazon_reviews` source NOT available on free plan** — API returns "Unsupported source". Fallback uses `amazon_product` top reviews (~13 per product). Code auto-detects: tries `amazon_reviews` first, falls back to `lookupAsin()`. When plan is upgraded, full pagination works with zero code changes.
-41. **Keyword search URLs are relative** — Oxylabs `amazon_search` returns relative URLs like `/dp/B0DLQ7D59R/...`. `toAbsoluteAmazonUrl()` in `KeywordSearchClient.tsx` prepends `https://www.{marketplace_domain}`.
-42. **Oxylabs `amazon_search` coverage** — We pull all major fields. Only missing: `refinements` (filter options), `no_price_reason`, `suggested_query`. Low priority.
+41. **Keyword search URLs are relative** — Oxylabs returns relative URLs. `toAbsoluteAmazonUrl()` prepends `https://www.{marketplace_domain}`.
 43. **Market Intelligence Module (enhanced)** — 4th tab on `/asin-lookup`. `lb_market_intelligence` table. Multi-keyword input → deduplicate ASINs → product selection (checkboxes) → 4-phase Claude analysis (Reviews → Q&A → Market → Strategy, 16384 tokens each, ~65K total). Status flow: `pending → collecting → awaiting_selection → analyzing → completed/failed`. User-selectable `reviews_per_product` (100-500, default 200). Full reviews via `fetchReviews()` + Q&A via `fetchQuestions()`. "Our Product" badges via `lb_products` matching. Competitor cards: expandable, all images, lightbox, Amazon links, review export CSV. Live history search filter.
 44. **Oxylabs return types** — `searchKeyword()`, `lookupAsin()`, `fetchQuestions()` all return `{ success, data?, error? }`, NOT the data directly. Always check `.success` and unwrap `.data`.
 45. **`lb_asin_questions` table** — Stores Q&A per ASIN+country. UNIQUE on `(asin, country_id)`. 7-day cache TTL. Auto-fetched during ASIN Lookup and Market Intelligence collection. Each question: question, answer, votes, author, date.
@@ -160,30 +156,7 @@ npm run lint         # ESLint
 
 ## Pending Tasks
 
-- **Phased Generation e2e Testing:**
-  1. New listing wizard — verify 4-phase flow: Generate Titles → confirm → Generate Bullets → confirm → Description → Backend
-  2. Keyword coverage panel — verify score climbs across phases (30% → 60% → 85% → 95%+)
-  3. SectionCard in wizard — "Use" buttons copy to final text, confirm buttons advance phases
-  4. Re-generation — regenerate a phase, verify downstream phases reset
-- **Image Builder e2e Testing:**
-  1. Test all 4 image flows: main, secondary, video thumbnails, swatch
-  2. Test drafts panel: generate → navigate away → return → click draft → verify resume
-  3. Verify DB persistence across navigation
-- **ASIN Lookup / Keyword Search e2e Testing:**
-  1. Test ASIN lookup with real ASIN — verify all 20+ expanded fields display correctly
-  2. Test keyword search — verify organic/sponsored/Amazon's Choice tabs work
-  3. Verify history panels for both tabs
-  4. Test re-searching same keyword/ASIN — verify upsert (not duplicate)
-- **Market Intelligence e2e Testing:**
-  1. Test single keyword → progress → product selection → confirm → 4-phase analysis → report
-  2. Test multi-keyword (2+) → deduplicate → product selection → untick some → analysis on selected
-  3. Verify "Our Product" badge on matching ASINs from lb_products
-  4. Verify image lightbox, Amazon links, review export CSV
-  5. Test Q&A section in report (analysis + raw tabs)
-  6. Verify live history search filter
-- **ASIN Lookup Q&A e2e Testing:**
-  1. Test ASIN lookup → verify Q&A section appears in expanded card
-  2. Test history item expand → verify Q&A loads from cache
+- **e2e Testing (all modules):** Phased generation (4-phase wizard + keyword coverage), Image Builder (all 5 tabs + drafts), ASIN Lookup (expanded fields + Q&A), Keyword Search (organic/sponsored tabs), Market Intelligence (single + multi-keyword, product selection, 4-phase analysis, Q&A, lightbox, CSV export, Our Product badges, live search)
 - **Oxylabs Plan Upgrade + Full Reviews Testing:**
   1. Upgrade Oxylabs plan to unlock `amazon_reviews` source
   2. Test with 500-1000 review product — verify full pagination works
