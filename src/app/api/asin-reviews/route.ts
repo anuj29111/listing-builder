@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
-import { fetchReviews, fetchReviewsViaWebScraper, lookupAsin } from '@/lib/oxylabs'
+import { fetchReviews, lookupAsin } from '@/lib/oxylabs'
 import type { OxylabsReviewItem } from '@/lib/oxylabs'
 
 export async function POST(request: Request) {
@@ -49,33 +49,18 @@ export async function POST(request: Request) {
     const pagesToFetch = fetchAll ? 9999 : (pages || 10)
     const sortBy = sort_by || 'recent'
 
-    // Strategy: Try amazon_reviews source first (full pagination)
-    // If unsupported, fall back to amazon_product top reviews
+    // Strategy: Try amazon_reviews first (full pagination).
+    // If unsupported on plan, fall back to amazon_product top reviews.
     let allReviews: OxylabsReviewItem[] = []
     let totalReviews: number | null = null
     let overallRating: number | null = null
     let ratingDistribution: Array<{ rating: number; percentage: string }> | null = null
     let rawResponses: Record<string, unknown>[] = []
     let totalPagesAvailable = 0
-    let source: 'amazon_reviews' | 'amazon_web_scraper' | 'amazon_product' = 'amazon_reviews'
+    let source: 'amazon_reviews' | 'amazon_product' = 'amazon_reviews'
     let fallbackReason: string | null = null
 
-    // Strategy: Try 3 sources in order:
-    // 1. amazon_reviews (dedicated reviews source — requires specific plan)
-    // 2. amazon web scraper (scrape reviews page URL directly)
-    // 3. amazon_product (top reviews only — last resort)
-
     const firstResult = await fetchReviews(trimmedAsin, oxylabsDomain, 1, 1, sortBy)
-    let useWebScraper = false
-
-    if (!firstResult.success) {
-      console.error(
-        `[Reviews] amazon_reviews source failed for ${trimmedAsin} on ${oxylabsDomain}:`,
-        firstResult.error
-      )
-      // Try web scraper fallback before amazon_product
-      useWebScraper = true
-    }
 
     if (firstResult.success && firstResult.data) {
       // amazon_reviews source works — fetch all requested pages
@@ -116,51 +101,12 @@ export async function POST(request: Request) {
           pagesRemaining -= batchPages
         }
       }
-    } else if (useWebScraper) {
-      // Fallback #1: Try 'amazon' web scraper source with direct reviews page URL
-      console.log(`[Reviews] Trying web scraper fallback for ${trimmedAsin} on ${oxylabsDomain}`)
-      const wsResult = await fetchReviewsViaWebScraper(trimmedAsin, oxylabsDomain, 1, sortBy)
-
-      if (wsResult.success && wsResult.data && wsResult.data.reviews?.length > 0) {
-        source = 'amazon_web_scraper'
-        const data = wsResult.data
-        totalReviews = data.reviews_count ?? null
-        overallRating = data.rating ?? null
-        ratingDistribution = data.rating_stars_distribution ?? null
-        totalPagesAvailable = data.pages || 0
-        rawResponses.push(data as unknown as Record<string, unknown>)
-        allReviews.push(...data.reviews)
-
-        // Fetch remaining pages via web scraper
-        const maxPages = fetchAll ? (totalPagesAvailable || pagesToFetch) : pagesToFetch
-        if (maxPages > 1) {
-          let currentPage = 2
-          let pagesRemaining = maxPages - 1
-
-          while (pagesRemaining > 0) {
-            const result = await fetchReviewsViaWebScraper(trimmedAsin, oxylabsDomain, currentPage, sortBy)
-            if (!result.success || !result.data || !result.data.reviews?.length) break
-
-            rawResponses.push(result.data as unknown as Record<string, unknown>)
-            allReviews.push(...result.data.reviews)
-
-            if (result.data.reviews.length < 10) break
-            currentPage++
-            pagesRemaining--
-          }
-        }
-        fallbackReason = null // Clear since web scraper worked
-      } else {
-        // Web scraper also failed — log and continue to amazon_product
-        console.error(
-          `[Reviews] Web scraper also failed for ${trimmedAsin} on ${oxylabsDomain}:`,
-          wsResult.error
-        )
-        fallbackReason = `amazon_reviews: ${firstResult.error || 'unsupported'}; web_scraper: ${wsResult.error || 'no reviews'}`
-      }
+    } else {
+      console.warn(`[Reviews] amazon_reviews unsupported for ${trimmedAsin} on ${oxylabsDomain}, using amazon_product fallback`)
+      fallbackReason = 'amazon_reviews source not available on current Oxylabs plan'
     }
 
-    // Fallback #2: amazon_product top reviews (last resort)
+    // Fallback: amazon_product top reviews
     if (allReviews.length === 0) {
       source = 'amazon_product'
       const productResult = await lookupAsin(trimmedAsin, oxylabsDomain)
