@@ -133,16 +133,18 @@ npm run lint         # ESLint
 40. **Oxylabs `amazon_reviews` source NOT available on free plan** — API returns "Unsupported source". Fallback uses `amazon_product` top reviews (~13 per product). Code auto-detects: tries `amazon_reviews` first, falls back to `lookupAsin()`. When plan is upgraded, full pagination works with zero code changes.
 41. **Keyword search URLs are relative** — Oxylabs `amazon_search` returns relative URLs like `/dp/B0DLQ7D59R/...`. `toAbsoluteAmazonUrl()` in `KeywordSearchClient.tsx` prepends `https://www.{marketplace_domain}`.
 42. **Oxylabs `amazon_search` coverage** — We pull all major fields. Only missing: `refinements` (filter options), `no_price_reason`, `suggested_query`. Low priority.
-43. **Market Intelligence Module (standalone)** — 4th tab on `/asin-lookup`. `lb_market_intelligence` table. Flow: keyword → searchKeyword → top N organic ASINs → lookupAsin × N → 2-phase Claude analysis (Phase 1: market/competitive, Phase 2: customer/strategy, 16384 tokens each) → 14-section report. 7-day cache reuse from `lb_keyword_searches`/`lb_asin_lookups`. Max 11 Oxylabs calls per report. Reviews from `OxylabsProductResult.reviews` (~13/product). Isolated from research pipeline — standalone proof-of-concept.
-44. **Oxylabs return types** — `searchKeyword()` and `lookupAsin()` both return `{ success, data?, error? }`, NOT the data directly. Always check `.success` and unwrap `.data`.
+43. **Market Intelligence Module (enhanced)** — 4th tab on `/asin-lookup`. `lb_market_intelligence` table. Multi-keyword input → deduplicate ASINs → product selection (checkboxes) → 4-phase Claude analysis (Reviews → Q&A → Market → Strategy, 16384 tokens each, ~65K total). Status flow: `pending → collecting → awaiting_selection → analyzing → completed/failed`. User-selectable `reviews_per_product` (100-500, default 200). Full reviews via `fetchReviews()` + Q&A via `fetchQuestions()`. "Our Product" badges via `lb_products` matching. Competitor cards: expandable, all images, lightbox, Amazon links, review export CSV. Live history search filter.
+44. **Oxylabs return types** — `searchKeyword()`, `lookupAsin()`, `fetchQuestions()` all return `{ success, data?, error? }`, NOT the data directly. Always check `.success` and unwrap `.data`.
+45. **`lb_asin_questions` table** — Stores Q&A per ASIN+country. UNIQUE on `(asin, country_id)`. 7-day cache TTL. Auto-fetched during ASIN Lookup and Market Intelligence collection. Each question: question, answer, votes, author, date.
+46. **ASIN Lookup auto-fetches Q&A** — `POST /api/asin-lookup` fetches Q&A alongside product data. Cached in `lb_asin_questions`. `GET /api/asin-questions?asin=X&country_id=Y` returns cached Q&A. AsinResultCard shows Q&A section in expanded details.
 
 ---
 
 ## Database
 
-22 tables prefixed `lb_`. Full DDL in `docs/SCHEMA.md`.
+23 tables prefixed `lb_`. Full DDL in `docs/SCHEMA.md`.
 
-**Key tables:** `lb_users`, `lb_categories`, `lb_countries`, `lb_research_files`, `lb_research_analysis`, `lb_product_types`, `lb_products`, `lb_listings`, `lb_listing_sections`, `lb_listing_chats`, `lb_image_generations`, `lb_image_chats`, `lb_image_workshops`, `lb_batch_jobs`, `lb_admin_settings`, `lb_sync_logs`, `lb_export_logs`, `lb_aplus_modules`, `lb_asin_lookups`, `lb_keyword_searches`, `lb_asin_reviews`, `lb_market_intelligence`
+**Key tables:** `lb_users`, `lb_categories`, `lb_countries`, `lb_research_files`, `lb_research_analysis`, `lb_product_types`, `lb_products`, `lb_listings`, `lb_listing_sections`, `lb_listing_chats`, `lb_image_generations`, `lb_image_chats`, `lb_image_workshops`, `lb_batch_jobs`, `lb_admin_settings`, `lb_sync_logs`, `lb_export_logs`, `lb_aplus_modules`, `lb_asin_lookups`, `lb_keyword_searches`, `lb_asin_reviews`, `lb_market_intelligence`, `lb_asin_questions`
 
 **RLS pattern:** All authenticated users can CRUD (except `lb_admin_settings` = admin only). All policies use `(SELECT auth.uid())` wrapper.
 
@@ -172,26 +174,16 @@ npm run lint         # ESLint
   2. Test keyword search — verify organic/sponsored/Amazon's Choice tabs work
   3. Verify history panels for both tabs
   4. Test re-searching same keyword/ASIN — verify upsert (not duplicate)
-- **Market Intelligence — Competitor Products Section UX:**
-  1. Show ALL images per product (not just 5), with click-to-enlarge lightbox
-  2. Add clickable Amazon link for each product (using ASIN + marketplace domain)
-  3. Show full product details (like ASIN Lookup card — bullets, description, price history, sales rank, etc.)
-  4. Add export reviews option
-- **Market Intelligence — Product Tagging & Our Products:**
-  1. Match scraped ASINs against `lb_products` (product mapper) → tag as "Our Product"
-  2. Enables market share visibility (our products vs competition)
-  3. History panel: add "Our Products" / "Competition" tabs to filter by tagged ownership
-- **Market Intelligence — Multi-Keyword Support (2-step flow):**
-  1. Accept multiple keywords in input
-  2. Step 1: search all keywords → collect products → deduplicate → show combined product list with checkboxes (auto-ticked)
-  3. User can remove/add products before proceeding
-  4. Step 2: run analysis on finalized product list
-  5. Multiple keywords = broader coverage, deduplication catches overlap
-- **Market Intelligence — Analysis Depth Review:**
-  1. Currently ~50K tokens total (Phase 1 + Phase 2). Evaluate if analysis is thorough enough or needs more phases/tokens
-  2. Re-running same keyword creates new record (both kept, distinguished by date)
-- **Lookup History — Live Search Filtering:**
-  1. Filter history results as user types (no button click needed) — apply to all lookup history panels
+- **Market Intelligence e2e Testing:**
+  1. Test single keyword → progress → product selection → confirm → 4-phase analysis → report
+  2. Test multi-keyword (2+) → deduplicate → product selection → untick some → analysis on selected
+  3. Verify "Our Product" badge on matching ASINs from lb_products
+  4. Verify image lightbox, Amazon links, review export CSV
+  5. Test Q&A section in report (analysis + raw tabs)
+  6. Verify live history search filter
+- **ASIN Lookup Q&A e2e Testing:**
+  1. Test ASIN lookup → verify Q&A section appears in expanded card
+  2. Test history item expand → verify Q&A loads from cache
 - **Oxylabs Plan Upgrade + Full Reviews Testing:**
   1. Upgrade Oxylabs plan to unlock `amazon_reviews` source
   2. Test with 500-1000 review product — verify full pagination works
