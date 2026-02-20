@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
@@ -19,7 +19,7 @@ import type { OxylabsProductResult } from '@/lib/oxylabs'
 import { AsinResultCard } from './AsinResultCard'
 import { TagBadge, TagInput } from '@/components/shared/TagInput'
 import { NotesEditor, NotesIndicator } from '@/components/shared/NotesEditor'
-import { CollectionPicker } from '@/components/shared/CollectionPicker'
+import { CollectionPicker, CollectionBadges } from '@/components/shared/CollectionPicker'
 import { useCollectionStore } from '@/stores/collection-store'
 
 interface AsinLookupClientProps {
@@ -62,10 +62,35 @@ export function AsinLookupClient({
   const [expandedLookupQuestions, setExpandedLookupQuestions] = useState<QnAItem[] | undefined>(undefined)
   const [loadingLookupId, setLoadingLookupId] = useState<string | null>(null)
   const [historyTag, setHistoryTag] = useState('')
+  const [membershipsMap, setMembershipsMap] = useState<
+    Record<string, Array<{ collection_id: string; name: string; color: string }>>
+  >({})
 
   const selectedCountry = countries.find((c) => c.id === countryId)
   const fetchAllTags = useCollectionStore((s) => s.fetchAllTags)
   const allTags = useCollectionStore((s) => s.allTags)
+
+  // Fetch collection memberships for all displayed lookups
+  const fetchMemberships = useCallback(async (lookupList: Partial<LbAsinLookup>[]) => {
+    const ids = lookupList.map((l) => l.id).filter(Boolean) as string[]
+    if (ids.length === 0) return
+    try {
+      const res = await fetch(
+        `/api/collections/memberships?entity_type=asin_lookup&entity_ids=${ids.join(',')}`
+      )
+      const json = await res.json()
+      if (json.data) {
+        setMembershipsMap(json.data)
+      }
+    } catch {
+      // silent
+    }
+  }, [])
+
+  // Fetch memberships when lookups change
+  useEffect(() => {
+    fetchMemberships(lookups)
+  }, [lookups, fetchMemberships])
 
   const parseAsins = useCallback((input: string): string[] => {
     return input
@@ -416,6 +441,9 @@ export function AsinLookupClient({
                           <TagBadge key={tag} tag={tag} compact />
                         ))}
                         <NotesIndicator notes={(lookup.notes as string | null) ?? null} />
+                        {lookup.id && membershipsMap[lookup.id] && (
+                          <CollectionBadges memberships={membershipsMap[lookup.id]} />
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0 text-sm">
@@ -478,7 +506,12 @@ export function AsinLookupClient({
                         <div>
                           <p className="text-xs font-medium text-muted-foreground mb-1">Collections</p>
                           {lookup.id && (
-                            <CollectionPicker entityType="asin_lookup" entityId={lookup.id} compact />
+                            <CollectionPicker
+                              entityType="asin_lookup"
+                              entityId={lookup.id}
+                              compact
+                              onMembershipChange={() => fetchMemberships(lookups)}
+                            />
                           )}
                         </div>
                       </div>

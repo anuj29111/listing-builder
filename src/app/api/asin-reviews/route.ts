@@ -58,9 +58,18 @@ export async function POST(request: Request) {
     let rawResponses: Record<string, unknown>[] = []
     let totalPagesAvailable = 0
     let source: 'amazon_reviews' | 'amazon_product' = 'amazon_reviews'
+    let fallbackReason: string | null = null
 
-    // Try amazon_reviews first
+    // Try amazon_reviews first (full pagination with upgraded Oxylabs plan)
     const firstResult = await fetchReviews(trimmedAsin, oxylabsDomain, 1, 1, sortBy)
+
+    if (!firstResult.success) {
+      console.error(
+        `[Reviews] amazon_reviews source failed for ${trimmedAsin} on ${oxylabsDomain}:`,
+        firstResult.error
+      )
+      fallbackReason = firstResult.error || 'Unknown error'
+    }
 
     if (firstResult.success && firstResult.data) {
       // amazon_reviews source works — fetch all requested pages
@@ -189,6 +198,7 @@ export async function POST(request: Request) {
       reviews: uniqueReviews,
       sort_by: sortBy,
       source,
+      fallback_reason: fallbackReason,
     })
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Internal server error'
