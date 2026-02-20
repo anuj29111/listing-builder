@@ -176,12 +176,26 @@ npm run lint         # ESLint
   2. Test keyword search — verify organic/sponsored/Amazon's Choice tabs work
   3. Verify history panels for both tabs
   4. Test re-searching same keyword/ASIN — verify upsert (not duplicate)
-- **Market Intelligence e2e Testing:**
-  1. Test full flow: keyword → collection (progress updates) → 2-phase analysis → 14-section report
-  2. Test cache reuse: same keyword → 0 Oxylabs calls, instant collection
-  3. Test history: "View Brief" loads saved report correctly
-  4. Verify Phase 2 references Phase 1 insights (avatars mention real pain points, strategy addresses real gaps)
-  5. Future: integrate with existing research pipeline once proven
+- **Market Intelligence — Competitor Products Section UX:**
+  1. Show ALL images per product (not just 5), with click-to-enlarge lightbox
+  2. Add clickable Amazon link for each product (using ASIN + marketplace domain)
+  3. Show full product details (like ASIN Lookup card — bullets, description, price history, sales rank, etc.)
+  4. Add export reviews option
+- **Market Intelligence — Product Tagging & Our Products:**
+  1. Match scraped ASINs against `lb_products` (product mapper) → tag as "Our Product"
+  2. Enables market share visibility (our products vs competition)
+  3. History panel: add "Our Products" / "Competition" tabs to filter by tagged ownership
+- **Market Intelligence — Multi-Keyword Support (2-step flow):**
+  1. Accept multiple keywords in input
+  2. Step 1: search all keywords → collect products → deduplicate → show combined product list with checkboxes (auto-ticked)
+  3. User can remove/add products before proceeding
+  4. Step 2: run analysis on finalized product list
+  5. Multiple keywords = broader coverage, deduplication catches overlap
+- **Market Intelligence — Analysis Depth Review:**
+  1. Currently ~50K tokens total (Phase 1 + Phase 2). Evaluate if analysis is thorough enough or needs more phases/tokens
+  2. Re-running same keyword creates new record (both kept, distinguished by date)
+- **Lookup History — Live Search Filtering:**
+  1. Filter history results as user types (no button click needed) — apply to all lookup history panels
 - **Oxylabs Plan Upgrade + Full Reviews Testing:**
   1. Upgrade Oxylabs plan to unlock `amazon_reviews` source
   2. Test with 500-1000 review product — verify full pagination works
