@@ -21,11 +21,15 @@ import {
   ChevronUp,
   CheckCircle,
   ThumbsUp,
-  MessageSquare,
+  MessageSquare as MessageSquareIcon,
   ImageIcon,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCountry, LbAsinReview } from '@/types'
+import { TagBadge, TagInput } from '@/components/shared/TagInput'
+import { NotesEditor, NotesIndicator } from '@/components/shared/NotesEditor'
+import { CollectionPicker } from '@/components/shared/CollectionPicker'
+import { useCollectionStore } from '@/stores/collection-store'
 
 interface ReviewsClientProps {
   countries: LbCountry[]
@@ -79,6 +83,7 @@ export function ReviewsClient({
   const [ratingFilter, setRatingFilter] = useState<number | null>(null)
 
   const selectedCountry = countries.find((c) => c.id === countryId)
+  const fetchAllTags = useCollectionStore((s) => s.fetchAllTags)
 
   const handleFetch = async () => {
     const trimmed = asin.trim().toUpperCase()
@@ -140,6 +145,22 @@ export function ReviewsClient({
       // silent
     }
   }, [historySearch])
+
+  const handleUpdateTagsNotes = async (id: string, updates: { tags?: string[]; notes?: string }) => {
+    try {
+      const res = await fetch(`/api/asin-reviews/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      if (res.ok) {
+        setReviews((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)))
+        fetchAllTags()
+      }
+    } catch {
+      toast.error('Failed to update')
+    }
+  }
 
   const toggleHistoryItem = async (itemId: string) => {
     if (expandedReviewId === itemId) {
@@ -251,7 +272,7 @@ export function ReviewsClient({
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <MessageSquare className="h-4 w-4" />
+              <MessageSquareIcon className="h-4 w-4" />
             )}
             {loading ? 'Fetching...' : 'Fetch Reviews'}
           </Button>
@@ -437,6 +458,10 @@ export function ReviewsClient({
                         >
                           {r.sort_by}
                         </Badge>
+                        {(r.tags as string[] | undefined)?.map((tag) => (
+                          <TagBadge key={tag} tag={tag} compact />
+                        ))}
+                        <NotesIndicator notes={(r.notes as string | null) ?? null} />
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
@@ -456,6 +481,29 @@ export function ReviewsClient({
                   {/* Expanded reviews */}
                   {isExpanded && expandedReviewData && (
                     <div className="border-t bg-muted/20 p-4 space-y-3 max-h-[500px] overflow-y-auto">
+                      {/* Tags, Notes, Collections */}
+                      <div className="flex flex-wrap items-start gap-4 pb-3 border-b">
+                        <div className="flex-1 min-w-[200px]">
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Tags</p>
+                          <TagInput
+                            tags={(r.tags as string[]) || []}
+                            onTagsChange={(tags) => r.id && handleUpdateTagsNotes(r.id, { tags })}
+                            compact
+                          />
+                        </div>
+                        <div className="flex-1 min-w-[200px]">
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Notes</p>
+                          <NotesEditor
+                            notes={(r.notes as string | null) ?? null}
+                            onSave={(notes) => r.id && handleUpdateTagsNotes(r.id, { notes })}
+                            compact
+                          />
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Collections</p>
+                          {r.id && <CollectionPicker entityType="asin_review" entityId={r.id} compact />}
+                        </div>
+                      </div>
                       <p className="text-xs text-muted-foreground">
                         {expandedReviewData.reviews_fetched} reviews loaded
                       </p>

@@ -202,7 +202,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from('lb_asin_lookups')
       .select(
-        'id, asin, country_id, marketplace_domain, title, brand, price, price_initial, currency, rating, reviews_count, images, sales_rank, is_prime_eligible, amazon_choice, sales_volume, deal_type, coupon, parent_asin, created_at, updated_at'
+        'id, asin, country_id, marketplace_domain, title, brand, price, price_initial, currency, rating, reviews_count, images, sales_rank, is_prime_eligible, amazon_choice, sales_volume, deal_type, coupon, parent_asin, tags, notes, created_at, updated_at'
       )
       .order('updated_at', { ascending: false })
       .limit(100)
@@ -214,6 +214,11 @@ export async function GET(request: Request) {
     }
     if (country_id) {
       query = query.eq('country_id', country_id)
+    }
+
+    const tag = searchParams.get('tag')
+    if (tag) {
+      query = query.contains('tags', [tag])
     }
 
     const { data, error } = await query

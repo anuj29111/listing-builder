@@ -11,10 +11,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Loader2, Search, Star, TrendingUp, Crown, Clock, RefreshCw, ExternalLink, Megaphone, ChevronDown, ChevronUp } from 'lucide-react'
+import { Loader2, Search, Star, TrendingUp, Crown, Clock, RefreshCw, ExternalLink, Megaphone, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCountry, LbKeywordSearch } from '@/types'
 import type { OxylabsSearchResultItem } from '@/lib/oxylabs'
+import { TagBadge, TagInput } from '@/components/shared/TagInput'
+import { NotesEditor, NotesIndicator } from '@/components/shared/NotesEditor'
+import { CollectionPicker } from '@/components/shared/CollectionPicker'
+import { useCollectionStore } from '@/stores/collection-store'
 
 interface KeywordSearchClientProps {
   countries: LbCountry[]
@@ -52,8 +56,11 @@ export function KeywordSearchClient({
   const [searches, setSearches] = useState<Partial<LbKeywordSearch>[]>(initialSearches)
   const [historySearch, setHistorySearch] = useState('')
   const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null)
+  const [expandedMetaId, setExpandedMetaId] = useState<string | null>(null)
 
   const selectedCountry = countries.find((c) => c.id === countryId)
+  const fetchAllTags = useCollectionStore((s) => s.fetchAllTags)
+  const allTags = useCollectionStore((s) => s.allTags)
 
   const handleSearch = async () => {
     if (!keyword.trim()) {
@@ -107,6 +114,22 @@ export function KeywordSearchClient({
       // silent
     }
   }, [historySearch])
+
+  const handleUpdateTagsNotes = async (id: string, updates: { tags?: string[]; notes?: string }) => {
+    try {
+      const res = await fetch(`/api/keyword-search/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      if (res.ok) {
+        setSearches((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)))
+        fetchAllTags()
+      }
+    } catch {
+      toast.error('Failed to update')
+    }
+  }
 
   const loadHistoryItem = async (searchId: string, searchKeyword: string, marketplace: string) => {
     setLoadingHistoryId(searchId)
@@ -448,39 +471,82 @@ export function KeywordSearchClient({
           <div className="rounded-lg border bg-card divide-y">
             {searches.map((s) => {
               const isLoading = loadingHistoryId === s.id
+              const isMetaExpanded = expandedMetaId === s.id
               return (
-                <div
-                  key={s.id}
-                  className="p-3 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer"
-                  onClick={() => {
-                    if (s.id && !isLoading) {
-                      loadHistoryItem(s.id, s.keyword || '', s.marketplace_domain || '')
-                    }
-                  }}
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">&ldquo;{s.keyword}&rdquo;</p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                      <span>{s.marketplace_domain}</span>
-                      {s.total_results_count != null && (
-                        <span className="flex items-center gap-0.5">
-                          <TrendingUp className="h-3 w-3" />
-                          {s.total_results_count.toLocaleString()} results
-                        </span>
+                <div key={s.id}>
+                  <div
+                    className="p-3 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer"
+                    onClick={() => {
+                      if (s.id && !isLoading) {
+                        loadHistoryItem(s.id, s.keyword || '', s.marketplace_domain || '')
+                      }
+                    }}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium">&ldquo;{s.keyword}&rdquo;</p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 flex-wrap">
+                        <span>{s.marketplace_domain}</span>
+                        {s.total_results_count != null && (
+                          <span className="flex items-center gap-0.5">
+                            <TrendingUp className="h-3 w-3" />
+                            {s.total_results_count.toLocaleString()} results
+                          </span>
+                        )}
+                        <span>{s.pages_fetched} page{(s.pages_fetched || 1) > 1 ? 's' : ''}</span>
+                        {(s.tags as string[] | undefined)?.map((tag) => (
+                          <TagBadge key={tag} tag={tag} compact />
+                        ))}
+                        <NotesIndicator notes={(s.notes as string | null) ?? null} />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs text-muted-foreground">
+                        {formatTimeAgo(s.updated_at || s.created_at || '')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setExpandedMetaId(isMetaExpanded ? null : s.id || null)
+                        }}
+                        className="p-1 hover:bg-muted rounded"
+                        title="Tags, notes & collections"
+                      >
+                        <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+                      </button>
+                      {isLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                       )}
-                      <span>{s.pages_fetched} page{(s.pages_fetched || 1) > 1 ? 's' : ''}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs text-muted-foreground">
-                      {formatTimeAgo(s.updated_at || s.created_at || '')}
-                    </span>
-                    {isLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                    )}
-                  </div>
+                  {isMetaExpanded && s.id && (
+                    <div className="px-3 pb-3 border-t bg-muted/20 pt-2">
+                      <div className="flex flex-wrap items-start gap-4">
+                        <div className="flex-1 min-w-[200px]">
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Tags</p>
+                          <TagInput
+                            tags={(s.tags as string[]) || []}
+                            onTagsChange={(tags) => handleUpdateTagsNotes(s.id!, { tags })}
+                            compact
+                          />
+                        </div>
+                        <div className="flex-1 min-w-[200px]">
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Notes</p>
+                          <NotesEditor
+                            notes={(s.notes as string | null) ?? null}
+                            onSave={(notes) => handleUpdateTagsNotes(s.id!, { notes })}
+                            compact
+                          />
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Collections</p>
+                          <CollectionPicker entityType="keyword_search" entityId={s.id} compact />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}

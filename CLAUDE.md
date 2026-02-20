@@ -154,10 +154,21 @@ npm run lint         # ESLint
 
 ---
 
+## Seller Pull
+
+47. **Seller Pull page** — `/seller-pull` pulls product catalog from Amazon via Oxylabs `amazon_search` with `merchant_id` context filter. Multi-country tabs from configured seller IDs in `lb_admin_settings` (key: `seller_ids`, JSON `{ country_id: seller_id }`). Smart auto-categorization: keyword-frequency map from existing `lb_products` suggests categories, per-product dropdown + "+" new category. Bundle detection: title keywords ("bundle", "bundled", " + ") + no-price/no-reviews heuristic. Bundles visible by default with toggle, "Has Sales" badge. Flow: Pull → Import → Scrape Details → Discover Variations. Each country tab maintains independent state.
+48. **Seller Pull API routes** — `POST /api/seller-pull` (pull from Oxylabs), `POST /api/seller-pull/import` (upsert to `lb_products` with per-product categories), `POST /api/seller-pull/scrape` (sequential `lookupAsin()` with 1s delay), `POST /api/seller-pull/variations` (discover hidden variation siblings via parent ASIN).
+49. **`fetchSellerProducts()` in oxylabs.ts** — Paginates in batches of 3 pages with 3s delay. Query: `" "` (space). Deduplicates by ASIN. Max 20 pages. Returns `SellerProduct[]` with asin, title, price, rating, reviews_count, is_prime, url_image, manufacturer, sales_volume.
+50. **Seller search only shows ~1 child per variation** — Only 1 of 4 variation siblings appears in seller search results. Variation discovery step uses `lookupAsin()` on parent ASINs to find hidden siblings.
+51. **Map iteration in TypeScript** — Use `Array.from(map.entries()).forEach()` instead of `for...of` on Maps to avoid `--downlevelIteration` errors.
+
+---
+
 ## Pending Tasks
 
-- **e2e Testing (all modules):** Phased generation (4-phase wizard + keyword coverage), Image Builder (all 5 tabs + drafts), ASIN Lookup (expanded fields + Q&A), Keyword Search (organic/sponsored tabs), Market Intelligence (single + multi-keyword, product selection, 4-phase analysis, Q&A, lightbox, CSV export, Our Product badges, live search)
+- **e2e Testing (all modules):** Phased generation (4-phase wizard + keyword coverage), Image Builder (all 5 tabs + drafts), ASIN Lookup (expanded fields + Q&A), Keyword Search (organic/sponsored tabs), Market Intelligence (single + multi-keyword, product selection, 4-phase analysis, Q&A, lightbox, CSV export, Our Product badges, live search), Seller Pull (multi-country, smart categories, bundle toggle, import/scrape/variations flow)
 - **Oxylabs Plan Upgrade + Full Reviews Testing:**
   1. Upgrade Oxylabs plan to unlock `amazon_reviews` source
   2. Test with 500-1000 review product — verify full pagination works
   3. Code is ready — auto-detects source availability, no changes needed
+- **Seller Pull — Automated Periodic Pulls:** User wants to automate regular pulls at intervals (not yet built)

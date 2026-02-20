@@ -6,6 +6,7 @@ import { StepCategoryCountry } from './StepCategoryCountry'
 import { StepProductDetails } from './StepProductDetails'
 import { StepPhasedGeneration } from './StepPhasedGeneration'
 import { StepReviewExport } from './StepReviewExport'
+import { ListingModeSelector } from './ListingModeSelector'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Check, RotateCcw } from 'lucide-react'
@@ -39,6 +40,7 @@ export function ListingWizard({ categories, countries, editData }: ListingWizard
   const productName = useListingStore((s) => s.productName)
   const listingId = useListingStore((s) => s.listingId)
   const generationPhase = useListingStore((s) => s.generationPhase)
+  const modeSelected = useListingStore((s) => s.modeSelected)
 
   // Load edit data on mount
   useEffect(() => {
@@ -82,6 +84,11 @@ export function ListingWizard({ categories, countries, editData }: ListingWizard
 
   const handleReset = () => {
     resetWizard()
+  }
+
+  // Show mode selector before wizard (unless editing an existing listing)
+  if (!modeSelected && !editData) {
+    return <ListingModeSelector countries={countries} />
   }
 
   return (

@@ -18,28 +18,28 @@ export default async function AsinLookupPage() {
     supabase
       .from('lb_asin_lookups')
       .select(
-        'id, asin, country_id, marketplace_domain, title, brand, price, price_initial, currency, rating, reviews_count, images, sales_rank, is_prime_eligible, amazon_choice, sales_volume, deal_type, coupon, parent_asin, created_at, updated_at'
+        'id, asin, country_id, marketplace_domain, title, brand, price, price_initial, currency, rating, reviews_count, images, sales_rank, is_prime_eligible, amazon_choice, sales_volume, deal_type, coupon, parent_asin, tags, notes, created_at, updated_at'
       )
       .order('updated_at', { ascending: false })
       .limit(50),
     supabase
       .from('lb_keyword_searches')
       .select(
-        'id, keyword, country_id, marketplace_domain, total_results_count, pages_fetched, created_at, updated_at'
+        'id, keyword, country_id, marketplace_domain, total_results_count, pages_fetched, tags, notes, created_at, updated_at'
       )
       .order('updated_at', { ascending: false })
       .limit(50),
     supabase
       .from('lb_asin_reviews')
       .select(
-        'id, asin, country_id, marketplace_domain, total_reviews, overall_rating, total_pages_fetched, sort_by, created_at, updated_at'
+        'id, asin, country_id, marketplace_domain, total_reviews, overall_rating, total_pages_fetched, sort_by, tags, notes, created_at, updated_at'
       )
       .order('updated_at', { ascending: false })
       .limit(50),
     supabase
       .from('lb_market_intelligence')
       .select(
-        'id, keyword, country_id, marketplace_domain, max_competitors, top_asins, status, progress, error_message, tokens_used, oxylabs_calls_used, created_at, updated_at'
+        'id, keyword, country_id, marketplace_domain, max_competitors, top_asins, status, progress, error_message, tokens_used, oxylabs_calls_used, tags, notes, created_at, updated_at'
       )
       .order('created_at', { ascending: false })
       .limit(20),

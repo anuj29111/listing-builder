@@ -114,7 +114,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from('lb_keyword_searches')
       .select(
-        'id, keyword, country_id, marketplace_domain, total_results_count, pages_fetched, created_at, updated_at'
+        'id, keyword, country_id, marketplace_domain, total_results_count, pages_fetched, tags, notes, created_at, updated_at'
       )
       .order('updated_at', { ascending: false })
       .limit(50)
@@ -124,6 +124,11 @@ export async function GET(request: Request) {
     }
     if (country_id) {
       query = query.eq('country_id', country_id)
+    }
+
+    const tag = searchParams.get('tag')
+    if (tag) {
+      query = query.contains('tags', [tag])
     }
 
     const { data, error } = await query

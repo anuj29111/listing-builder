@@ -86,7 +86,7 @@ async function buildGenerationInput(
     reviewAnalysis: reviewRow ? (reviewRow.analysis_result as unknown as ReviewAnalysisResult) : null,
     qnaAnalysis: qnaRow ? (qnaRow.analysis_result as unknown as QnAAnalysisResult) : null,
     competitorAnalysis: competitorRow ? (competitorRow.analysis_result as unknown as CompetitorAnalysisResult) : null,
-    optimizationMode: (optimizationMode as 'new' | 'optimize_existing') || 'new',
+    optimizationMode: (optimizationMode as 'new' | 'optimize_existing' | 'based_on_existing') || 'new',
     existingListingText: existingListingText || null,
   }
 }

@@ -7,7 +7,23 @@ interface ProductAttribute {
   value: string
 }
 
+interface ScrapedListingData {
+  title: string | null
+  bullet_points: string | null
+  description: string | null
+  brand: string | null
+  images: string[]
+  rating: number | null
+  reviews_count: number | null
+  price: number | null
+  currency: string | null
+  asin: string
+}
+
 interface ListingWizardState {
+  // Pre-wizard: mode selection
+  modeSelected: boolean
+
   // Step tracking
   currentStep: number // 0-3
 
@@ -26,6 +42,13 @@ interface ListingWizardState {
   }
   analysisAvailability: Record<string, 'completed' | 'missing'>
 
+  // Scraped ASIN data (from mode selection)
+  scrapedAsin: string | null
+  scrapedCountryId: string | null
+  scrapedData: ScrapedListingData | null
+  isFetchingAsin: boolean
+  fetchAsinError: string | null
+
   // Step 2: Product Details
   productName: string
   asin: string
@@ -33,8 +56,8 @@ interface ListingWizardState {
   attributes: ProductAttribute[]
   productTypeName: string
   productTypeId: string | null
-  optimizationMode: 'new' | 'optimize_existing'
-  existingListingText: { title: string; bullets: string[]; description: string } | null
+  optimizationMode: 'new' | 'optimize_existing' | 'based_on_existing'
+  existingListingText: { title: string; bullets: string[]; description: string; reference_asin?: string } | null
 
   // Step 3: Generation result
   listingId: string | null
@@ -92,8 +115,15 @@ interface ListingWizardState {
   toggleSectionApproval: (sectionId: string) => void
   updateFinalText: (sectionId: string, text: string) => void
   setListingStatus: (status: ListingStatus) => void
-  setOptimizationMode: (mode: 'new' | 'optimize_existing') => void
-  setExistingListingText: (text: { title: string; bullets: string[]; description: string } | null) => void
+  setOptimizationMode: (mode: 'new' | 'optimize_existing' | 'based_on_existing') => void
+  setExistingListingText: (text: { title: string; bullets: string[]; description: string; reference_asin?: string } | null) => void
+  setModeSelected: (selected: boolean) => void
+  setScrapedData: (data: ScrapedListingData | null) => void
+  setScrapedAsin: (asin: string | null) => void
+  setScrapedCountryId: (countryId: string | null) => void
+  setFetchingAsin: (loading: boolean) => void
+  setFetchAsinError: (error: string | null) => void
+  proceedFromScrape: () => void
   addVariation: (sectionId: string, newText: string, newIndex: number) => void
   setSections: (sections: LbListingSection[]) => void
   loadEditListing: (
@@ -138,6 +168,7 @@ interface ListingWizardState {
 }
 
 const initialState = {
+  modeSelected: false,
   currentStep: 0,
   categoryId: null as string | null,
   countryId: null as string | null,
@@ -152,8 +183,13 @@ const initialState = {
   attributes: [{ key: '', value: '' }] as ProductAttribute[],
   productTypeName: '',
   productTypeId: null as string | null,
-  optimizationMode: 'new' as 'new' | 'optimize_existing',
-  existingListingText: null as { title: string; bullets: string[]; description: string } | null,
+  scrapedAsin: null as string | null,
+  scrapedCountryId: null as string | null,
+  scrapedData: null as ScrapedListingData | null,
+  isFetchingAsin: false,
+  fetchAsinError: null as string | null,
+  optimizationMode: 'new' as 'new' | 'optimize_existing' | 'based_on_existing',
+  existingListingText: null as { title: string; bullets: string[]; description: string; reference_asin?: string } | null,
   listingId: null as string | null,
   isGenerating: false,
   generationError: null as string | null,
@@ -250,6 +286,50 @@ export const useListingStore = create<ListingWizardState>((set) => ({
   setOptimizationMode: (mode) => set({ optimizationMode: mode }),
 
   setExistingListingText: (text) => set({ existingListingText: text }),
+
+  setModeSelected: (selected) => set({ modeSelected: selected }),
+
+  setScrapedData: (data) => set({ scrapedData: data }),
+
+  setScrapedAsin: (asin) => set({ scrapedAsin: asin }),
+
+  setScrapedCountryId: (countryId) => set({ scrapedCountryId: countryId }),
+
+  setFetchingAsin: (loading) => set({ isFetchingAsin: loading, fetchAsinError: loading ? null : undefined }),
+
+  setFetchAsinError: (error) => set({ fetchAsinError: error, isFetchingAsin: false }),
+
+  proceedFromScrape: () =>
+    set((state) => {
+      if (!state.scrapedData) return { modeSelected: true }
+
+      const rawBullets = state.scrapedData.bullet_points
+        ? state.scrapedData.bullet_points.split('\n').filter((b) => b.trim())
+        : []
+      // Pad to 5 bullets
+      while (rawBullets.length < 5) rawBullets.push('')
+      const bullets = rawBullets.slice(0, 5)
+
+      const isOptimize = state.optimizationMode === 'optimize_existing' || state.optimizationMode === 'based_on_existing'
+
+      const existingListingText = isOptimize
+        ? {
+            title: state.scrapedData.title || '',
+            bullets,
+            description: state.scrapedData.description || '',
+            reference_asin: state.optimizationMode === 'based_on_existing' ? state.scrapedData.asin : undefined,
+          }
+        : null
+
+      return {
+        modeSelected: true,
+        productName: state.scrapedData.title || '',
+        brand: state.scrapedData.brand || '',
+        // For "optimize_existing" keep ASIN, for "based_on_existing" clear it (user's new product)
+        asin: state.optimizationMode === 'optimize_existing' ? state.scrapedData.asin : '',
+        existingListingText,
+      }
+    }),
 
   addVariation: (sectionId, newText, newIndex) =>
     set((state) => ({

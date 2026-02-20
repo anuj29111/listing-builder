@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, MapPin, Tag } from 'lucide-react'
+import { Plus, Trash2, MapPin, Tag, Info } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import type { LbCategory } from '@/types/database'
 
@@ -27,7 +27,6 @@ export function StepProductDetails({ categories }: StepProductDetailsProps) {
   const removeAttribute = useListingStore((s) => s.removeAttribute)
   const updateAttribute = useListingStore((s) => s.updateAttribute)
   const optimizationMode = useListingStore((s) => s.optimizationMode)
-  const setOptimizationMode = useListingStore((s) => s.setOptimizationMode)
   const existingListingText = useListingStore((s) => s.existingListingText)
   const setExistingListingText = useListingStore((s) => s.setExistingListingText)
 
@@ -42,46 +41,19 @@ export function StepProductDetails({ categories }: StepProductDetailsProps) {
         </p>
       </div>
 
-      {/* Optimization Mode Toggle */}
-      <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/30">
-        <span className="text-sm font-medium mr-2">Mode:</span>
-        <button
-          onClick={() => {
-            setOptimizationMode('new')
-            setExistingListingText(null)
-          }}
-          className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-            optimizationMode === 'new'
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-background border hover:bg-muted'
-          }`}
-        >
-          New Product
-        </button>
-        <button
-          onClick={() => {
-            setOptimizationMode('optimize_existing')
-            if (!existingListingText) {
-              setExistingListingText({ title: '', bullets: ['', '', '', '', ''], description: '' })
-            }
-          }}
-          className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-            optimizationMode === 'optimize_existing'
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-background border hover:bg-muted'
-          }`}
-        >
-          Optimize Existing
-        </button>
-      </div>
-
-      {/* Existing Listing Text (only in optimize mode) */}
-      {optimizationMode === 'optimize_existing' && existingListingText && (
+      {/* Existing Listing Text (shown for optimize/based_on modes, auto-filled from scrape) */}
+      {(optimizationMode === 'optimize_existing' || optimizationMode === 'based_on_existing') && existingListingText && (
         <div className="space-y-4 rounded-lg border p-4 bg-muted/20">
           <div>
-            <h3 className="text-sm font-semibold mb-1">Current Listing to Optimize</h3>
+            <h3 className="text-sm font-semibold mb-1">
+              {optimizationMode === 'optimize_existing'
+                ? 'Current Listing to Optimize'
+                : 'Reference Product Listing'}
+            </h3>
             <p className="text-xs text-muted-foreground">
-              Paste your existing listing text below. Claude will analyze it, score it, and generate optimized variations.
+              {optimizationMode === 'optimize_existing'
+                ? 'This content was scraped from Amazon. Edit if needed. Claude will analyze it, score it, and generate optimized variations.'
+                : 'This content was scraped from the reference product. Update the product details below to match YOUR new product — AI will adapt the listing accordingly.'}
             </p>
           </div>
 
@@ -136,6 +108,16 @@ export function StepProductDetails({ categories }: StepProductDetailsProps) {
               rows={4}
             />
           </div>
+        </div>
+      )}
+
+      {/* Info banner for based_on_existing mode */}
+      {optimizationMode === 'based_on_existing' && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 text-sm">
+          <Info className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            The fields below are pre-filled from the reference product. Update the <strong>product name</strong> and <strong>attributes</strong> to match your new product.
+          </span>
         </div>
       )}
 

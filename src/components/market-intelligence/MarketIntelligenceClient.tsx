@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Clock, ChevronRight, Loader2, ArrowLeft, Sparkles, Check, X } from 'lucide-react'
+import { Search, Clock, ChevronRight, Loader2, ArrowLeft, Sparkles, Check, X, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -11,6 +11,10 @@ import type { LbCountry, LbMarketIntelligence } from '@/types'
 import type { MarketIntelligenceResult } from '@/types/market-intelligence'
 import { MarketIntelligenceReport } from './MarketIntelligenceReport'
 import toast from 'react-hot-toast'
+import { TagBadge, TagInput } from '@/components/shared/TagInput'
+import { NotesEditor, NotesIndicator } from '@/components/shared/NotesEditor'
+import { CollectionPicker } from '@/components/shared/CollectionPicker'
+import { useCollectionStore } from '@/stores/collection-store'
 
 interface MarketIntelligenceClientProps {
   countries: LbCountry[]
@@ -33,6 +37,8 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
   const [history, setHistory] = useState<Partial<LbMarketIntelligence>[]>(initialIntelligence)
   const [historyFilter, setHistoryFilter] = useState('')
   const [ourAsins, setOurAsins] = useState<Set<string>>(new Set())
+  const [expandedMetaId, setExpandedMetaId] = useState<string | null>(null)
+  const fetchAllTags = useCollectionStore((s) => s.fetchAllTags)
 
   // Progress state
   const [activeRecordId, setActiveRecordId] = useState<string | null>(null)
@@ -233,6 +239,22 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
     setLoading(false)
   }
 
+  const handleUpdateTagsNotes = async (id: string, updates: { tags?: string[]; notes?: string }) => {
+    try {
+      const res = await fetch(`/api/market-intelligence/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      if (res.ok) {
+        setHistory((prev) => prev.map((h) => (h.id === id ? { ...h, ...updates } : h)))
+        fetchAllTags()
+      }
+    } catch {
+      toast.error('Failed to update')
+    }
+  }
+
   const handleDelete = async (id: string) => {
     try {
       await fetch(`/api/market-intelligence/${id}`, { method: 'DELETE' })
@@ -356,58 +378,100 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                   record.status === 'awaiting_selection' ? 'text-blue-600 bg-blue-50' :
                   'text-yellow-600 bg-yellow-50'
 
+                const isMetaExpanded = expandedMetaId === record.id
+
                 return (
                   <div
                     key={record.id}
-                    className="rounded-lg border bg-card p-3 flex items-center justify-between hover:bg-muted/30 transition-colors group"
+                    className="rounded-lg border bg-card hover:bg-muted/30 transition-colors group"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex-shrink-0 text-lg">{country?.flag_emoji || '\ud83c\udf10'}</div>
-                      <div className="min-w-0">
-                        <div className="font-medium text-sm truncate">
-                          {keywords && keywords.length > 1
-                            ? keywords.join(', ')
-                            : record.keyword}
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${statusColor}`}>
-                            {record.status}
-                          </span>
-                          {record.top_asins && record.top_asins.length > 0 && (
-                            <span>{record.top_asins.length} ASINs</span>
-                          )}
-                          {record.tokens_used && (
-                            <span>{(record.tokens_used / 1000).toFixed(0)}K tokens</span>
-                          )}
-                          {record.created_at && (
-                            <span>{new Date(record.created_at).toLocaleDateString()}</span>
-                          )}
+                    <div className="p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex-shrink-0 text-lg">{country?.flag_emoji || '\ud83c\udf10'}</div>
+                        <div className="min-w-0">
+                          <div className="font-medium text-sm truncate">
+                            {keywords && keywords.length > 1
+                              ? keywords.join(', ')
+                              : record.keyword}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 flex-wrap">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${statusColor}`}>
+                              {record.status}
+                            </span>
+                            {record.top_asins && record.top_asins.length > 0 && (
+                              <span>{record.top_asins.length} ASINs</span>
+                            )}
+                            {record.tokens_used && (
+                              <span>{(record.tokens_used / 1000).toFixed(0)}K tokens</span>
+                            )}
+                            {record.created_at && (
+                              <span>{new Date(record.created_at).toLocaleDateString()}</span>
+                            )}
+                            {(record.tags as string[] | undefined)?.map((tag) => (
+                              <TagBadge key={tag} tag={tag} compact />
+                            ))}
+                            <NotesIndicator notes={(record.notes as string | null) ?? null} />
+                          </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedMetaId(isMetaExpanded ? null : record.id || null)}
+                          className="p-1 hover:bg-muted rounded"
+                          title="Tags, notes & collections"
+                        >
+                          <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+                        </button>
+                        {record.status === 'completed' && (
+                          <Button size="sm" variant="outline" onClick={() => handleViewBrief(record)} className="text-xs">
+                            View Brief <ChevronRight className="h-3 w-3 ml-1" />
+                          </Button>
+                        )}
+                        {record.status === 'awaiting_selection' && (
+                          <Button size="sm" variant="outline" onClick={() => handleViewBrief(record)} className="text-xs">
+                            Select Products <ChevronRight className="h-3 w-3 ml-1" />
+                          </Button>
+                        )}
+                        {record.status === 'failed' && (
+                          <Button size="sm" variant="ghost" onClick={() => handleDelete(record.id!)} className="text-xs text-destructive">
+                            Delete
+                          </Button>
+                        )}
+                        {record.status && ['pending', 'collecting', 'analyzing'].includes(record.status) && (
+                          <Button size="sm" variant="outline" onClick={() => handleViewBrief(record)} className="text-xs">
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            View Progress
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {record.status === 'completed' && (
-                        <Button size="sm" variant="outline" onClick={() => handleViewBrief(record)} className="text-xs">
-                          View Brief <ChevronRight className="h-3 w-3 ml-1" />
-                        </Button>
-                      )}
-                      {record.status === 'awaiting_selection' && (
-                        <Button size="sm" variant="outline" onClick={() => handleViewBrief(record)} className="text-xs">
-                          Select Products <ChevronRight className="h-3 w-3 ml-1" />
-                        </Button>
-                      )}
-                      {record.status === 'failed' && (
-                        <Button size="sm" variant="ghost" onClick={() => handleDelete(record.id!)} className="text-xs text-destructive">
-                          Delete
-                        </Button>
-                      )}
-                      {record.status && ['pending', 'collecting', 'analyzing'].includes(record.status) && (
-                        <Button size="sm" variant="outline" onClick={() => handleViewBrief(record)} className="text-xs">
-                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                          View Progress
-                        </Button>
-                      )}
-                    </div>
+                    {isMetaExpanded && record.id && (
+                      <div className="px-3 pb-3 border-t bg-muted/20 pt-2">
+                        <div className="flex flex-wrap items-start gap-4">
+                          <div className="flex-1 min-w-[200px]">
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Tags</p>
+                            <TagInput
+                              tags={(record.tags as string[]) || []}
+                              onTagsChange={(tags) => handleUpdateTagsNotes(record.id!, { tags })}
+                              compact
+                            />
+                          </div>
+                          <div className="flex-1 min-w-[200px]">
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Notes</p>
+                            <NotesEditor
+                              notes={(record.notes as string | null) ?? null}
+                              onSave={(notes) => handleUpdateTagsNotes(record.id!, { notes })}
+                              compact
+                            />
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Collections</p>
+                            <CollectionPicker entityType="market_intelligence" entityId={record.id} compact />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })}

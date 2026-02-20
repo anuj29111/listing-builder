@@ -25,6 +25,9 @@ export type {
   LbKeywordSearch,
   LbAsinReview,
   LbMarketIntelligence,
+  LbCollection,
+  LbCollectionItem,
+  ResearchEntityType,
 } from './database'
 
 export type {

@@ -113,7 +113,7 @@ export interface LbListing {
   batch_job_id: string | null
   planning_matrix: BulletPlanningMatrixEntry[] | null
   backend_attributes: Record<string, string[]> | null
-  optimization_mode: 'new' | 'optimize_existing'
+  optimization_mode: 'new' | 'optimize_existing' | 'based_on_existing'
   existing_listing_text: ExistingListingText | null
   generation_phase: GenerationPhase
   keyword_coverage: KeywordCoverage | null
@@ -155,6 +155,7 @@ export interface ExistingListingText {
   title: string
   bullets: string[]
   description: string
+  reference_asin?: string
 }
 
 export interface LbListingSection {
@@ -337,6 +338,8 @@ export interface LbAsinLookup {
     helpful_count: number
   }> | null
   lookup_by: string | null
+  tags: string[]
+  notes: string | null
   created_at: string
   updated_at: string
 }
@@ -380,6 +383,8 @@ export interface LbKeywordSearch {
   suggested_results: unknown[]
   raw_response: Record<string, unknown> | null
   searched_by: string | null
+  tags: string[]
+  notes: string | null
   created_at: string
   updated_at: string
 }
@@ -408,6 +413,8 @@ export interface LbAsinReview {
   raw_response: Record<string, unknown> | null
   sort_by: string
   fetched_by: string | null
+  tags: string[]
+  notes: string | null
   created_at: string
   updated_at: string
 }
@@ -435,8 +442,32 @@ export interface LbMarketIntelligence {
   tokens_used: number | null
   oxylabs_calls_used: number
   created_by: string | null
+  tags: string[]
+  notes: string | null
   created_at: string
   updated_at: string
+}
+
+// Collections
+export type ResearchEntityType = 'asin_lookup' | 'keyword_search' | 'asin_review' | 'market_intelligence'
+
+export interface LbCollection {
+  id: string
+  name: string
+  description: string | null
+  color: string
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface LbCollectionItem {
+  id: string
+  collection_id: string
+  entity_type: ResearchEntityType
+  entity_id: string
+  added_by: string | null
+  created_at: string
 }
 
 // ASIN Q&A cache

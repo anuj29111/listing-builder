@@ -211,7 +211,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from('lb_asin_reviews')
       .select(
-        'id, asin, country_id, marketplace_domain, total_reviews, overall_rating, total_pages_fetched, sort_by, created_at, updated_at'
+        'id, asin, country_id, marketplace_domain, total_reviews, overall_rating, total_pages_fetched, sort_by, tags, notes, created_at, updated_at'
       )
       .order('updated_at', { ascending: false })
       .limit(50)
@@ -221,6 +221,11 @@ export async function GET(request: Request) {
     }
     if (country_id) {
       query = query.eq('country_id', country_id)
+    }
+
+    const tag = searchParams.get('tag')
+    if (tag) {
+      query = query.contains('tags', [tag])
     }
 
     const { data, error } = await query

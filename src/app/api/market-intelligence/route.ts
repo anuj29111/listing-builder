@@ -84,7 +84,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from('lb_market_intelligence')
       .select(
-        'id, keyword, country_id, marketplace_domain, max_competitors, top_asins, status, progress, error_message, model_used, tokens_used, oxylabs_calls_used, created_by, created_at, updated_at'
+        'id, keyword, country_id, marketplace_domain, max_competitors, top_asins, status, progress, error_message, model_used, tokens_used, oxylabs_calls_used, created_by, tags, notes, created_at, updated_at'
       )
       .order('created_at', { ascending: false })
       .limit(20)
@@ -94,6 +94,11 @@ export async function GET(request: Request) {
     }
     if (countryId) {
       query = query.eq('country_id', countryId)
+    }
+
+    const tag = searchParams.get('tag')
+    if (tag) {
+      query = query.contains('tags', [tag])
     }
 
     const { data, error } = await query

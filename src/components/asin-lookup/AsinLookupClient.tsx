@@ -17,6 +17,10 @@ import toast from 'react-hot-toast'
 import type { LbCountry, LbAsinLookup } from '@/types'
 import type { OxylabsProductResult } from '@/lib/oxylabs'
 import { AsinResultCard } from './AsinResultCard'
+import { TagBadge, TagInput } from '@/components/shared/TagInput'
+import { NotesEditor, NotesIndicator } from '@/components/shared/NotesEditor'
+import { CollectionPicker } from '@/components/shared/CollectionPicker'
+import { useCollectionStore } from '@/stores/collection-store'
 
 interface AsinLookupClientProps {
   countries: LbCountry[]
@@ -57,8 +61,11 @@ export function AsinLookupClient({
   const [expandedLookupData, setExpandedLookupData] = useState<Record<string, unknown> | null>(null)
   const [expandedLookupQuestions, setExpandedLookupQuestions] = useState<QnAItem[] | undefined>(undefined)
   const [loadingLookupId, setLoadingLookupId] = useState<string | null>(null)
+  const [historyTag, setHistoryTag] = useState('')
 
   const selectedCountry = countries.find((c) => c.id === countryId)
+  const fetchAllTags = useCollectionStore((s) => s.fetchAllTags)
+  const allTags = useCollectionStore((s) => s.allTags)
 
   const parseAsins = useCallback((input: string): string[] => {
     return input
@@ -121,6 +128,7 @@ export function AsinLookupClient({
       const params = new URLSearchParams()
       if (historySearch) params.set('search', historySearch)
       if (historyCountry) params.set('country_id', historyCountry)
+      if (historyTag) params.set('tag', historyTag)
 
       const res = await fetch(`/api/asin-lookup?${params}`)
       const json = await res.json()
@@ -129,6 +137,25 @@ export function AsinLookupClient({
       }
     } catch {
       // silent
+    }
+  }
+
+  const handleUpdateTagsNotes = async (lookupId: string, updates: { tags?: string[]; notes?: string }) => {
+    try {
+      const res = await fetch(`/api/asin-lookup/${lookupId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      if (res.ok) {
+        // Update local state
+        setLookups((prev) =>
+          prev.map((l) => (l.id === lookupId ? { ...l, ...updates } : l))
+        )
+        fetchAllTags()
+      }
+    } catch {
+      toast.error('Failed to update')
     }
   }
 
@@ -297,7 +324,6 @@ export function AsinLookupClient({
             value={historyCountry}
             onValueChange={(v) => {
               setHistoryCountry(v === 'all' ? '' : v)
-              // Trigger refresh after state update
               setTimeout(refreshHistory, 0)
             }}
           >
@@ -313,6 +339,27 @@ export function AsinLookupClient({
               ))}
             </SelectContent>
           </Select>
+          {allTags.length > 0 && (
+            <Select
+              value={historyTag}
+              onValueChange={(v) => {
+                setHistoryTag(v === 'all' ? '' : v)
+                setTimeout(refreshHistory, 0)
+              }}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="All tags" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All tags</SelectItem>
+                {allTags.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Button variant="outline" size="sm" onClick={handleHistorySearch}>
             <Search className="h-3.5 w-3.5" />
           </Button>
@@ -365,6 +412,10 @@ export function AsinLookupClient({
                             Choice
                           </Badge>
                         )}
+                        {(lookup.tags as string[] | undefined)?.map((tag) => (
+                          <TagBadge key={tag} tag={tag} compact />
+                        ))}
+                        <NotesIndicator notes={(lookup.notes as string | null) ?? null} />
                       </div>
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0 text-sm">
@@ -405,7 +456,32 @@ export function AsinLookupClient({
 
                   {/* Expanded detail card */}
                   {isExpanded && expandedLookupData && (
-                    <div className="border-t bg-muted/20 p-3">
+                    <div className="border-t bg-muted/20 p-3 space-y-3">
+                      {/* Tags, Notes, Collections */}
+                      <div className="flex flex-wrap items-start gap-4 pb-3 border-b">
+                        <div className="flex-1 min-w-[200px]">
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Tags</p>
+                          <TagInput
+                            tags={(lookup.tags as string[]) || []}
+                            onTagsChange={(tags) => lookup.id && handleUpdateTagsNotes(lookup.id, { tags })}
+                            compact
+                          />
+                        </div>
+                        <div className="flex-1 min-w-[200px]">
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Notes</p>
+                          <NotesEditor
+                            notes={(lookup.notes as string | null) ?? null}
+                            onSave={(notes) => lookup.id && handleUpdateTagsNotes(lookup.id, { notes })}
+                            compact
+                          />
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Collections</p>
+                          {lookup.id && (
+                            <CollectionPicker entityType="asin_lookup" entityId={lookup.id} compact />
+                          )}
+                        </div>
+                      </div>
                       <AsinResultCard
                         asin={lookup.asin || ''}
                         data={expandedLookupData as OxylabsProductResult}

@@ -29,8 +29,10 @@ export function StepCategoryCountry({ categories, countries }: StepCategoryCount
   const setProductDetails = useListingStore((s) => s.setProductDetails)
   const analysisAvailability = useListingStore((s) => s.analysisAvailability)
 
+  const scrapedCountryId = useListingStore((s) => s.scrapedCountryId)
+
   const [selectedCatId, setSelectedCatId] = useState(categoryId || '')
-  const [selectedCountryId, setSelectedCountryId] = useState(countryId || '')
+  const [selectedCountryId, setSelectedCountryId] = useState(countryId || scrapedCountryId || '')
   const [isChecking, setIsChecking] = useState(false)
 
   const checkAnalysis = useCallback(async (catId: string, cntryId: string) => {

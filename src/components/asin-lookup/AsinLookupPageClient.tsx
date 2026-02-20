@@ -1,12 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { ScanSearch, Search, MessageSquare, BarChart3 } from 'lucide-react'
+import { ScanSearch, Search, MessageSquare, BarChart3, FolderOpen } from 'lucide-react'
 import type { LbCountry, LbAsinLookup, LbKeywordSearch, LbAsinReview, LbMarketIntelligence } from '@/types'
 import { AsinLookupClient } from './AsinLookupClient'
 import { KeywordSearchClient } from './KeywordSearchClient'
 import { ReviewsClient } from './ReviewsClient'
 import { MarketIntelligenceClient } from '@/components/market-intelligence/MarketIntelligenceClient'
+import { CollectionsPanel } from './CollectionsPanel'
 
 interface AsinLookupPageClientProps {
   countries: LbCountry[]
@@ -23,7 +24,7 @@ export function AsinLookupPageClient({
   initialReviews,
   initialIntelligence,
 }: AsinLookupPageClientProps) {
-  const [activeTab, setActiveTab] = useState<'asin' | 'keyword' | 'reviews' | 'market_intel'>('asin')
+  const [activeTab, setActiveTab] = useState<'asin' | 'keyword' | 'reviews' | 'market_intel' | 'collections'>('asin')
 
   return (
     <div className="space-y-6">
@@ -84,6 +85,17 @@ export function AsinLookupPageClient({
           <BarChart3 className="h-4 w-4" />
           Market Intelligence
         </button>
+        <button
+          onClick={() => setActiveTab('collections')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+            activeTab === 'collections'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <FolderOpen className="h-4 w-4" />
+          Collections
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -93,8 +105,10 @@ export function AsinLookupPageClient({
         <KeywordSearchClient countries={countries} initialSearches={initialSearches} />
       ) : activeTab === 'reviews' ? (
         <ReviewsClient countries={countries} initialReviews={initialReviews} />
-      ) : (
+      ) : activeTab === 'market_intel' ? (
         <MarketIntelligenceClient countries={countries} initialIntelligence={initialIntelligence} />
+      ) : (
+        <CollectionsPanel />
       )}
     </div>
   )
