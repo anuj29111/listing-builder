@@ -22,6 +22,86 @@ function isLikelyBundle(title: string, price: number | null, reviewsCount: numbe
   return false
 }
 
+// Smart category detection: build keyword → category map from existing products
+function buildCategoryMap(
+  existingProducts: Array<{ asin: string; product_name: string; category: string }>
+): Map<string, string> {
+  // Extract meaningful keywords from product names and map them to categories
+  const keywordToCategory = new Map<string, { category: string; count: number }>()
+
+  for (const product of existingProducts) {
+    if (!product.category || product.category === 'Uncategorized') continue
+
+    // Extract keywords from product name (2+ char words, lowercase)
+    const words = product.product_name
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter((w) => w.length >= 3)
+
+    for (const word of words) {
+      const existing = keywordToCategory.get(word)
+      if (existing) {
+        if (existing.category === product.category) {
+          existing.count++
+        }
+      } else {
+        keywordToCategory.set(word, { category: product.category, count: 1 })
+      }
+    }
+  }
+
+  // Only keep keywords that appear 2+ times for the same category (stronger signal)
+  const result = new Map<string, string>()
+  Array.from(keywordToCategory.entries()).forEach(([keyword, { category, count }]) => {
+    if (count >= 1) {
+      result.set(keyword, category)
+    }
+  })
+
+  return result
+}
+
+function suggestCategory(
+  title: string,
+  existingProducts: Array<{ asin: string; product_name: string; category: string }>,
+  keywordMap: Map<string, string>
+): string | null {
+  // 1. Check if this ASIN already exists with a category
+  // (handled at the product level, not here)
+
+  // 2. Try to match title keywords against the keyword map
+  const titleWords = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter((w) => w.length >= 3)
+
+  // Count category votes from matching keywords
+  const categoryVotes = new Map<string, number>()
+  for (const word of titleWords) {
+    const category = keywordMap.get(word)
+    if (category) {
+      categoryVotes.set(category, (categoryVotes.get(category) || 0) + 1)
+    }
+  }
+
+  // Return the category with most votes (if any)
+  if (categoryVotes.size > 0) {
+    let bestCategory = ''
+    let bestVotes = 0
+    Array.from(categoryVotes.entries()).forEach(([category, votes]) => {
+      if (votes > bestVotes) {
+        bestCategory = category
+        bestVotes = votes
+      }
+    })
+    if (bestCategory) return bestCategory
+  }
+
+  return null
+}
+
 export async function POST(request: Request) {
   try {
     await getAuthenticatedUser()
@@ -87,21 +167,49 @@ export async function POST(request: Request) {
       )
     }
 
-    // 4. Get existing ASINs from lb_products for comparison
+    // 4. Get existing products with categories for smart categorization
     const { data: existingProducts } = await supabase
       .from('lb_products')
-      .select('asin')
+      .select('asin, product_name, category')
 
-    const existingAsins = new Set((existingProducts || []).map((p) => p.asin))
+    const existingProductsList = existingProducts || []
+    const existingAsins = new Map(
+      existingProductsList.map((p) => [p.asin, p])
+    )
 
-    // 5. Categorize products
-    const products = result.data.products.map((p) => ({
-      ...p,
-      is_bundle: isLikelyBundle(p.title, p.price, p.reviews_count),
-      exists_in_system: existingAsins.has(p.asin),
-    }))
+    // Build keyword → category map
+    const keywordMap = buildCategoryMap(existingProductsList)
+
+    // Get unique categories for the dropdown
+    const categories = Array.from(
+      new Set(existingProductsList.map((p) => p.category).filter(Boolean))
+    ).sort()
+
+    // 5. Categorize products with smart category suggestions
+    const products = result.data.products.map((p) => {
+      const existingProduct = existingAsins.get(p.asin)
+      const isBundle = isLikelyBundle(p.title, p.price, p.reviews_count)
+      const hasSales = !!(p.price && p.reviews_count && p.reviews_count > 0)
+
+      // Smart category: existing product category > keyword match > null
+      let suggested_category: string | null = null
+      if (existingProduct?.category) {
+        suggested_category = existingProduct.category
+      } else {
+        suggested_category = suggestCategory(p.title, existingProductsList, keywordMap)
+      }
+
+      return {
+        ...p,
+        is_bundle: isBundle,
+        has_sales: hasSales,
+        exists_in_system: existingAsins.has(p.asin),
+        suggested_category,
+      }
+    })
 
     const bundles = products.filter((p) => p.is_bundle)
+    const bundlesWithSales = bundles.filter((p) => p.has_sales)
     const nonBundles = products.filter((p) => !p.is_bundle)
     const newProducts = nonBundles.filter((p) => !p.exists_in_system)
     const existingInSystem = nonBundles.filter((p) => p.exists_in_system)
@@ -114,9 +222,11 @@ export async function POST(request: Request) {
         name: country.name,
         code: country.code,
       },
+      categories,
       summary: {
         total: products.length,
         bundles: bundles.length,
+        bundles_with_sales: bundlesWithSales.length,
         non_bundles: nonBundles.length,
         already_in_system: existingInSystem.length,
         new: newProducts.length,
