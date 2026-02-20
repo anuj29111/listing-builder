@@ -60,7 +60,7 @@ interface ReviewsData {
   reviews_fetched: number
   reviews: ReviewItem[]
   sort_by: string
-  source?: 'amazon_reviews' | 'amazon_product'
+  source?: 'amazon_reviews' | 'amazon_web_scraper' | 'amazon_product'
   fallback_reason?: string | null
 }
 
@@ -303,9 +303,14 @@ export function ReviewsClient({
                     ? ` of ${results.total_reviews.toLocaleString()} total`
                     : ''}{' '}
                   on {results.marketplace}
+                  {results.source === 'amazon_web_scraper' && (
+                    <span className="ml-1 text-blue-600 dark:text-blue-400">
+                      (via web scraper)
+                    </span>
+                  )}
                   {results.source === 'amazon_product' && (
                     <span className="ml-1 text-amber-600 dark:text-amber-400">
-                      (top reviews only — amazon_reviews failed{results.fallback_reason ? `: ${results.fallback_reason}` : ''})
+                      (top reviews only{results.fallback_reason ? ` — ${results.fallback_reason}` : ''})
                     </span>
                   )}
                 </p>
