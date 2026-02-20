@@ -77,7 +77,7 @@ export function ListingDetailClient({
   // --- Content tab logic ---
   const charLimits = {
     title: listing.country?.title_limit || 200,
-    bullet: listing.country?.bullet_limit || 500,
+    bullet: listing.country?.bullet_limit || 250,
     description: listing.country?.description_limit || 2000,
     searchTerms: listing.country?.search_terms_limit || 250,
   }
@@ -155,7 +155,7 @@ export function ListingDetailClient({
   ]
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>

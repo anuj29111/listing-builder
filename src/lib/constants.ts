@@ -17,6 +17,11 @@ export const SECTION_TYPES = [
   'bullet_3',
   'bullet_4',
   'bullet_5',
+  'bullet_6',
+  'bullet_7',
+  'bullet_8',
+  'bullet_9',
+  'bullet_10',
   'description',
   'search_terms',
   'subject_matter',
@@ -53,6 +58,11 @@ export const SECTION_TYPE_LABELS: Record<string, string> = {
   bullet_3: 'Bullet Point 3',
   bullet_4: 'Bullet Point 4',
   bullet_5: 'Bullet Point 5',
+  bullet_6: 'Bullet Point 6',
+  bullet_7: 'Bullet Point 7',
+  bullet_8: 'Bullet Point 8',
+  bullet_9: 'Bullet Point 9',
+  bullet_10: 'Bullet Point 10',
   description: 'Description',
   search_terms: 'Search Terms',
   subject_matter: 'Subject Matter',
@@ -66,6 +76,11 @@ export const SECTION_CHAR_LIMIT_MAP: Record<string, 'title_limit' | 'bullet_limi
   bullet_3: 'bullet_limit',
   bullet_4: 'bullet_limit',
   bullet_5: 'bullet_limit',
+  bullet_6: 'bullet_limit',
+  bullet_7: 'bullet_limit',
+  bullet_8: 'bullet_limit',
+  bullet_9: 'bullet_limit',
+  bullet_10: 'bullet_limit',
   description: 'description_limit',
   search_terms: 'search_terms_limit',
   subject_matter: 'search_terms_limit', // subject matter uses same limit as search terms
@@ -98,8 +113,8 @@ export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024 // 50MB
 
 export const DEFAULT_CHAR_LIMITS = {
   title: 200,
-  bullet: 500,
-  bulletCount: 5,
+  bullet: 250,
+  bulletCount: 10,
   description: 2000,
   searchTerms: 250,
 }
@@ -217,7 +232,7 @@ export const GENERATION_PHASE_LABELS: Record<string, string> = {
 
 export const GENERATION_PHASE_DESCRIPTIONS: Record<string, string> = {
   title: 'Generate 5 title variations with highest-priority keywords',
-  bullets: 'Generate 5 bullets × 9 variations, covering remaining keywords',
+  bullets: 'Generate 5-10 bullets × 9 variations, covering remaining keywords',
   description: 'Generate descriptions and search terms, filling keyword gaps',
   backend: 'Generate subject matter and backend attribute recommendations',
 }

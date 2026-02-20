@@ -139,7 +139,7 @@ export function ListingModeSelector({ countries }: ListingModeSelectorProps) {
   const needsAsinFetch = selectedMode === 'optimize_existing' || selectedMode === 'based_on_existing'
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold">Create New Listing</h1>
         <p className="text-sm text-muted-foreground mt-1">

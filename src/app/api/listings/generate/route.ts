@@ -290,11 +290,12 @@ export async function POST(request: Request) {
 
       const existingCoverage: KeywordCoverage = listing.keyword_coverage || { placed: [], remaining: [], coverageScore: 0 }
 
-      // Delete existing bullet sections if re-generating
+      // Delete existing bullet sections if re-generating (supports up to 10 bullets)
+      const allBulletTypes = Array.from({ length: 10 }, (_, i) => `bullet_${i + 1}`)
       await adminClient.from('lb_listing_sections')
         .delete()
         .eq('listing_id', listing_id)
-        .in('section_type', ['bullet_1', 'bullet_2', 'bullet_3', 'bullet_4', 'bullet_5'])
+        .in('section_type', allBulletTypes)
 
       // Also delete downstream sections (description, search_terms, subject_matter)
       await adminClient.from('lb_listing_sections')
@@ -371,12 +372,14 @@ export async function POST(request: Request) {
         || (titleSec?.variations as string[])?.[titleSec?.selected_variation ?? 0]
         || ''
 
-      // Get confirmed bullets
+      // Get confirmed bullets (dynamic count — supports 5-10)
       const confirmedBullets: string[] = []
-      for (let i = 1; i <= 5; i++) {
-        const bSec = sections.find((s) => s.section_type === `bullet_${i}`)
-        const text = bSec?.final_text?.trim()
-          || (bSec?.variations as string[])?.[bSec?.selected_variation ?? 0]
+      const bulletSections = sections
+        .filter((s) => s.section_type.startsWith('bullet_'))
+        .sort((a, b) => parseInt(a.section_type.split('_')[1]) - parseInt(b.section_type.split('_')[1]))
+      for (const bSec of bulletSections) {
+        const text = bSec.final_text?.trim()
+          || (bSec.variations as string[])?.[bSec.selected_variation ?? 0]
           || ''
         confirmedBullets.push(text)
       }
@@ -485,7 +488,10 @@ export async function POST(request: Request) {
       }
 
       const confirmedTitle = getConfirmedText('title')
-      const confirmedBullets = [1, 2, 3, 4, 5].map((i) => getConfirmedText(`bullet_${i}`))
+      const confirmedBullets = sections
+        .filter((s) => s.section_type.startsWith('bullet_'))
+        .sort((a, b) => parseInt(a.section_type.split('_')[1]) - parseInt(b.section_type.split('_')[1]))
+        .map((s) => getConfirmedText(s.section_type))
       const confirmedDescription = getConfirmedText('description')
       const confirmedSearchTerms = getConfirmedText('search_terms')
 

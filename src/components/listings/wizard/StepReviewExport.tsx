@@ -1,16 +1,18 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { useListingStore } from '@/stores/listing-store'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { SectionCard } from '@/components/listings/SectionCard'
 import { ExportOptions } from '@/components/listings/ExportOptions'
 import { SECTION_TYPES, SECTION_TYPE_LABELS, SECTION_CHAR_LIMIT_MAP } from '@/lib/constants'
-import { Save, Loader2, CheckCircle2, MapPin, Tag } from 'lucide-react'
+import { Save, Loader2, CheckCircle2, MapPin, Tag, ChevronDown, ChevronRight, ImageIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export function StepReviewExport() {
+  const router = useRouter()
   const listingId = useListingStore((s) => s.listingId)
   const sections = useListingStore((s) => s.sections)
   const listingStatus = useListingStore((s) => s.listingStatus)
@@ -23,6 +25,8 @@ export function StepReviewExport() {
   const updateFinalText = useListingStore((s) => s.updateFinalText)
 
   const [isSaving, setIsSaving] = useState(false)
+  const [saveDone, setSaveDone] = useState(false)
+  const [bulletsExpanded, setBulletsExpanded] = useState(true)
 
   const handleVariationAdded = useCallback(
     (sectionId: string, newText: string, newIndex: number) => {
@@ -84,6 +88,7 @@ export function StepReviewExport() {
       }
 
       toast.success('Listing saved successfully!')
+      setSaveDone(true)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Save failed'
       toast.error(message)
@@ -99,6 +104,13 @@ export function StepReviewExport() {
       </div>
     )
   }
+
+  // Split sections into groups
+  const titleSections = sortedSections.filter((s) => s.section_type === 'title')
+  const bulletSections = sortedSections.filter((s) => s.section_type.startsWith('bullet_'))
+  const otherSections = sortedSections.filter(
+    (s) => !s.section_type.startsWith('bullet_') && s.section_type !== 'title'
+  )
 
   return (
     <div className="space-y-6">
@@ -132,6 +144,7 @@ export function StepReviewExport() {
           <select
             value={listingStatus}
             onChange={(e) => setListingStatus(e.target.value as 'draft' | 'review' | 'approved' | 'exported')}
+            title="Draft = in progress, Review = ready for team review, Approved = finalized"
             className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <option value="draft">Draft</option>
@@ -154,9 +167,73 @@ export function StepReviewExport() {
         </div>
       </div>
 
+      {/* Post-save CTA */}
+      {saveDone && (
+        <div className="rounded-lg border bg-green-50/50 dark:bg-green-900/10 p-6 text-center space-y-4">
+          <CheckCircle2 className="h-10 w-10 text-green-500 mx-auto" />
+          <h3 className="font-semibold">Listing Saved Successfully!</h3>
+          <div className="flex items-center justify-center gap-3">
+            <Button variant="outline" onClick={() => router.push('/listings')}>
+              View All Listings
+            </Button>
+            <Button onClick={() => router.push(`/listings/${listingId}?tab=main`)} className="gap-2">
+              <ImageIcon className="h-4 w-4" />
+              Continue to Images
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Section Cards */}
       <div className="space-y-3">
-        {sortedSections.map((section) => (
+        {/* Title sections */}
+        {titleSections.map((section) => (
+          <SectionCard
+            key={section.id}
+            section={section}
+            label={SECTION_TYPE_LABELS[section.section_type] || section.section_type}
+            charLimit={getCharLimit(section.section_type)}
+            listingId={listingId!}
+            onFinalTextChange={handleFinalTextChange}
+            onVariationAdded={handleVariationAdded}
+          />
+        ))}
+
+        {/* Collapsible bullet group */}
+        {bulletSections.length > 0 && (
+          <div className="rounded-lg border">
+            <button
+              onClick={() => setBulletsExpanded(!bulletsExpanded)}
+              className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                {bulletsExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                <span className="font-medium">Bullet Points ({bulletSections.length})</span>
+              </div>
+              <span className="text-sm text-muted-foreground">
+                {bulletsExpanded ? 'Collapse All' : 'Expand All'}
+              </span>
+            </button>
+            {bulletsExpanded && (
+              <div className="px-4 pb-4 space-y-3">
+                {bulletSections.map((section) => (
+                  <SectionCard
+                    key={section.id}
+                    section={section}
+                    label={SECTION_TYPE_LABELS[section.section_type] || section.section_type}
+                    charLimit={getCharLimit(section.section_type)}
+                    listingId={listingId!}
+                    onFinalTextChange={handleFinalTextChange}
+                    onVariationAdded={handleVariationAdded}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Other sections (description, search_terms, subject_matter) */}
+        {otherSections.map((section) => (
           <SectionCard
             key={section.id}
             section={section}

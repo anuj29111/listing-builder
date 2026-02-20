@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useListingStore } from '@/stores/listing-store'
 import { SectionCard } from '@/components/listings/SectionCard'
 import { BulletPlanningMatrix } from '@/components/listings/BulletPlanningMatrix'
@@ -182,6 +182,15 @@ export function StepPhasedGeneration() {
   const planningMatrix = store.planningMatrix
   const backendAttributes = store.backendAttributes
 
+  const [allBulletsExpanded, setAllBulletsExpanded] = useState(true)
+
+  // Auto-advance to Review & Export when generation completes
+  useEffect(() => {
+    if (generationPhase === 'complete') {
+      useListingStore.getState().setStep(3)
+    }
+  }, [generationPhase])
+
   const filledAttributes = attributes.filter((a) => a.key && a.value)
   const completedAnalysis = Object.entries(analysisAvailability)
     .filter(([, v]) => v === 'completed')
@@ -189,8 +198,8 @@ export function StepPhasedGeneration() {
 
   const getCharLimit = (sectionType: string): number => {
     const field = SECTION_CHAR_LIMIT_MAP[sectionType]
-    if (!field) return 500
-    return charLimits[field.replace('_limit', '') as keyof typeof charLimits] as number || 500
+    if (!field) return 250
+    return charLimits[field.replace('_limit', '') as keyof typeof charLimits] as number || 250
   }
 
   const getSectionsByType = (type: string): LbListingSection | undefined =>
@@ -283,12 +292,15 @@ export function StepPhasedGeneration() {
   }, [sections, store, listingId, callPhaseAPI])
 
   const handleConfirmAndGenerateDescription = useCallback(async () => {
+    const bulletSecs = sections
+      .filter((s) => s.section_type.startsWith('bullet_'))
+      .sort((a, b) => parseInt(a.section_type.split('_')[1]) - parseInt(b.section_type.split('_')[1]))
     const bulletTexts: string[] = []
-    for (let i = 1; i <= 5; i++) {
-      const bSec = sections.find((s) => s.section_type === `bullet_${i}`)
-      const text = bSec?.final_text?.trim()
+    for (const bSec of bulletSecs) {
+      const text = bSec.final_text?.trim()
       if (!text) {
-        toast.error(`Please set final text for Bullet ${i}`)
+        const num = bSec.section_type.split('_')[1]
+        toast.error(`Please set final text for Bullet ${num}`)
         return
       }
       bulletTexts.push(text)
@@ -356,32 +368,12 @@ export function StepPhasedGeneration() {
     }
   }, [sections, store, listingId, callPhaseAPI])
 
-  // --- If complete, show the completion state ---
+  // --- If complete, auto-advance fires via useEffect — show brief loading as fallback ---
   if (generationPhase === 'complete') {
     return (
-      <div className="space-y-6">
-        <PhaseProgressBar currentPhase="complete" />
-        <div className="text-center py-6">
-          <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Listing Complete!</h2>
-          <p className="text-muted-foreground">
-            All sections generated with cascading keyword optimization.
-          </p>
-        </div>
-
-        <KeywordCoveragePanel coverage={keywordCoverage} />
-
-        <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
-          {modelUsed && <Badge variant="outline">Model: {modelUsed}</Badge>}
-          {totalTokensUsed > 0 && <Badge variant="outline">Total Tokens: {formatNumber(totalTokensUsed)}</Badge>}
-          <Badge variant="outline">{sections.length} sections</Badge>
-        </div>
-
-        <div className="text-center">
-          <Button onClick={() => useListingStore.getState().setStep(3)}>
-            Continue to Review & Export
-          </Button>
-        </div>
+      <div className="space-y-4 text-center py-6">
+        <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+        <p className="text-sm text-muted-foreground">Loading review...</p>
       </div>
     )
   }
@@ -564,23 +556,45 @@ export function StepPhasedGeneration() {
             <BulletPlanningMatrix matrix={planningMatrix} />
           )}
 
-          {/* Bullet section cards */}
-          {[1, 2, 3, 4, 5].map((n) => {
-            const sec = getSectionsByType(`bullet_${n}`)
-            if (!sec) return null
+          {/* Collapsible bullet section cards */}
+          {(() => {
+            const bulletSecs = sections
+              .filter((s) => s.section_type.startsWith('bullet_'))
+              .sort((a, b) => parseInt(a.section_type.split('_')[1]) - parseInt(b.section_type.split('_')[1]))
+            if (bulletSecs.length === 0) return null
             return (
-              <SectionCard
-                key={sec.id}
-                section={sec}
-                label={SECTION_TYPE_LABELS[`bullet_${n}`] || `Bullet ${n}`}
-                charLimit={charLimits.bullet}
-                listingId={listingId || undefined}
-                defaultCollapsed={n > 1}
-                onFinalTextChange={(id, text) => store.updateFinalText(id, text)}
-                onVariationAdded={(id, text, idx) => store.addVariation(id, text, idx)}
-              />
+              <div className="rounded-lg border">
+                <button
+                  onClick={() => setAllBulletsExpanded(!allBulletsExpanded)}
+                  className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    {allBulletsExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                    <span className="font-medium">Bullet Points ({bulletSecs.length})</span>
+                  </div>
+                  <span className="text-sm text-muted-foreground">
+                    {allBulletsExpanded ? 'Collapse All' : 'Expand All'}
+                  </span>
+                </button>
+                {allBulletsExpanded && (
+                  <div className="px-4 pb-4 space-y-3">
+                    {bulletSecs.map((sec, idx) => (
+                      <SectionCard
+                        key={sec.id}
+                        section={sec}
+                        label={SECTION_TYPE_LABELS[sec.section_type] || `Bullet ${idx + 1}`}
+                        charLimit={charLimits.bullet}
+                        listingId={listingId || undefined}
+                        defaultCollapsed={idx > 0}
+                        onFinalTextChange={(id, text) => store.updateFinalText(id, text)}
+                        onVariationAdded={(id, text, i) => store.addVariation(id, text, i)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
             )
-          })}
+          })()}
 
           <div className="text-center">
             {activePhaseLoading === 'description' ? (
