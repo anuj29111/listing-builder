@@ -917,12 +917,12 @@ Return a JSON object with this EXACT structure:
    - Concise: 110-140 characters
    - Medium: 140-180 characters
    - Longer: 180-${charLimits.bullet} characters (but NEVER exceed the limit)
-4. Bullets should start with a CAPITALIZED benefit phrase followed by a dash or colon, then details
+4. Use normal sentence case in bullets — NEVER use ALL CAPS for any words (except recognized acronyms like UV, LED, FDA). Amazon prohibits ALL CAPS. Start each bullet with a descriptive benefit phrase followed by a dash or colon, then details.
 5. Each bullet must serve its planningMatrix purpose — no two bullets should overlap in primary focus
 6. Description: 3 distinct variations (SEO, Benefit, Balanced)
-7. Search terms: no brand name, no ASINs, no commas (space-separated), include misspellings and synonyms
+7. Search terms: no brand name, no ASINs, space-separated, all lowercase. NO words already in title/bullets/description. No articles/prepositions. Use singular OR plural, not both. No subjective claims or temporary statements.
 8. Subject matter: short descriptive phrases for Amazon's subject matter fields (3 fields, each under 50 chars)
-9. Backend attributes: recommend values for Amazon's backend fields based on keyword/review/Q&A data. Include at least: material, target_audience, special_features, recommended_uses, included_components. Add more if relevant.
+9. Backend attributes: recommend values for ALL applicable Amazon backend fields based on research. Minimum 8 categories.
 10. STRICT character limits — count characters carefully
 11. ALL content in ${language}
 12. Only return valid JSON, no markdown fences or explanation`
@@ -1273,12 +1273,12 @@ KEYWORD PLACEMENT PRIORITY FOR TITLES:
 - Remaining characters: Place medium-high relevancy (0.6-0.8) keywords
 - All titles MUST start with "${brand}"
 
-Generate 5 DISTINCT title variations (each under ${charLimits.title} characters):
+Generate 5 DISTINCT title variations. AIM for ${charLimits.title - 10}-${charLimits.title} characters each. Use EVERY available character — titles MUST be between ${charLimits.title - 20} and ${charLimits.title} characters. Shorter titles waste indexable keyword space.
 1. **SEO-dense** — Maximum keyword coverage while readable. Pack in the most high-volume terms.
 2. **Benefit-focused** — Lead with customer benefits and desires, weave keywords naturally.
 3. **Balanced** — Keywords + benefits combined seamlessly.
 4. **Feature-rich** — Highlight specific product features and specifications.
-5. **Concise/clean** — Short, punchy, premium feel. Only the most critical keywords.
+5. **Concise/clean** — Punchy, premium feel but still maximize character usage.
 
 === OUTPUT FORMAT ===
 Return a JSON object with this EXACT structure:
@@ -1304,7 +1304,7 @@ Return a JSON object with this EXACT structure:
 
 === RULES ===
 1. ALL content in ${language}
-2. STRICT character limit: ${charLimits.title} characters max per title — count carefully
+2. STRICT character target: AIM for ${charLimits.title - 10}-${charLimits.title} characters per title — maximize keyword space. Absolutely no more than ${charLimits.title}.
 3. Only return valid JSON, no markdown fences or explanation`
 }
 
@@ -1357,12 +1357,12 @@ ${confirmedTitle}
 
 ${coverageBlock}
 
-=== YOUR TASK: PLANNING MATRIX + ${charLimits.bulletCount} BULLET POINTS ===
+=== YOUR TASK: PLANNING MATRIX + 5 TO ${charLimits.bulletCount} BULLET POINTS ===
 
 Bullet points have the SECOND HIGHEST weight in Amazon's search algorithm after title.
 
 STEP 1 — PLANNING MATRIX:
-BEFORE writing any content, create a planningMatrix. For each bullet (1-${charLimits.bulletCount}), decide:
+BEFORE writing any content, create a planningMatrix. Determine the exact bullet count (minimum 5, maximum ${charLimits.bulletCount}) based on research depth. Only create bullets 6-${charLimits.bulletCount} if there are remaining critical keywords, Q&A gaps, or review themes that justify them. For each bullet, decide:
 - What is the primary focus of this bullet?
 - Which Q&A gaps does it address?
 - Which review themes does it leverage?
@@ -1373,6 +1373,7 @@ KEYWORD PLACEMENT PRIORITY FOR BULLETS:
 - Bullets 1-2: High relevancy keywords (0.6-0.8) that didn't fit in title
 - Bullets 3-4: Medium relevancy keywords (0.4-0.6)
 - Bullet 5: Catch remaining medium keywords + address critical Q&A gaps
+- Bullets 6-${charLimits.bulletCount} (ONLY IF NEEDED): Cover remaining low-medium keywords, Rufus AI questions, or underserved review themes
 
 STEP 2 — GENERATE BULLETS:
 For EACH bullet, generate 3 strategies × 3 lengths = 9 variations:
@@ -1421,10 +1422,10 @@ Return a JSON object with this EXACT structure:
 4. Be thorough — every keyword from research must appear in either placed or remaining
 
 === RULES ===
-1. Bullets should start with a CAPITALIZED benefit phrase followed by a dash or colon, then details
+1. Use normal sentence case — NEVER use ALL CAPS for any words (except recognized acronyms like UV, LED, FDA). Amazon prohibits ALL CAPS in bullet points. Start each bullet with a descriptive benefit phrase followed by a dash or colon, then details.
 2. Each bullet must serve its planningMatrix purpose — no two bullets should overlap in primary focus
-3. Generate exactly ${charLimits.bulletCount} bullets, each with all 9 variations
-4. STRICT character limits — count characters carefully
+3. Generate between 5 and ${charLimits.bulletCount} bullets based on research depth. Each bullet must have all 9 variations. Only create bullets beyond 5 if there are enough remaining keywords, Q&A gaps, or review themes to justify them.
+4. STRICT character limits — count characters carefully. NEVER exceed ${charLimits.bullet} characters per bullet variation.
 5. ALL content in ${language}
 6. Only return valid JSON, no markdown fences or explanation`
 }
@@ -1501,10 +1502,18 @@ DESCRIPTION STRATEGY:
 
 SEARCH TERMS STRATEGY:
 - This is the FINAL SWEEP — catch EVERYTHING still missing
-- No brand name, no ASINs, no commas (space-separated)
-- Include: misspellings, synonyms, long-tail variations, related terms
-- Include Spanish/foreign language variants if relevant to marketplace
 - ${charLimits.searchTerms} characters max
+- STRICT Amazon Search Terms Rules:
+  * Space-separated ONLY — NO commas, NO semicolons, NO punctuation
+  * All lowercase
+  * NO brand names, NO ASINs, NO product identifiers
+  * NO words already used in title, bullets, or description (Amazon already indexes those — repeating wastes space)
+  * Use singular OR plural of a word, NOT both (e.g., "marker" not "marker markers")
+  * NO articles or prepositions (a, an, and, by, for, of, the, with, in, on, at)
+  * NO subjective claims (amazing, best, cheap, premium, top, great, perfect, popular, trending)
+  * NO temporary statements (new, on sale, limited time, available now, latest, just launched)
+  * Include: misspellings, synonyms, long-tail variations, related terms
+  * Include Spanish/foreign language variants if relevant to marketplace
 
 === OUTPUT FORMAT ===
 Return a JSON object with this EXACT structure:
@@ -1611,11 +1620,25 @@ SUBJECT MATTER:
 - Generate 3 variations of each field
 
 BACKEND ATTRIBUTES:
-Based on ALL research data (keywords, reviews, Q&A, competitor analysis), recommend values for Amazon's backend fields:
+Based on ALL research data (keywords, reviews, Q&A, competitor analysis), recommend values for ALL applicable Amazon backend fields from the master list below. ONLY include fields relevant to this specific product category — skip any that are genuinely not applicable:
+
+MASTER FIELD LIST:
 - material, target_audience, special_features, recommended_uses, included_components
-- Add more fields if relevant to this product category (e.g., surface_recommendation, style, theme, line_size)
-- Use natural language that matches how customers search
+- subject_character, theme, style, model_number
+- line_size, water_resistance_level, body_shape
+- surface_recommendation, grip_type, hand_orientation
+- ink_base, ink_color, point_type, marker_type
+- age_range_description, educational_objective, skill_level
+- pattern, color_map, finish_type, item_form
+- power_source, voltage, wattage
+- unit_count, item_weight, item_dimensions
+- Add any other Amazon backend fields specific to this product category not listed above
+
+RULES:
+- Use natural language values that match how customers search
 - Multi-value fields: provide up to 5 values in priority order
+- Minimum 8 attribute categories for any product
+- Data-driven: base values on actual customer language from research
 
 === OUTPUT FORMAT ===
 Return a JSON object with this EXACT structure:
@@ -1630,7 +1653,10 @@ Return a JSON object with this EXACT structure:
     "target_audience": ["value1", "value2"],
     "special_features": ["value1", "value2", "value3"],
     "recommended_uses": ["value1", "value2", "value3"],
-    "included_components": ["value1"]
+    "included_components": ["value1"],
+    "theme": ["value1"],
+    "style": ["value1", "value2"],
+    "surface_recommendation": ["value1", "value2"]
   },
   "keywordCoverage": {
     "placed": [],
@@ -1641,7 +1667,7 @@ Return a JSON object with this EXACT structure:
 
 === RULES ===
 1. Subject matter: 3 fields × 3 variations, each under 50 chars
-2. Backend attributes: data-driven recommendations based on research, at least 5 attribute categories
+2. Backend attributes: data-driven recommendations based on research, at least 8 attribute categories (more for complex products)
 3. keywordCoverage.placed: merge ALL previously placed keywords + any new ones captured in backend attributes
 4. keywordCoverage.remaining: should be minimal — only truly irrelevant keywords
 5. coverageScore: final cumulative score, aim for 95%+

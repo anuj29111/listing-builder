@@ -175,7 +175,7 @@ const initialState = {
   categoryName: '',
   countryName: '',
   countryLanguage: '',
-  charLimits: { title: 200, bullet: 500, bulletCount: 5, description: 2000, searchTerms: 250 },
+  charLimits: { title: 200, bullet: 250, bulletCount: 10, description: 2000, searchTerms: 250 },
   analysisAvailability: {} as Record<string, 'completed' | 'missing'>,
   productName: '',
   asin: '',

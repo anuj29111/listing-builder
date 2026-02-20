@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { ProviderModelBar, getEffectiveModelId } from './ProviderModelBar'
-import { ImageStackRecommendations } from './ImageStackRecommendations'
 import { Loader2, Sparkles, ImageIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbImageGeneration, LbImageWorkshop } from '@/types/database'
@@ -244,12 +243,6 @@ export function SecondaryImageSection({
   if (!concepts.length && !isGeneratingPrompts) {
     return (
       <div className="space-y-6">
-        {/* AI Recommendations (optional step before generating) */}
-        <ImageStackRecommendations
-          categoryId={categoryId}
-          countryId={countryId}
-        />
-
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
           <h3 className="text-lg font-semibold mb-2">Secondary Image Concepts</h3>

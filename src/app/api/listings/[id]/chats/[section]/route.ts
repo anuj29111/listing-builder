@@ -131,14 +131,13 @@ export async function POST(
     // Determine char limit for this section
     const charLimitMap: Record<string, number> = {
       title: country?.title_limit ?? 200,
-      bullet_1: country?.bullet_limit ?? 500,
-      bullet_2: country?.bullet_limit ?? 500,
-      bullet_3: country?.bullet_limit ?? 500,
-      bullet_4: country?.bullet_limit ?? 500,
-      bullet_5: country?.bullet_limit ?? 500,
       description: country?.description_limit ?? 2000,
       search_terms: country?.search_terms_limit ?? 250,
       subject_matter: country?.search_terms_limit ?? 250,
+    }
+    // Bullets 1-10 all use the same bullet_limit
+    for (let i = 1; i <= 10; i++) {
+      charLimitMap[`bullet_${i}`] = country?.bullet_limit ?? 250
     }
     const charLimit = charLimitMap[section] ?? 250
 
