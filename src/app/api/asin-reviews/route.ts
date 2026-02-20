@@ -161,7 +161,7 @@ export async function POST(request: Request) {
     }
 
     // Fallback #2: amazon_product top reviews (last resort)
-    if (allReviews.length === 0 && source !== 'amazon_reviews') {
+    if (allReviews.length === 0) {
       source = 'amazon_product'
       const productResult = await lookupAsin(trimmedAsin, oxylabsDomain)
 

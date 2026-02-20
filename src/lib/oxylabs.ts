@@ -399,12 +399,27 @@ export async function fetchReviewsViaWebScraper(
   }
 
   const json = await response.json()
-  const content = json.results?.[0]?.content
+  const result = json.results?.[0]
+  const content = result?.content
 
   if (!content) {
-    const statusCode = json.results?.[0]?.status_code
+    const statusCode = result?.status_code
     console.error(`[fetchReviewsViaWebScraper] No content for ${asin} on ${domain}. status_code=${statusCode}`)
     return { success: false, error: `No content from web scraper (status_code=${statusCode})` }
+  }
+
+  // Log the content keys so we can understand the response structure
+  console.log(`[fetchReviewsViaWebScraper] Response keys for ${asin}:`, Object.keys(content))
+  console.log(`[fetchReviewsViaWebScraper] parse_status_code=${content.parse_status_code}, status_code=${result?.status_code}`)
+  if (content.reviews) {
+    console.log(`[fetchReviewsViaWebScraper] Found ${content.reviews.length} reviews in content.reviews`)
+  } else {
+    // Log first-level keys that contain arrays — might indicate where reviews live
+    const arrayKeys = Object.keys(content).filter(k => Array.isArray(content[k]))
+    console.log(`[fetchReviewsViaWebScraper] No content.reviews. Array keys:`, arrayKeys)
+    // Log a sample of the content structure
+    const sampleKeys = Object.keys(content).slice(0, 20)
+    console.log(`[fetchReviewsViaWebScraper] Sample content structure:`, sampleKeys.map(k => `${k}(${typeof content[k]})`))
   }
 
   // The 'amazon' source with a reviews page URL should return parsed review data
