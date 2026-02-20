@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     const adminClient = createAdminClient()
     const body = (await request.json()) as GenerateWorkshopPromptsRequest
 
-    const { product_name, brand, category_id, country_id, listing_id, name, image_type, workshop_id } = body
+    const { product_name, brand, category_id, country_id, listing_id, name, image_type, workshop_id, skip_prompt_generation } = body
 
     if (!product_name || !brand || !category_id || !country_id) {
       return NextResponse.json(
@@ -113,6 +113,43 @@ export async function POST(request: Request) {
         .eq('id', workshop_id)
         .single()
       creativeBrief = (existingWorkshop?.creative_brief as unknown as CreativeBrief) || null
+    }
+
+    // When skip_prompt_generation is true, create an empty workshop for photo upload + brief generation
+    if (skip_prompt_generation) {
+      const workshopName = name || `${brand} ${product_name} — ${new Date().toLocaleDateString()}`
+      const { data: workshop, error: insertError } = await adminClient
+        .from('lb_image_workshops')
+        .insert({
+          listing_id: listing_id || null,
+          name: workshopName,
+          product_name,
+          brand,
+          category_id,
+          country_id,
+          step: 1,
+          element_tags: {},
+          callout_texts: [],
+          competitor_urls: [],
+          generated_prompts: [],
+          selected_prompt_indices: [],
+          image_type: image_type || 'main',
+          created_by: lbUser.id,
+        })
+        .select()
+        .single()
+
+      if (insertError || !workshop) {
+        throw new Error(insertError?.message || 'Failed to create workshop')
+      }
+
+      return NextResponse.json({
+        data: {
+          workshop,
+          prompts: [],
+          callout_suggestions: [],
+        },
+      }, { status: 201 })
     }
 
     // Generate AI image prompts using full research + listing data + creative brief

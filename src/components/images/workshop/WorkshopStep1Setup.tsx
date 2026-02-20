@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { IMAGE_ORIENTATION_LABELS } from '@/lib/constants'
-import { Loader2, Sparkles, ImageIcon, Check, ChevronDown, ChevronUp } from 'lucide-react'
+import { Loader2, Sparkles, ImageIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { ProviderInfo } from '@/app/api/images/providers/route'
 import { WorkshopProductPhotos } from './WorkshopProductPhotos'
@@ -105,7 +105,7 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
   const showGeminiModelSelector = store.provider === 'gemini' && enabledModels.length > 1
   const showHiggsModelSelector = store.provider === 'higgsfield' && enabledModels.length > 1
 
-  // Step 1a: Create workshop (no prompts yet)
+  // Step 1a: Create empty workshop (for photo upload + brief generation first)
   const handleCreateWorkshop = async () => {
     if (!productName || !brand || !categoryId || !countryId) {
       toast.error('Please fill in all required fields')
@@ -114,7 +114,6 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
 
     store.setIsGeneratingPrompts(true)
     try {
-      // Create a workshop without generating prompts — use PATCH to set up a blank workshop
       const res = await fetch('/api/images/workshop', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -124,6 +123,42 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
           category_id: categoryId,
           country_id: countryId,
           listing_id: listingId || undefined,
+          skip_prompt_generation: true,
+        }),
+      })
+
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to create workshop')
+
+      const { workshop } = json.data
+      store.setWorkshopId(workshop.id)
+      store.setWorkshop(workshop)
+      toast.success('Workshop created! Upload product photos and generate a creative brief.')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to create workshop')
+    } finally {
+      store.setIsGeneratingPrompts(false)
+    }
+  }
+
+  // Step 1b: Generate prompts (informed by creative brief + photos)
+  const handleGeneratePrompts = async () => {
+    const pName = productName || store.workshop?.product_name || ''
+    const pBrand = brand || store.workshop?.brand || ''
+    const pCatId = categoryId || store.workshop?.category_id || ''
+    const pCountryId = countryId || store.workshop?.country_id || ''
+
+    store.setIsGeneratingPrompts(true)
+    try {
+      const res = await fetch('/api/images/workshop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_name: pName,
+          brand: pBrand,
+          category_id: pCatId,
+          country_id: pCountryId,
+          listing_id: listingId || store.workshop?.listing_id || undefined,
           workshop_id: store.workshopId || undefined,
         }),
       })
@@ -319,11 +354,56 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
             </Select>
           </div>
 
-          {/* Generate Prompts Button */}
+          {/* Start Workshop Button */}
           <div className="md:col-span-2">
             <Button
               onClick={handleCreateWorkshop}
               disabled={store.isGeneratingPrompts || !productName || !brand || !categoryId || !countryId}
+              className="w-full"
+              size="lg"
+            >
+              {store.isGeneratingPrompts ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Setting up workshop...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Start Image Workshop
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* State 2: Workshop exists, no prompts — Photos + Brief + Generate button */}
+      {hasWorkshop && !hasPrompts && (
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-lg font-semibold">Prepare Your Image Workshop</h2>
+            <p className="text-sm text-muted-foreground">
+              Upload product photos and generate a creative brief before creating image prompts.
+              The brief will strategically guide all generated concepts.
+            </p>
+          </div>
+
+          {/* Product Photos Section */}
+          <WorkshopProductPhotos />
+
+          {/* Creative Brief Section */}
+          <CreativeBriefPanel
+            categoryId={categoryId || store.workshop?.category_id || ''}
+            countryId={countryId || store.workshop?.country_id || ''}
+            listingId={listingId || store.workshop?.listing_id || undefined}
+          />
+
+          {/* Generate Prompts CTA */}
+          <div className="border-t pt-6">
+            <Button
+              onClick={handleGeneratePrompts}
+              disabled={store.isGeneratingPrompts}
               className="w-full"
               size="lg"
             >
@@ -335,44 +415,53 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
               ) : (
                 <>
                   <Sparkles className="mr-2 h-4 w-4" />
-                  Generate AI Image Prompts
+                  Generate Image Concepts
+                  {store.creativeBrief && ' (Informed by Creative Brief)'}
                 </>
               )}
             </Button>
+            {!store.creativeBrief && (
+              <p className="text-xs text-muted-foreground text-center mt-2">
+                Tip: Generate a Creative Brief first for better, more strategic image concepts.
+              </p>
+            )}
           </div>
         </div>
       )}
 
-      {/* After workshop created: Photos + Brief + Prompts */}
+      {/* State 3: Prompts exist — show prompt cards + generation */}
       {hasWorkshop && hasPrompts && (
         <div className="space-y-6">
-          {/* Product Photos Section */}
-          <WorkshopProductPhotos />
-
-          {/* Creative Brief Section */}
-          <CreativeBriefPanel
-            categoryId={categoryId || store.workshop?.category_id || ''}
-            countryId={countryId || store.workshop?.country_id || ''}
-            listingId={listingId || store.workshop?.listing_id || undefined}
-          />
-
-          {/* Regenerate button (uses creative brief) */}
-          {store.creativeBrief && (
-            <div className="flex items-center justify-center">
-              <Button
-                variant="outline"
-                onClick={handleRegeneratePrompts}
-                disabled={store.isGeneratingPrompts}
-              >
-                {store.isGeneratingPrompts ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4 mr-2" />
-                )}
-                Regenerate Prompts with Creative Brief
-              </Button>
+          {/* Collapsible Research Context */}
+          <details className="border rounded-lg">
+            <summary className="px-4 py-3 cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+              Research Context (Photos & Creative Brief)
+            </summary>
+            <div className="px-4 pb-4 space-y-4 border-t">
+              <div className="pt-4">
+                <WorkshopProductPhotos />
+              </div>
+              <CreativeBriefPanel
+                categoryId={categoryId || store.workshop?.category_id || ''}
+                countryId={countryId || store.workshop?.country_id || ''}
+                listingId={listingId || store.workshop?.listing_id || undefined}
+              />
+              <div className="flex items-center justify-center">
+                <Button
+                  variant="outline"
+                  onClick={handleRegeneratePrompts}
+                  disabled={store.isGeneratingPrompts}
+                >
+                  {store.isGeneratingPrompts ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4 mr-2" />
+                  )}
+                  Regenerate Prompts with Updated Context
+                </Button>
+              </div>
             </div>
-          )}
+          </details>
 
           {/* Prompts Section Header */}
           <div className="flex items-center justify-between">

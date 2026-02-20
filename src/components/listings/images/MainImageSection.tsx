@@ -82,7 +82,39 @@ export function MainImageSection({
     })
   }, [])
 
-  // Generate AI prompts
+  // Create empty workshop (no prompts yet — for photo upload + brief generation first)
+  const handleStartWorkshop = async () => {
+    store.setIsGeneratingPrompts(true)
+    try {
+      const res = await fetch('/api/images/workshop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_name: productName,
+          brand,
+          category_id: categoryId,
+          country_id: countryId,
+          listing_id: listingId || undefined,
+          image_type: 'main',
+          skip_prompt_generation: true,
+        }),
+      })
+
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to create workshop')
+
+      const { workshop } = json.data
+      store.setWorkshopId(workshop.id)
+      store.setWorkshop(workshop)
+      toast.success('Workshop created! Upload product photos and generate a creative brief before generating prompts.')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to create workshop')
+    } finally {
+      store.setIsGeneratingPrompts(false)
+    }
+  }
+
+  // Generate AI prompts (informed by creative brief + photos)
   const handleGeneratePrompts = async () => {
     store.setIsGeneratingPrompts(true)
     try {
@@ -96,6 +128,7 @@ export function MainImageSection({
           country_id: countryId,
           listing_id: listingId || undefined,
           image_type: 'main',
+          workshop_id: store.workshopId || undefined,
         }),
       })
 
@@ -357,38 +390,89 @@ export function MainImageSection({
   const hasImages = store.workshopImages.length > 0
   const totalTags = Object.values(store.elementTags).flat().length
 
+  const hasWorkshop = !!store.workshopId
+
   // --- Render ---
 
-  // State 1: No workshop yet
-  if (!hasPrompts && !store.isGeneratingPrompts) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
-        <h3 className="text-lg font-semibold mb-2">Main Image Concepts</h3>
-        <p className="text-sm text-muted-foreground mb-6 max-w-md">
-          AI will analyze your research data (keywords, reviews, Q&A) and generate 10-12 diverse
-          main image concepts optimized for Amazon CTR.
-        </p>
-        <Button onClick={handleGeneratePrompts} size="lg" className="gap-2">
-          <Sparkles className="h-4 w-4" />
-          Generate Main Image Concepts
-        </Button>
-      </div>
-    )
-  }
-
-  // Generating prompts state
+  // Generating state (loading spinner)
   if (store.isGeneratingPrompts) {
     return (
       <div className="flex flex-col items-center justify-center py-16">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
         <p className="text-sm text-muted-foreground">
-          Analyzing research & generating main image concepts...
+          {hasPrompts
+            ? 'Regenerating image concepts with creative brief...'
+            : hasWorkshop
+              ? 'Analyzing research & generating image concepts...'
+              : 'Setting up image workshop...'}
         </p>
       </div>
     )
   }
 
+  // State 1: No workshop yet — show "Start" button
+  if (!hasWorkshop && !hasPrompts) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
+        <h3 className="text-lg font-semibold mb-2">Main Image Workshop</h3>
+        <p className="text-sm text-muted-foreground mb-6 max-w-md">
+          Start by uploading product photos and generating a creative brief from your research data.
+          Then AI will create 10-12 image concepts informed by your brief.
+        </p>
+        <Button onClick={handleStartWorkshop} size="lg" className="gap-2">
+          <Sparkles className="h-4 w-4" />
+          Start Image Workshop
+        </Button>
+      </div>
+    )
+  }
+
+  // State 2: Workshop exists, no prompts yet — show photos + brief + "Generate Prompts" button
+  if (hasWorkshop && !hasPrompts) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h3 className="text-lg font-semibold">Prepare Your Image Workshop</h3>
+          <p className="text-sm text-muted-foreground">
+            Upload product photos and generate a creative brief before creating image prompts.
+            The brief will strategically guide all generated concepts.
+          </p>
+        </div>
+
+        {/* Product Photos Upload */}
+        <WorkshopProductPhotos />
+
+        {/* Creative Brief */}
+        <CreativeBriefPanel
+          categoryId={categoryId}
+          countryId={countryId}
+          listingId={listingId || undefined}
+        />
+
+        {/* Generate Prompts CTA */}
+        <div className="border-t pt-6">
+          <Button
+            onClick={handleGeneratePrompts}
+            disabled={store.isGeneratingPrompts}
+            className="w-full"
+            size="lg"
+          >
+            <Sparkles className="mr-2 h-4 w-4" />
+            Generate Image Concepts
+            {store.creativeBrief && ' (Informed by Creative Brief)'}
+          </Button>
+          {!store.creativeBrief && (
+            <p className="text-xs text-muted-foreground text-center mt-2">
+              Tip: Generate a Creative Brief first for better, more strategic image concepts.
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // State 3: Prompts exist — show concept cards with selection + generation
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -421,35 +505,38 @@ export function MainImageSection({
         </div>
       </div>
 
-      {/* Product Photos + Creative Brief + Regenerate */}
+      {/* Collapsible Research Context (photos + brief) for reference */}
       {!hasImages && (
-        <div className="space-y-4">
-          <WorkshopProductPhotos />
-
-          <CreativeBriefPanel
-            categoryId={categoryId}
-            countryId={countryId}
-            listingId={listingId || undefined}
-          />
-
-          {/* Regenerate Prompts Button */}
-          <div className="flex items-center justify-center">
-            <Button
-              variant="outline"
-              onClick={handleRegeneratePrompts}
-              disabled={store.isGeneratingPrompts}
-            >
-              {store.isGeneratingPrompts ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              {store.creativeBrief
-                ? 'Regenerate Prompts with Creative Brief'
-                : 'Regenerate All Prompts'}
-            </Button>
+        <details className="border rounded-lg">
+          <summary className="px-4 py-3 cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+            Research Context (Photos & Creative Brief)
+          </summary>
+          <div className="px-4 pb-4 space-y-4 border-t">
+            <div className="pt-4">
+              <WorkshopProductPhotos />
+            </div>
+            <CreativeBriefPanel
+              categoryId={categoryId}
+              countryId={countryId}
+              listingId={listingId || undefined}
+            />
+            {/* Regenerate Prompts Button */}
+            <div className="flex items-center justify-center">
+              <Button
+                variant="outline"
+                onClick={handleRegeneratePrompts}
+                disabled={store.isGeneratingPrompts}
+              >
+                {store.isGeneratingPrompts ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Regenerate Prompts with Updated Context
+              </Button>
+            </div>
           </div>
-        </div>
+        </details>
       )}
 
       {/* Provider + Model + Orientation bar */}

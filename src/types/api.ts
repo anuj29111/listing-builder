@@ -194,6 +194,7 @@ export interface GenerateWorkshopPromptsRequest {
   name?: string
   image_type?: 'main' | 'secondary' | 'video_thumbnail' | 'swatch'
   workshop_id?: string
+  skip_prompt_generation?: boolean
 }
 
 export interface GenerateWorkshopPromptsResponse {
