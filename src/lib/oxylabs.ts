@@ -364,6 +364,80 @@ export async function fetchReviews(
   return { success: true, data: content as OxylabsReviewsResponse }
 }
 
+// Fallback: fetch reviews via 'amazon' web scraper source with direct reviews page URL
+export async function fetchReviewsViaWebScraper(
+  asin: string,
+  domain: string,
+  page: number = 1,
+  sortBy: string = 'recent'
+): Promise<{ success: boolean; data?: OxylabsReviewsResponse; error?: string }> {
+  const { username, password } = await getCredentials()
+
+  const reviewsUrl = `https://www.amazon.${domain}/product-reviews/${asin}?sortBy=${sortBy}&pageNumber=${page}`
+
+  const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization:
+        'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
+    },
+    body: JSON.stringify({
+      source: 'amazon',
+      url: reviewsUrl,
+      parse: true,
+    }),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    console.error(`[fetchReviewsViaWebScraper] Oxylabs HTTP ${response.status} for ${asin} on ${domain}:`, text)
+    return {
+      success: false,
+      error: `Oxylabs web scraper error (${response.status}): ${text}`,
+    }
+  }
+
+  const json = await response.json()
+  const content = json.results?.[0]?.content
+
+  if (!content) {
+    const statusCode = json.results?.[0]?.status_code
+    console.error(`[fetchReviewsViaWebScraper] No content for ${asin} on ${domain}. status_code=${statusCode}`)
+    return { success: false, error: `No content from web scraper (status_code=${statusCode})` }
+  }
+
+  // The 'amazon' source with a reviews page URL should return parsed review data
+  // Map to OxylabsReviewsResponse format
+  const reviews: OxylabsReviewItem[] = (content.reviews || []).map((r: Record<string, unknown>) => ({
+    id: String(r.id || r.review_id || ''),
+    title: String(r.title || ''),
+    author: String(r.author || ''),
+    rating: Number(r.rating || 0),
+    content: String(r.content || r.text || ''),
+    timestamp: String(r.timestamp || r.date || ''),
+    is_verified: Boolean(r.is_verified || r.verified_purchase),
+    helpful_count: Number(r.helpful_count || r.helpful_votes || 0),
+    product_attributes: r.product_attributes ? String(r.product_attributes) : null,
+    images: Array.isArray(r.images) ? r.images.map(String) : [],
+  }))
+
+  return {
+    success: true,
+    data: {
+      url: content.url || reviewsUrl,
+      asin: content.asin || asin,
+      page: content.page || page,
+      pages: content.pages || content.last_page || 0,
+      reviews_count: content.reviews_count || content.total_reviews || 0,
+      rating: content.rating || 0,
+      rating_stars_distribution: content.rating_stars_distribution || content.rating_distribution || [],
+      reviews,
+      parse_status_code: content.parse_status_code || 12000,
+    },
+  }
+}
+
 // --- Amazon Q&A types ---
 
 export interface OxylabsQnAItem {
