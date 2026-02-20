@@ -14,14 +14,16 @@ import {
 import type { CompetitorAnalysisResult } from '@/types/api'
 import type { KeywordCoverage } from '@/types/database'
 
-// Flatten bullet object into 9-element array: [seo_concise, seo_medium, seo_longer, benefit_concise, ...]
-function flattenBullet(bullet: { seo?: { concise?: string; medium?: string; longer?: string }; benefit?: { concise?: string; medium?: string; longer?: string }; balanced?: { concise?: string; medium?: string; longer?: string } }): string[] {
+// Normalize bullet into string array of variations
+function normalizeBullet(bullet: string[] | Record<string, unknown>): string[] {
   if (!bullet) return []
-  if (Array.isArray(bullet)) return bullet as unknown as string[]
+  if (Array.isArray(bullet)) return bullet as string[]
+  // Legacy 3×3 object format fallback
+  const b = bullet as { seo?: { concise?: string; medium?: string; longer?: string }; benefit?: { concise?: string; medium?: string; longer?: string }; balanced?: { concise?: string; medium?: string; longer?: string } }
   return [
-    bullet.seo?.concise || '', bullet.seo?.medium || '', bullet.seo?.longer || '',
-    bullet.benefit?.concise || '', bullet.benefit?.medium || '', bullet.benefit?.longer || '',
-    bullet.balanced?.concise || '', bullet.balanced?.medium || '', bullet.balanced?.longer || '',
+    b.seo?.concise || '', b.seo?.medium || '', b.seo?.longer || '',
+    b.benefit?.concise || '', b.benefit?.medium || '', b.benefit?.longer || '',
+    b.balanced?.concise || '', b.balanced?.medium || '', b.balanced?.longer || '',
   ]
 }
 
@@ -310,7 +312,7 @@ export async function POST(request: Request) {
       const bulletRows = result.bullets.map((bullet, i) => ({
         listing_id: listing_id,
         section_type: `bullet_${i + 1}`,
-        variations: flattenBullet(bullet),
+        variations: normalizeBullet(bullet),
         selected_variation: 0,
         is_approved: false,
       }))

@@ -547,11 +547,7 @@ export interface TitlePhaseResult {
 
 export interface BulletsPhaseResult {
   planningMatrix: import('./database').BulletPlanningMatrixEntry[]
-  bullets: Array<{
-    seo: { concise: string; medium: string; longer: string }
-    benefit: { concise: string; medium: string; longer: string }
-    balanced: { concise: string; medium: string; longer: string }
-  }>
+  bullets: string[][]  // Each bullet is [variation1, variation2, variation3]
   keywordCoverage: import('./database').KeywordCoverage
 }
 
