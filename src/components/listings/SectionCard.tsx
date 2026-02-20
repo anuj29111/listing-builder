@@ -31,9 +31,12 @@ function getCharBadgeVariant(length: number, limit: number): 'default' | 'second
   return 'secondary'
 }
 
-function getVariationLabel(index: number, totalVariations: number): string {
-  // For bullets with 9 variations (3 strategies x 3 lengths), handled separately
-  // For standard sections with 3 variations:
+function getVariationLabel(index: number, totalVariations: number, isBullet?: boolean): string {
+  // Bullet sections use generic option labels (all variations are balanced/optimized)
+  if (isBullet) {
+    return `Option ${String.fromCharCode(65 + index)}`  // Option A, Option B, Option C
+  }
+  // Standard sections (title, description, etc.)
   if (totalVariations <= 5) {
     if (index === 0) return 'SEO'
     if (index === 1) return 'Benefit'
@@ -167,7 +170,7 @@ export function SectionCard({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-xs font-medium text-muted-foreground">
-                          {getVariationLabel(i, variations.length)}
+                          {getVariationLabel(i, variations.length, isBulletSection)}
                         </span>
                         <span className="text-[10px] text-muted-foreground">
                           {text.length} chars
@@ -180,7 +183,7 @@ export function SectionCard({
                       size="sm"
                       className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                       onClick={() => onFinalTextChange(section.id, text)}
-                      title={`Use ${getVariationLabel(i, variations.length)}`}
+                      title={`Use ${getVariationLabel(i, variations.length, isBulletSection)}`}
                     >
                       <Copy className="h-3 w-3 mr-1" />
                       Use

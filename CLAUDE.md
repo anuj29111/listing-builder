@@ -26,7 +26,7 @@ Internal tool for 10-15 people managing Amazon FBA brands across 8-10 internatio
 
 **Data flow:** CSV upload → Supabase Storage → Claude Analysis → Cached JSONB → Listing Generation → Modular Chat Refinement → Export
 
-**Generates:** Title, 5 bullet points, description, search terms, subject matter — per product, per marketplace.
+**Generates:** Title, 5-10 bullet points, description, search terms, subject matter — per product, per marketplace.
 
 ---
 
@@ -108,7 +108,7 @@ npm run lint         # ESLint
 12. **Research page coordination** — `ResearchPageClient` wraps `ResearchStatusMatrix` + `ResearchClient`. Matrix click → sets selection → scrolls.
 19. **Supabase join returns array** — `select('field:table(cols)')` returns array not object. Normalize with `Array.isArray(x) ? x[0] || null : x`.
 20. **Image builder** — Dual entry: `/listings/[id]` and `/images` (standalone). 5 tabs. `image_type` column filters workshops per tab. Drafts panel resumes saved workshops.
-21. **Listings** — Bullet variations: 9 per bullet as flat array, `flattenBullet()` handles legacy 3-element. SectionCard: `final_text` = approved. Phased generation: 4 sequential API calls via `/api/listings/generate` with `phase` param.
+21. **Listings** — Bullet variations: 3 per bullet (was 9, reduced for clarity). SectionCard: `final_text` = approved. Phased generation: 4 sequential API calls via `/api/listings/generate` with `phase` param. Title generation has post-gen length validation with retry (LLMs can't count chars). Bullets support 5-10 dynamically. Collapsible bullet containers in wizard + review. Auto-advance from generation to Review step.
 22. **Competitor analysis** — `analysis_type='competitor_analysis'` in `lb_research_analysis`. Max 5 competitors, 5000 chars each.
 23. **Admin settings keys are lowercase** — `anthropic_api_key`, `openai_api_key`, `google_ai_api_key`.
 24. **Image providers** — `openai` (GPT Image 1.5), `gemini` (Flash + Nano Banana Pro), `higgsfield` (queue-based via `hf_prompt_queue`). Models: `nano-banana-pro`, `chatgpt`, `seedream`, `soul`.
@@ -144,11 +144,22 @@ npm run lint         # ESLint
 35. **Seller Pull API** — `/api/seller-pull` (pull), `/api/seller-pull/import` (upsert), `/api/seller-pull/scrape` (sequential lookup), `/api/seller-pull/variations` (discover siblings). `fetchSellerProducts()` paginates 3 pages/batch, max 20 pages.
 36. **Seller variation discovery** — Only ~1 child per variation in search. `lookupAsin()` on parent ASINs finds hidden siblings.
 37. **Map iteration** — Use `Array.from(map.entries()).forEach()` to avoid `--downlevelIteration` errors.
+38. **Creative Brief layer** — `lb_image_workshops` has `creative_brief JSONB`, `product_photos TEXT[]`, `product_photo_descriptions JSONB`. Brief is generated via `POST /api/images/workshop/creative-brief` (uses all research + Market Intelligence). Prepended to `buildImageResearchContext()` and propagates to ALL 6 prompt builders automatically.
+39. **Product photo upload** — `POST /api/images/workshop/upload-photos` (FormData → Supabase Storage `lb-images/product-photos/{workshopId}/`). `POST /api/images/workshop/analyze-photos` → Claude Vision base64 analysis. Anthropic SDK 0.24.3 requires base64 images not URL-based — use `fetchImageAsBase64()` helper.
+40. **ConceptCard `imageType` prop** — Controls which metadata fields show inline. Main: camera_angle, frame_fill, emotional_target, lighting. Secondary: target_audience, mood, layout_type + color swatches + sub_headline + usp always visible. Thumbnail: camera, mood, lighting. Swatch: minimal.
+41. **Workshop Step 1 sub-flow** — After generating prompts: shows `WorkshopProductPhotos` (drag-drop upload + analyze), `CreativeBriefPanel` (expandable sections for pain points, USPs, personas, visual direction), then prompt cards with inline metadata.
+
+42. **Listing quality rules** — Titles: 185-200 chars (post-gen validation + retry). Bullets: sentence case only (NO ALL CAPS except acronyms), max 250 chars, 3 variations per bullet (not 9). Search terms: no word repetition from title/bullets/desc, lowercase, no brand/ASINs. Backend attributes: 25+ Amazon categories (material, target_audience, special_features, etc.).
+43. **DB constraints for bullets** — `lb_listing_sections_section_type_check` must include `bullet_6` through `bullet_10`. `lb_countries`: `bullet_limit=250`, `bullet_count=10`.
 
 ---
 
 ## Pending Tasks
 
+- **Listing Builder — 3 remaining fixes (resume on `claude/determined-shockley` branch):**
+  1. DB migration: ALTER `lb_listing_sections_section_type_check` to add `bullet_6` through `bullet_10`
+  2. Bullet character length validation with retry (same pattern as title validation in `generateTitlePhase`)
+  3. Reduce bullet variations from 9 (3 strategies × 3 lengths) to 3 total per bullet — merge all styles into one approach
 - **e2e Testing (all modules):** Phased generation (4-phase wizard + keyword coverage), Image Builder (all 5 tabs + drafts), ASIN Lookup (expanded fields + Q&A), Keyword Search (organic/sponsored tabs), Market Intelligence (single + multi-keyword, product selection, 4-phase analysis, Q&A, lightbox, CSV export, Our Product badges, live search), Seller Pull (multi-country, smart categories, bundle toggle, import/scrape/variations flow), Collections/Tags/Notes (CRUD, tag autocomplete, collection picker, inline editing, tag filter)
 - **Oxylabs Plan Upgrade + Full Reviews Testing:**
   1. Upgrade Oxylabs plan to unlock `amazon_reviews` source

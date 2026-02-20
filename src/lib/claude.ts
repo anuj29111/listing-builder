@@ -1430,13 +1430,11 @@ KEYWORD PLACEMENT PRIORITY FOR BULLETS:
 - Bullets 6-${charLimits.bulletCount} (ONLY IF NEEDED): Cover remaining low-medium keywords, Rufus AI questions, or underserved review themes
 
 STEP 2 — GENERATE BULLETS:
-For EACH bullet, generate 3 strategies × 3 lengths = 9 variations:
-- **SEO strategy**: keyword-dense, search-optimized
-- **Benefit strategy**: emotional, customer-focused, addresses pain points
-- **Balanced strategy**: keywords + benefits naturally combined
-- **Concise**: 110-140 characters
-- **Medium**: 140-180 characters
-- **Longer**: 180-${charLimits.bullet} characters (NEVER exceed)
+For EACH bullet, generate exactly 3 distinct variations:
+- Each variation must be a complete, well-optimized bullet that seamlessly blends SEO keywords with customer benefits
+- Target length: 180-${charLimits.bullet} characters per variation (NEVER exceed ${charLimits.bullet})
+- Each variation should use different keyword combinations, phrasings, or emphasis angles while covering the same planningMatrix focus
+- All 3 variations should be polished and ready for use — not "SEO-only" or "benefit-only" versions
 
 === OUTPUT FORMAT ===
 Return a JSON object with this EXACT structure:
@@ -1452,11 +1450,7 @@ Return a JSON object with this EXACT structure:
     }
   ],
   "bullets": [
-    {
-      "seo": { "concise": "SEO bullet 110-140 chars", "medium": "SEO bullet 140-180 chars", "longer": "SEO bullet 180-${charLimits.bullet} chars" },
-      "benefit": { "concise": "...", "medium": "...", "longer": "..." },
-      "balanced": { "concise": "...", "medium": "...", "longer": "..." }
-    }
+    ["Variation 1 for bullet 1 (180-${charLimits.bullet} chars)", "Variation 2 for bullet 1", "Variation 3 for bullet 1"]
   ],
   "keywordCoverage": {
     "placed": [
@@ -1478,8 +1472,8 @@ Return a JSON object with this EXACT structure:
 === RULES ===
 1. Use normal sentence case — NEVER use ALL CAPS for any words (except recognized acronyms like UV, LED, FDA). Amazon prohibits ALL CAPS in bullet points. Start each bullet with a descriptive benefit phrase followed by a dash or colon, then details.
 2. Each bullet must serve its planningMatrix purpose — no two bullets should overlap in primary focus
-3. Generate between 5 and ${charLimits.bulletCount} bullets based on research depth. Each bullet must have all 9 variations. Only create bullets beyond 5 if there are enough remaining keywords, Q&A gaps, or review themes to justify them.
-4. STRICT character limits — count characters carefully. NEVER exceed ${charLimits.bullet} characters per bullet variation.
+3. Generate between 5 and ${charLimits.bulletCount} bullets based on research depth. Each bullet must have exactly 3 variations (as a JSON array of 3 strings). Only create bullets beyond 5 if there are enough remaining keywords, Q&A gaps, or review themes to justify them.
+4. STRICT character limits — count characters carefully. NEVER exceed ${charLimits.bullet} characters per bullet variation. Target 180-${charLimits.bullet} characters.
 5. ALL content in ${language}
 6. Only return valid JSON, no markdown fences or explanation`
 }
@@ -1492,27 +1486,74 @@ export async function generateBulletsPhase(
   const client = await getClient()
   const model = await getModel()
   const prompt = buildBulletsPhasePrompt(input, confirmedTitle, keywordCoverage)
+  const maxChars = input.charLimits.bullet
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: 32768,
-    messages: [{ role: 'user', content: prompt }],
-  })
+  let totalTokens = 0
+  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: prompt }]
 
-  if (response.stop_reason === 'max_tokens') {
-    throw new Error('Bullet generation was cut off due to token limit. Please report this issue.')
+  // Try up to 2 rounds: initial generation + 1 retry for over-limit bullets
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await client.messages.create({
+      model,
+      max_tokens: 32768,
+      messages,
+    })
+
+    if (response.stop_reason === 'max_tokens') {
+      throw new Error('Bullet generation was cut off due to token limit. Please report this issue.')
+    }
+
+    const text = response.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+
+    totalTokens += (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+    const jsonText = stripMarkdownFences(text)
+    const result = JSON.parse(jsonText) as BulletsPhaseResult
+
+    // Normalize bullets to string[][] (handle legacy object format)
+    result.bullets = result.bullets.map((bullet) => {
+      if (Array.isArray(bullet)) return bullet as string[]
+      const b = bullet as unknown as { seo?: string; benefit?: string; balanced?: string }
+      return [b.seo || '', b.benefit || '', b.balanced || ''].filter(Boolean)
+    })
+
+    // Validate character lengths
+    const overLimitBullets: { bulletNum: number; varIdx: number; len: number }[] = []
+    result.bullets.forEach((variations, bulletIdx) => {
+      variations.forEach((v, varIdx) => {
+        if (v.length > maxChars) {
+          overLimitBullets.push({ bulletNum: bulletIdx + 1, varIdx: varIdx + 1, len: v.length })
+        }
+      })
+    })
+
+    if (overLimitBullets.length === 0 || attempt === 1) {
+      // Hard-trim any still-over variations on final attempt
+      result.bullets = result.bullets.map((variations) =>
+        variations.map((v) => v.length > maxChars ? v.slice(0, maxChars) : v)
+      )
+      return { result, model, tokensUsed: totalTokens }
+    }
+
+    // Bullets over limit — send follow-up asking to shorten
+    const feedback = overLimitBullets
+      .map((b) => `- Bullet ${b.bulletNum}, Variation ${b.varIdx}: ${b.len} chars (LIMIT: ${maxChars})`)
+      .join('\n')
+
+    messages.push(
+      { role: 'assistant', content: text },
+      {
+        role: 'user',
+        content: `PROBLEM: ${overLimitBullets.length} bullet variations EXCEED the ${maxChars} character limit.\n\n${feedback}\n\nRewrite ALL bullets ensuring EVERY variation is ${maxChars} characters or fewer. Trim wordiness, remove filler phrases, use shorter synonyms. Return the same JSON format with shortened bullets.`,
+      }
+    )
   }
 
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    .map((b) => b.text)
-    .join('')
-
-  const jsonText = stripMarkdownFences(text)
-  const result = JSON.parse(jsonText) as BulletsPhaseResult
-  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
-
-  return { result, model, tokensUsed }
+  // Should not reach here, but just in case
+  throw new Error('Bullet generation failed after retry')
 }
 
 // --- Phase 3: Description + Search Terms Generation ---

@@ -236,14 +236,15 @@ export async function POST(request: Request) {
           competitorAnalysis,
         }
 
-        // Flatten bullet object into 9-element array
-        const flattenBullet = (bullet: { seo?: { concise: string; medium: string; longer: string }; benefit?: { concise: string; medium: string; longer: string }; balanced?: { concise: string; medium: string; longer: string } }): string[] => {
+        // Normalize bullet into string array of variations
+        const normalizeBullet = (bullet: string[] | Record<string, unknown>): string[] => {
           if (!bullet) return []
-          if (Array.isArray(bullet)) return bullet as unknown as string[]
+          if (Array.isArray(bullet)) return bullet as string[]
+          const b = bullet as { seo?: { concise?: string; medium?: string; longer?: string }; benefit?: { concise?: string; medium?: string; longer?: string }; balanced?: { concise?: string; medium?: string; longer?: string } }
           return [
-            bullet.seo?.concise || '', bullet.seo?.medium || '', bullet.seo?.longer || '',
-            bullet.benefit?.concise || '', bullet.benefit?.medium || '', bullet.benefit?.longer || '',
-            bullet.balanced?.concise || '', bullet.balanced?.medium || '', bullet.balanced?.longer || '',
+            b.seo?.concise || '', b.seo?.medium || '', b.seo?.longer || '',
+            b.benefit?.concise || '', b.benefit?.medium || '', b.benefit?.longer || '',
+            b.balanced?.concise || '', b.balanced?.medium || '', b.balanced?.longer || '',
           ]
         }
 
@@ -260,7 +261,7 @@ export async function POST(request: Request) {
         // --- Phase 2: Bullets ---
         const bulletsResult = await generateBulletsPhase(genInput, confirmedTitle, keywordCov)
         totalTokens += bulletsResult.tokensUsed
-        const confirmedBullets = bulletsResult.result.bullets.map((b) => flattenBullet(b)[0] || '')
+        const confirmedBullets = bulletsResult.result.bullets.map((b) => normalizeBullet(b)[0] || '')
         keywordCov = bulletsResult.result.keywordCoverage
 
         // --- Phase 3: Description + Search Terms ---
@@ -335,12 +336,12 @@ export async function POST(request: Request) {
           final_text: confirmedTitle,
         })
 
-        // Bullet sections (5 bullets × 9 variations each)
+        // Bullet sections (5-10 bullets × 3 variations each)
         for (let b = 0; b < bulletsResult.result.bullets.length; b++) {
           sectionRows.push({
             listing_id: listing.id,
             section_type: `bullet_${b + 1}`,
-            variations: flattenBullet(bulletsResult.result.bullets[b]),
+            variations: normalizeBullet(bulletsResult.result.bullets[b]),
             selected_variation: 0,
             is_approved: true,
             final_text: confirmedBullets[b] || '',
