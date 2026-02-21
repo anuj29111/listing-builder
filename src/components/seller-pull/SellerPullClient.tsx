@@ -855,7 +855,14 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                       <td className="px-3 py-2">
                         <select
                           value={productCategory}
-                          onChange={(e) => setProductCategory(product.asin, e.target.value)}
+                          onChange={(e) => {
+                            if (e.target.value === '__add_new__') {
+                              e.target.value = productCategory || ''
+                              setShowNewCategory(true)
+                            } else {
+                              setProductCategory(product.asin, e.target.value)
+                            }
+                          }}
                           className={`w-full rounded border px-2 py-1 text-xs bg-background focus:outline-none focus:ring-1 focus:ring-ring ${
                             !productCategory && !product.exists_in_system
                               ? 'border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400'
@@ -867,6 +874,7 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                           {categories.map((cat) => (
                             <option key={cat} value={cat}>{cat}</option>
                           ))}
+                          <option value="__add_new__">+ Add new category...</option>
                         </select>
                         {!productCategory && !product.exists_in_system && (
                           <span className="text-[10px] text-orange-500 mt-0.5 block">Needs category</span>
