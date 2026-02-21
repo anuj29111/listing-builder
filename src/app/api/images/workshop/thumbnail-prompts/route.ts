@@ -112,15 +112,45 @@ export async function POST(request: Request) {
       }
     }
 
-    // Fetch creative brief from existing workshop if available
+    // Fetch creative brief and product photos from existing workshop if available
     let creativeBrief: CreativeBrief | null = null
+    let sourceProductPhotos: string[] | null = null
+    let sourcePhotoDescriptions: Record<string, unknown> | null = null
     if (workshop_id) {
       const { data: existingWorkshop } = await supabase
         .from('lb_image_workshops')
-        .select('creative_brief')
+        .select('creative_brief, product_photos, product_photo_descriptions')
         .eq('id', workshop_id)
         .single()
       creativeBrief = (existingWorkshop?.creative_brief as unknown as CreativeBrief) || null
+      sourceProductPhotos = (existingWorkshop?.product_photos as string[]) || null
+      sourcePhotoDescriptions = (existingWorkshop?.product_photo_descriptions as Record<string, unknown>) || null
+    }
+
+    // If no product photos from workshop_id, look up from a main workshop for this product
+    if (!sourceProductPhotos || sourceProductPhotos.length === 0) {
+      const mainWorkshopQuery = supabase
+        .from('lb_image_workshops')
+        .select('product_photos, product_photo_descriptions')
+        .eq('image_type', 'main')
+        .eq('category_id', category_id)
+        .eq('country_id', country_id)
+        .not('product_photos', 'is', null)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+
+      if (listing_id) {
+        mainWorkshopQuery.eq('listing_id', listing_id)
+      }
+
+      const { data: mainWorkshops } = await mainWorkshopQuery
+      if (mainWorkshops?.[0]) {
+        const photos = mainWorkshops[0].product_photos as string[]
+        if (photos?.length > 0) {
+          sourceProductPhotos = photos
+          sourcePhotoDescriptions = (mainWorkshops[0].product_photo_descriptions as Record<string, unknown>) || null
+        }
+      }
     }
 
     const { result } = await generateVideoThumbnailPrompts({
@@ -146,7 +176,7 @@ export async function POST(request: Request) {
       creativeBrief,
     })
 
-    // Create workshop record with prompts persisted
+    // Create workshop record with prompts persisted (inherit product photos from main workshop)
     const workshopName = `${brand} ${product_name} — Video Thumbnails — ${new Date().toLocaleDateString()}`
     const allIndices = result.concepts.map((_: unknown, i: number) => i)
     const { data: workshop, error: insertError } = await adminClient
@@ -166,6 +196,10 @@ export async function POST(request: Request) {
         selected_prompt_indices: allIndices,
         image_type: 'video_thumbnail',
         created_by: lbUser.id,
+        ...(sourceProductPhotos && sourceProductPhotos.length > 0 && {
+          product_photos: sourceProductPhotos,
+          product_photo_descriptions: sourcePhotoDescriptions,
+        }),
       })
       .select()
       .single()
