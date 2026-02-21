@@ -103,7 +103,11 @@ export async function PATCH(
           return vars[sec.selected_variation] || vars[0] || ''
         }
 
-        const bulletPoints = [1, 2, 3, 4, 5].map((n) => getSelectedText(`bullet_${n}`))
+        // Dynamic bullet count — sync all bullet sections that exist (supports 5-10)
+        const bulletSections = allSections
+          .filter((s) => s.section_type.startsWith('bullet_'))
+          .sort((a, b) => parseInt(a.section_type.split('_')[1]) - parseInt(b.section_type.split('_')[1]))
+        const bulletPoints = bulletSections.map((s) => getSelectedText(s.section_type))
 
         await adminClient
           .from('lb_listings')

@@ -58,6 +58,7 @@ export interface LbResearchAnalysis {
   category_id: string
   country_id: string
   analysis_type: 'keyword_analysis' | 'review_analysis' | 'qna_analysis' | 'competitor_analysis' | 'market_intelligence'
+  source: 'csv' | 'file' | 'merged' | 'linked'
   source_file_ids: string[]
   analysis_result: Record<string, unknown>
   market_intelligence_id: string | null
@@ -162,7 +163,7 @@ export interface ExistingListingText {
 export interface LbListingSection {
   id: string
   listing_id: string
-  section_type: 'title' | 'bullet_1' | 'bullet_2' | 'bullet_3' | 'bullet_4' | 'bullet_5' | 'description' | 'search_terms' | 'subject_matter'
+  section_type: 'title' | 'bullet_1' | 'bullet_2' | 'bullet_3' | 'bullet_4' | 'bullet_5' | 'bullet_6' | 'bullet_7' | 'bullet_8' | 'bullet_9' | 'bullet_10' | 'description' | 'search_terms' | 'subject_matter'
   variations: unknown[]
   selected_variation: number
   is_approved: boolean
