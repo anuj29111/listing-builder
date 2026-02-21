@@ -80,9 +80,9 @@ export async function generateGeminiImage(input: GeminiGenerateInput): Promise<G
         },
       })
     }
-    // Prefix prompt with reference instruction
+    // Prefix prompt with strong reference instruction
     parts.push({
-      text: `Use these reference photos to match the exact product appearance, packaging, labels, and branding. Generate a product image: ${input.prompt}`,
+      text: `CRITICAL: The images above show the REAL product. You MUST recreate this exact product — same colors, same packaging, same labels, same design, same branding, same shape. Do NOT invent or change any visual detail. The output image must look like a professional photograph of THIS specific product, not a generic or imagined version. Match the product exactly as shown in the reference photos, then apply the following photography direction:\n\nGenerate a product image: ${input.prompt}`,
     })
   } else {
     parts.push({ text: `Generate a product image: ${input.prompt}` })

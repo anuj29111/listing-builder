@@ -4,6 +4,9 @@ import { getAuthenticatedUser } from '@/lib/auth'
 import { generateSwatchPrompts } from '@/lib/claude'
 import type { GenerateSwatchPromptsRequest } from '@/types/api'
 
+// Allow up to 5 minutes for Claude swatch prompt generation
+export const maxDuration = 300
+
 export async function POST(request: Request) {
   try {
     const { lbUser } = await getAuthenticatedUser()

@@ -69,7 +69,7 @@ export async function generateOpenAIImage(input: OpenAIGenerateInput): Promise<O
       })
     )
 
-    const editPrompt = `Use these reference photos to match the exact product appearance, packaging, labels, and branding. ${input.prompt}`
+    const editPrompt = `CRITICAL: The attached reference photos show the REAL product. You MUST recreate this exact product — same colors, same packaging, same labels, same design, same branding, same shape. Do NOT invent or change any visual detail. The output image must look like a professional photograph of THIS specific product, not a generic or imagined version. Match the product exactly as shown in the reference photos, then apply the following photography direction:\n\n${input.prompt}`
 
     const response = await client.images.edit({
       model: EDIT_MODEL,

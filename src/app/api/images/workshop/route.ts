@@ -9,6 +9,9 @@ import {
 } from '@/lib/claude'
 import type { GenerateWorkshopPromptsRequest, CompetitorAnalysisResult, CreativeBrief } from '@/types/api'
 
+// Main image prompts generate 12 detailed concepts — Claude can take 60-90s
+export const maxDuration = 300
+
 export async function POST(request: Request) {
   try {
     const { lbUser } = await getAuthenticatedUser()

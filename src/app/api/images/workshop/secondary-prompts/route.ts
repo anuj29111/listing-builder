@@ -9,6 +9,9 @@ import {
 } from '@/lib/claude'
 import type { GenerateSecondaryPromptsRequest, CompetitorAnalysisResult, CreativeBrief } from '@/types/api'
 
+// Secondary prompts generate 9 rich concepts — Claude can take 60-90s
+export const maxDuration = 300
+
 export async function POST(request: Request) {
   try {
     const { lbUser } = await getAuthenticatedUser()

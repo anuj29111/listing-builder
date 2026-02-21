@@ -14,6 +14,9 @@ import type {
 } from '@/types/api'
 import type { MarketIntelligenceResult } from '@/types/market-intelligence'
 
+// Allow up to 5 minutes for Claude creative brief generation
+export const maxDuration = 300
+
 export async function POST(request: Request) {
   try {
     await getAuthenticatedUser()

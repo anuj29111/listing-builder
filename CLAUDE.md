@@ -156,14 +156,17 @@ npm run lint         # ESLint
 46. **Listing section UNIQUE constraint** — `lb_listing_sections` has UNIQUE on `(listing_id, section_type)`. All section inserts use `.upsert(..., { onConflict: 'listing_id,section_type' })` to prevent duplicates on retry/re-generation.
 47. **Bullet variations format** — `BulletsPhaseResult.bullets` is `string[][]` (not nested strategy objects). Each bullet gets 3 flat variations. `normalizeBullet()` handles legacy format backward compat.
 
+48. **MI background analysis** — `/collect` only does keyword search + product lookup (~30s). After user selects products, `/select` fires `backgroundAnalyze()` (fire-and-forget) in `src/lib/market-intelligence.ts` — fetches reviews + Q&A + runs 4-phase Claude analysis. Status: `pending → collecting → awaiting_selection → analyzing → completed/failed`. No separate `/analyze` route. GET `[id]` has 30-min stale detection. Frontend auto-resumes in-progress jobs on mount.
+
 44. **Own Product badge** — ASIN Lookup rows show green "Own" badge for ASINs in `lb_products`. Batch API: `GET /api/products/check-asins?asins=...`. Collection badges (colored initials) also inline on rows.
 45. **Oxylabs source limitations** — `amazon_reviews` source returns "Unsupported source" on current plan. `amazon` web scraper can't parse URLs. Fallback: `amazon_product` top reviews (~13). Code auto-detects and shows clean message.
+49. **MI in Research** — MI replaces Competitor Analysis in Research. Bridge record pattern: `lb_research_analysis` row with `analysis_type='market_intelligence'`, `source='linked'`, `market_intelligence_id` FK → `lb_market_intelligence`. API: `GET/POST/DELETE /api/research/market-intelligence`. `MarketIntelligenceSelector` component shows above Step 2. Product count: use `top_asins` as fallback when `selected_asins` is null (single-keyword MI). `analyzed_by` FK → `lb_users.id` (use `lbUser.id`, NOT `authUser.id`).
+50. **MI auto-resolve in generation** — All listing + image generation routes auto-resolve linked MI from bridge record. Pattern: find `analysis_type='market_intelligence' && source='linked'` → fetch full MI via `market_intelligence_id` FK. `buildCompetitiveSection()` helper in `claude.ts` prefers MI over legacy competitor data. Flows into `buildSharedContext()`, `buildImageResearchContext()`, and all 8 image/video generation routes.
 
 ---
 
 ## Pending Tasks
 
-- **Market Intelligence — Background Jobs:** Refactor MI to run analysis in background (like Seller Pull jobs pattern). Currently blocks the UI during 4-phase Claude analysis. Use `lb_batch_jobs` or new `lb_market_intelligence_jobs` table with status tracking.
 - **e2e Testing (all modules):** Phased generation (4-phase wizard + keyword coverage), Image Builder (all 5 tabs + drafts), ASIN Lookup (expanded fields + Q&A), Keyword Search (organic/sponsored tabs), Market Intelligence (single + multi-keyword, product selection, 4-phase analysis, Q&A, lightbox, CSV export, Our Product badges, live search), Seller Pull (multi-country, smart categories, bundle toggle, import/scrape/variations flow)
 - **Oxylabs `amazon_reviews` Source:** Contact Oxylabs to enable `amazon_reviews` source on plan. Code is ready — auto-detects and falls back.
 - **Seller Pull — Automated Periodic Pulls:** Automate regular pulls at intervals (not yet built)

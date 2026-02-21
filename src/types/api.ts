@@ -172,7 +172,9 @@ export interface ImageChatResponse {
 
 export interface WorkshopPrompt {
   label: string
+  product_depiction: string
   prompt: string
+  research_rationale: string
   approach: string
   frame_fill: string
   camera_angle: string

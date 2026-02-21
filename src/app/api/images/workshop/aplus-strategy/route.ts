@@ -9,6 +9,9 @@ import {
 } from '@/lib/claude'
 import type { GenerateAPlusStrategyRequest, CompetitorAnalysisResult, CreativeBrief } from '@/types/api'
 
+// Allow up to 5 minutes for Claude A+ strategy generation
+export const maxDuration = 300
+
 export async function POST(request: Request) {
   try {
     await getAuthenticatedUser()

@@ -588,6 +588,8 @@ export function WorkshopStep1Setup({ listings, categories, countries }: Step1Pro
                   metadata={buildMainImageMetadata(p)}
                   colorSwatches={p.color_direction ? undefined : undefined}
                   details={[
+                    { label: 'Product Depiction', value: p.product_depiction || '' },
+                    { label: 'Research Rationale', value: p.research_rationale || '' },
                     { label: 'Camera Angle', value: p.camera_angle || '' },
                     { label: 'Lighting', value: p.lighting || '' },
                     { label: 'Frame Fill', value: p.frame_fill || '' },

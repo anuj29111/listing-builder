@@ -117,6 +117,9 @@ export function MainImageSection({
   // Generate AI prompts (informed by creative brief + photos)
   const handleGeneratePrompts = async () => {
     store.setIsGeneratingPrompts(true)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 180000) // 3 minutes client timeout
+
     try {
       const res = await fetch('/api/images/workshop', {
         method: 'POST',
@@ -130,8 +133,10 @@ export function MainImageSection({
           image_type: 'main',
           workshop_id: store.workshopId || undefined,
         }),
+        signal: controller.signal,
       })
 
+      clearTimeout(timeoutId)
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to generate prompts')
 
@@ -142,7 +147,12 @@ export function MainImageSection({
       store.setCalloutTexts(callout_suggestions)
       toast.success(`Generated ${prompts.length} image concepts!`)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to generate prompts')
+      clearTimeout(timeoutId)
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        toast.error('Generation timed out after 3 minutes. Please try again.')
+      } else {
+        toast.error(e instanceof Error ? e.message : 'Failed to generate prompts')
+      }
     } finally {
       store.setIsGeneratingPrompts(false)
     }
@@ -151,6 +161,9 @@ export function MainImageSection({
   // Regenerate all prompts (picks up creative brief if it exists)
   const handleRegeneratePrompts = async () => {
     store.setIsGeneratingPrompts(true)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 180000)
+
     try {
       const res = await fetch('/api/images/workshop', {
         method: 'POST',
@@ -164,8 +177,10 @@ export function MainImageSection({
           image_type: 'main',
           workshop_id: store.workshopId || undefined,
         }),
+        signal: controller.signal,
       })
 
+      clearTimeout(timeoutId)
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to regenerate prompts')
 
@@ -176,7 +191,12 @@ export function MainImageSection({
       store.setCalloutTexts(callout_suggestions)
       toast.success(`Regenerated ${prompts.length} image prompts!`)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to regenerate prompts')
+      clearTimeout(timeoutId)
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        toast.error('Regeneration timed out after 3 minutes. Please try again.')
+      } else {
+        toast.error(e instanceof Error ? e.message : 'Failed to regenerate prompts')
+      }
     } finally {
       store.setIsGeneratingPrompts(false)
     }
@@ -575,6 +595,8 @@ export function MainImageSection({
                 imageType="main"
                 metadata={buildMainImageMetadata(p)}
                 details={[
+                  { label: 'Product Depiction', value: p.product_depiction || '' },
+                  { label: 'Research Rationale', value: p.research_rationale || '' },
                   { label: 'Camera Angle', value: p.camera_angle || '' },
                   { label: 'Lighting', value: p.lighting || '' },
                   { label: 'Frame Fill', value: p.frame_fill || '' },

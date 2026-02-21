@@ -4,6 +4,9 @@ import { getAuthenticatedUser } from '@/lib/auth'
 import { generateAndStoreImage } from '@/lib/image-generation'
 import type { GenerateImageRequest } from '@/types/api'
 
+// Allow up to 5 minutes for image generation via OpenAI/Gemini/Higgsfield
+export const maxDuration = 300
+
 export async function POST(request: Request) {
   try {
     const { lbUser } = await getAuthenticatedUser()

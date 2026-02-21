@@ -7,6 +7,9 @@ import type { LbImageGeneration } from '@/types/database'
 
 const BATCH_SIZE = 3 // Max concurrent image generations
 
+// Allow up to 5 minutes for batch image generation across multiple providers
+export const maxDuration = 300
+
 export async function POST(request: Request) {
   try {
     const { lbUser } = await getAuthenticatedUser()

@@ -83,6 +83,9 @@ export function SecondaryImageSection({
   // Generate secondary concepts
   const handleGenerateConcepts = async () => {
     setIsGeneratingPrompts(true)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 180000) // 3 minutes client timeout
+
     try {
       const res = await fetch('/api/images/workshop/secondary-prompts', {
         method: 'POST',
@@ -94,8 +97,10 @@ export function SecondaryImageSection({
           country_id: countryId,
           listing_id: listingId || undefined,
         }),
+        signal: controller.signal,
       })
 
+      clearTimeout(timeoutId)
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to generate concepts')
 
@@ -104,7 +109,12 @@ export function SecondaryImageSection({
       setConcepts(newConcepts)
       toast.success(`Generated ${newConcepts.length} secondary image concepts!`)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to generate concepts')
+      clearTimeout(timeoutId)
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        toast.error('Generation timed out after 3 minutes. Please try again.')
+      } else {
+        toast.error(e instanceof Error ? e.message : 'Failed to generate concepts')
+      }
     } finally {
       setIsGeneratingPrompts(false)
     }

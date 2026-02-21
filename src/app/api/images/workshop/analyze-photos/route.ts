@@ -4,6 +4,9 @@ import { getAuthenticatedUser } from '@/lib/auth'
 import { analyzeProductPhotos } from '@/lib/claude'
 import type { AnalyzeProductPhotosRequest } from '@/types/api'
 
+// Allow up to 5 minutes for Claude vision photo analysis
+export const maxDuration = 300
+
 export async function POST(request: Request) {
   try {
     await getAuthenticatedUser()
