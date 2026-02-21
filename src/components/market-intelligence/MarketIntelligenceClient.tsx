@@ -91,16 +91,6 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
         setSelectedAsins(new Set(validProducts.map(p => p.asin as string)))
         setView('product_selection')
         toast.success(`Found ${validProducts.length} products. Select which to analyze.`)
-      } else if (data.status === 'collected') {
-        // Auto-trigger analysis (from selection confirmation)
-        stopPolling()
-        setProgressData({ step: 'phase_1', current: 0, total: 4, message: 'Starting AI analysis (Phase 1)...' })
-        try {
-          await fetch(`/api/market-intelligence/${recordId}/analyze`, { method: 'POST' })
-        } catch {
-          // Analyze route handles its own status updates
-        }
-        pollRef.current = setInterval(() => pollForProgress(recordId), POLL_INTERVAL)
       } else if (data.status === 'completed') {
         stopPolling()
         setReportData(data)
@@ -112,8 +102,10 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
         stopPolling()
         setView('search')
         setLoading(false)
+        refreshHistory()
         toast.error(data.error_message || 'Analysis failed')
       }
+      // For 'pending', 'collecting', 'analyzing' — keep polling (progress updates in real-time)
     } catch {
       // Network error, keep polling
     }
@@ -173,7 +165,7 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
 
     setLoading(true)
     setView('progress')
-    setProgressData({ step: 'phase_1', current: 0, total: 4, message: 'Confirming selection...' })
+    setProgressData({ step: 'review_fetch', current: 0, total: selectedAsins.size, message: 'Starting review collection...' })
 
     try {
       const res = await fetch(`/api/market-intelligence/${activeRecordId}/select`, {
@@ -187,7 +179,8 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
         throw new Error(err.error || 'Failed to confirm selection')
       }
 
-      // Start polling for analysis progress
+      // Background analysis started by /select — poll for progress (user can navigate away)
+      toast.success('Analysis started! You can navigate away — it runs in the background.')
       pollRef.current = setInterval(() => pollForProgress(activeRecordId!), POLL_INTERVAL)
     } catch (err) {
       setLoading(false)
@@ -208,7 +201,7 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
       } catch {
         toast.error('Failed to load report')
       }
-    } else if (record.status && ['pending', 'collecting', 'analyzing'].includes(record.status) && record.id) {
+    } else if (record.status && ['pending', 'collecting', 'collected', 'analyzing'].includes(record.status) && record.id) {
       setActiveRecordId(record.id)
       setView('progress')
       setLoading(true)
@@ -237,7 +230,32 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
     setView('search')
     setReportData(null)
     setLoading(false)
+    refreshHistory()
   }
+
+  // Auto-resume: check for in-progress MI records on mount
+  const hasAutoResumed = useRef(false)
+  useEffect(() => {
+    if (hasAutoResumed.current) return
+    hasAutoResumed.current = true
+
+    const activeRecord = initialIntelligence.find(r =>
+      r.status && ['pending', 'collecting', 'analyzing'].includes(r.status)
+    )
+    const awaitingRecord = !activeRecord
+      ? initialIntelligence.find(r => r.status === 'awaiting_selection')
+      : null
+
+    if (activeRecord?.id) {
+      setActiveRecordId(activeRecord.id)
+      setView('progress')
+      setLoading(true)
+      pollRef.current = setInterval(() => pollForProgress(activeRecord.id!), POLL_INTERVAL)
+    } else if (awaitingRecord?.id) {
+      handleViewBrief(awaitingRecord)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleUpdateTagsNotes = async (id: string, updates: { tags?: string[]; notes?: string }) => {
     try {
@@ -438,7 +456,7 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                             Delete
                           </Button>
                         )}
-                        {record.status && ['pending', 'collecting', 'analyzing'].includes(record.status) && (
+                        {record.status && ['pending', 'collecting', 'collected', 'analyzing'].includes(record.status) && (
                           <Button size="sm" variant="outline" onClick={() => handleViewBrief(record)} className="text-xs">
                             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                             View Progress
@@ -492,12 +510,14 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
     const step = progressData?.step || ''
     const message = progressData?.message || 'Starting...'
 
-    const steps = [
+    // Steps shown depend on whether we're in collect phase or analyze phase
+    const isCollectPhase = ['keyword_search', 'asin_lookup'].includes(step)
+    const steps = isCollectPhase ? [
       { id: 'keyword_search', label: 'Searching keywords' },
       { id: 'asin_lookup', label: 'Fetching products' },
+    ] : [
       { id: 'review_fetch', label: 'Fetching reviews' },
       { id: 'qna_fetch', label: 'Fetching Q&A' },
-      { id: 'awaiting_selection', label: 'Product selection' },
       { id: 'phase_1', label: 'Phase 1: Review Analysis' },
       { id: 'phase_2', label: 'Phase 2: Q&A Analysis' },
       { id: 'phase_3', label: 'Phase 3: Market Analysis' },
@@ -518,8 +538,13 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
         <div className="max-w-lg mx-auto space-y-8 py-12">
           <div className="text-center space-y-2">
             <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-            <h2 className="text-lg font-semibold">Generating Market Intelligence</h2>
+            <h2 className="text-lg font-semibold">
+              {isCollectPhase ? 'Finding Products' : 'Analyzing Market Intelligence'}
+            </h2>
             <p className="text-sm text-muted-foreground">{message}</p>
+            {!isCollectPhase && (
+              <p className="text-xs text-muted-foreground/70">You can navigate away — this runs in the background.</p>
+            )}
           </div>
 
           <div className="space-y-2">

@@ -2250,7 +2250,7 @@ export async function analyzeQnA(
 
 // --- Market Intelligence Analysis (Standalone POC) ---
 
-interface MarketIntelligenceData {
+export interface MarketIntelligenceData {
   keyword: string
   keywords?: string[]
   marketplace: string
@@ -4032,7 +4032,9 @@ export interface WorkshopPromptInput {
 export interface WorkshopPromptResult {
   prompts: Array<{
     label: string
+    product_depiction: string
     prompt: string
+    research_rationale: string
     approach: string
     frame_fill: string
     camera_angle: string
@@ -4059,15 +4061,27 @@ function buildWorkshopPromptsPrompt(input: WorkshopPromptInput): string {
     listingTitle, bulletPoints, listingDescription, creativeBrief,
   })
 
-  return `You are an expert Amazon product photography director and visual strategist. Generate 12 highly detailed, production-ready main image prompts for an Amazon listing.
+  return `You are an expert Amazon product photography director who creates hyper-specific, production-ready image prompts. You specialize in translating product research and real product photos into prompts that AI image generators can execute accurately.
 
 === PRODUCT ===
 Product: ${productName}
 Brand: ${brand}
 Category: ${categoryName}
 ${researchContext}
+=== CRITICAL: YOU MUST DESCRIBE THE ACTUAL PRODUCT ===
+The research context above contains "ACTUAL PRODUCT APPEARANCE (from uploaded photos)" — this is a detailed description of what the product PHYSICALLY looks like based on real photos the user uploaded.
+
+EVERY prompt you write MUST describe this specific product in detail. Do NOT write generic prompts like "product on white background." Instead, describe the EXACT:
+- Physical form (shape, size, count of items, how they're packaged/bundled)
+- Colors and materials (exact colors of the product, packaging, labels, caps, tips, etc.)
+- Textures and finishes (matte, glossy, metallic, soft-touch, transparent, etc.)
+- Distinguishing features (dual tips, specific mechanisms, unique design elements)
+- Brand elements (logo placement, label design, packaging style)
+
+The user will also pass their actual product photos as visual references to the AI image generator alongside your prompt. Your prompt must COMPLEMENT those reference images by describing in words what the generator should reproduce and how to arrange/light/angle it.
+
 === TASK ===
-Generate exactly 12 different main image prompts. Each must be a comprehensive, production-level prompt suitable for AI image generation (DALL-E 3, Gemini, GPT Image). The prompts are for the MAIN IMAGE on Amazon — the first image customers see in search results. This is the most important image — it determines click-through rate.
+Generate exactly 12 different main image prompts. Each must be a comprehensive, ultra-detailed prompt suitable for AI image generation (GPT Image, Gemini). These are for the MAIN IMAGE on Amazon — the first image customers see in search results. This is the most important image — it determines click-through rate.
 
 === AMAZON MAIN IMAGE REQUIREMENTS ===
 - Pure white background (#FFFFFF)
@@ -4080,11 +4094,11 @@ Generate exactly 12 different main image prompts. Each must be a comprehensive, 
 === VARIATION DIMENSIONS ===
 Each prompt MUST be meaningfully different — not just rephrased. Vary across ALL of these:
 1. Camera angle — specify exact angle: ¾ hero view, straight-on front, 45-degree elevated, top-down flat lay, eye-level, slight tilt (5-10°), low angle looking up
-2. Product presentation — single product hero, product with packaging/box, product with accessories laid out, product partially opened/uncapped to show features, product in use-ready pose
+2. Product presentation — single product hero, product with packaging/box, product with accessories laid out, product partially opened/uncapped to show features, product in use-ready pose, color range fanned out
 3. Composition & frame fill — specify percentage: 80-85% centered, 85-90% slightly off-center for dynamic feel, rule-of-thirds placement, close-up detail (90-95% fill), full product with breathing room (75-80%)
 4. Lighting — be specific: soft diffused studio (2-point), dramatic side light with natural shadow, high-key bright even lighting, rim/backlight for premium glow, overhead butterfly lighting
 5. Visual storytelling mood — clean minimal/modern, premium/luxury/aspirational, practical/functional/reliable, colorful/vibrant/energetic, professional/authoritative
-6. Props/context — subtle contextual hints: product resting on surface that suggests use, fanned/arranged to show color range, accessories visible, texture/material close-up
+6. Product arrangement — how the items are physically arranged: stacked, fanned, cascading, grouped by color, pyramid, flat lay grid, single hero with accessories, partially unboxed
 
 === RESEARCH-DRIVEN DIRECTION ===
 Use ALL the research data to make each prompt specific and strategic:
@@ -4115,16 +4129,18 @@ Return valid JSON only, no markdown fences:
   "prompts": [
     {
       "label": "Short 3-6 word description of this variation",
-      "prompt": "Full detailed image generation prompt (100-200 words). Be extremely specific about product positioning, arrangement, angle, surface, shadow direction, color representation, material texture, and any visual elements that communicate product quality or features.",
+      "product_depiction": "Describe EXACTLY what the product looks like in this image — colors, materials, shapes, count, packaging, visible features, brand elements. This is your interpretation of the real product for this specific angle/arrangement. 50-100 words.",
+      "prompt": "Full detailed image generation prompt (300-500 words). START by describing the product in exact physical detail (what it is, what it looks like, colors, materials, textures, count of items). THEN describe the arrangement/composition (how items are positioned, what's in front/back, what's open/closed). THEN describe the camera angle, lighting, and mood. THEN describe any specific visual storytelling (what feature is emphasized, what concern is addressed). Be so specific that a photographer who has never seen this product could set up this exact shot.",
+      "research_rationale": "Which specific research insight drove this variation. E.g., 'Reviews show 47% of customers mention vibrant colors as top reason for purchase — this arrangement maximizes visible color range' or 'Q&A shows #1 concern is tip durability — this close-up showcases the reinforced tip construction'.",
       "approach": "one of: studio-clean, studio-premium, lifestyle, feature-closeup, bundle-flatlay, scale-reference, in-use, emotional, concern-address, brand-story, dramatic, minimal",
       "frame_fill": "Percentage of frame product fills, e.g. '85-90%'",
-      "camera_angle": "Exact camera angle, e.g. '¾ hero view, slightly elevated'",
-      "lighting": "Detailed lighting setup, e.g. 'Soft diffused 2-point studio lighting with natural shadow falling to bottom-right'",
+      "camera_angle": "Exact camera angle, e.g. '¾ hero view, slightly elevated at 30 degrees'",
+      "lighting": "Detailed lighting setup, e.g. 'Soft diffused 2-point studio lighting with natural shadow falling to bottom-right, rim light from behind for premium edge glow'",
       "emotional_target": ["3-4 mood keywords, e.g. 'professional', 'premium', 'vibrant', 'trustworthy'"],
-      "props": ["specific props if any, e.g. 'color swatches', 'brush tip close-up', 'retail packaging'"],
+      "props": ["specific props if any, e.g. 'retail packaging box partially visible behind', 'tip cap removed to show chisel tip'"],
       "post_processing": "Retouching notes, e.g. 'Micro-retouching for dust removal, enhance color saturation by 10%, premium matte finish'",
-      "compliance_notes": "Amazon-specific compliance note for this variation, e.g. 'Pure white BG, no floating text, product only'",
-      "color_direction": "Primary colors to emphasize, e.g. 'Showcase full rainbow spectrum with deep teal and vibrant pink accents'",
+      "compliance_notes": "Amazon-specific compliance note for this variation",
+      "color_direction": "Primary colors to emphasize based on the actual product colors, e.g. 'Full rainbow spectrum visible — ensure deep teal, vibrant pink, and sunshine yellow are prominently placed in front row'",
       "callout": "Suggested text badge for this specific image, e.g. 'Non-Toxic & Easy Erase!'"
     }
   ],

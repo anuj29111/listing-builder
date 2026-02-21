@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
-import { searchKeyword, lookupAsin, fetchReviews, fetchQuestions } from '@/lib/oxylabs'
+import { searchKeyword, lookupAsin } from '@/lib/oxylabs'
 
 const CACHE_HOURS = 168 // 7 days
 
@@ -35,9 +35,6 @@ export async function POST(
     const keywordsList: string[] = record.keywords && record.keywords.length > 0
       ? record.keywords
       : [record.keyword]
-
-    const reviewsPerProduct = record.reviews_per_product || 200
-    const reviewPages = Math.ceil(reviewsPerProduct / 10) // ~10 reviews per page
 
     // 2. Set status to collecting
     await admin.from('lb_market_intelligence').update({
@@ -347,133 +344,8 @@ export async function POST(
       }
     }
 
-    // ========== STEP 3: Fetch reviews for each product ==========
-    const reviewsData: Record<string, Array<Record<string, unknown>>> = {}
-    const successfulAsins = competitorsData.filter(c => !c.error).map(c => c.asin as string)
-
-    for (let i = 0; i < successfulAsins.length; i++) {
-      const asin = successfulAsins[i]
-
-      await admin.from('lb_market_intelligence').update({
-        progress: {
-          step: 'review_fetch',
-          current: i,
-          total: successfulAsins.length,
-          message: `Fetching reviews for ${asin} (${i + 1}/${successfulAsins.length})...`,
-        },
-        updated_at: new Date().toISOString(),
-      }).eq('id', params.id)
-
-      // Check cached reviews
-      const { data: cachedReviews } = await supabase
-        .from('lb_asin_reviews')
-        .select('reviews')
-        .eq('asin', asin)
-        .eq('country_id', record.country_id)
-        .gte('updated_at', cacheThreshold)
-        .single()
-
-      if (cachedReviews?.reviews) {
-        reviewsData[asin] = cachedReviews.reviews as Array<Record<string, unknown>>
-        continue
-      }
-
-      // Fetch fresh reviews (try amazon_reviews source, fallback to product top reviews)
-      try {
-        const reviewResult = await fetchReviews(asin, oxylabsDomain, 1, Math.min(reviewPages, 20))
-        oxylabsCallsUsed++
-
-        if (reviewResult.success && reviewResult.data?.reviews) {
-          reviewsData[asin] = reviewResult.data.reviews as unknown as Array<Record<string, unknown>>
-
-          // Cache in lb_asin_reviews
-          await admin.from('lb_asin_reviews').upsert({
-            asin,
-            country_id: record.country_id,
-            marketplace_domain: country.amazon_domain,
-            reviews_count: reviewResult.data.reviews_count || reviewResult.data.reviews.length,
-            rating: reviewResult.data.rating,
-            rating_stars_distribution: reviewResult.data.rating_stars_distribution,
-            reviews: reviewResult.data.reviews,
-            raw_response: reviewResult.data,
-            sort_by: 'recent',
-            fetched_by: lbUser.id,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'asin,country_id,sort_by' })
-        } else {
-          // Fallback: use top_reviews from product data
-          const comp = competitorsData.find(c => c.asin === asin)
-          if (comp?.top_reviews) {
-            reviewsData[asin] = comp.top_reviews as Array<Record<string, unknown>>
-          }
-        }
-      } catch {
-        // Fallback: use top_reviews from product data
-        const comp = competitorsData.find(c => c.asin === asin)
-        if (comp?.top_reviews) {
-          reviewsData[asin] = comp.top_reviews as Array<Record<string, unknown>>
-        }
-      }
-    }
-
-    // ========== STEP 4: Fetch Q&A for each product ==========
-    const questionsData: Record<string, Array<Record<string, unknown>>> = {}
-
-    for (let i = 0; i < successfulAsins.length; i++) {
-      const asin = successfulAsins[i]
-
-      await admin.from('lb_market_intelligence').update({
-        progress: {
-          step: 'qna_fetch',
-          current: i,
-          total: successfulAsins.length,
-          message: `Fetching Q&A for ${asin} (${i + 1}/${successfulAsins.length})...`,
-        },
-        updated_at: new Date().toISOString(),
-      }).eq('id', params.id)
-
-      // Check cached Q&A
-      const { data: cachedQnA } = await supabase
-        .from('lb_asin_questions')
-        .select('questions')
-        .eq('asin', asin)
-        .eq('country_id', record.country_id)
-        .gte('updated_at', cacheThreshold)
-        .single()
-
-      if (cachedQnA?.questions) {
-        questionsData[asin] = cachedQnA.questions as Array<Record<string, unknown>>
-        continue
-      }
-
-      // Fetch fresh Q&A
-      try {
-        const qnaResult = await fetchQuestions(asin, oxylabsDomain, 1)
-        oxylabsCallsUsed++
-
-        if (qnaResult.success && qnaResult.data?.questions) {
-          questionsData[asin] = qnaResult.data.questions as unknown as Array<Record<string, unknown>>
-
-          // Cache in lb_asin_questions
-          await admin.from('lb_asin_questions').upsert({
-            asin,
-            country_id: record.country_id,
-            marketplace_domain: country.amazon_domain,
-            total_questions: qnaResult.data.questions.length,
-            questions: qnaResult.data.questions,
-            raw_response: qnaResult.data,
-            fetched_by: lbUser.id,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'asin,country_id' })
-        }
-      } catch (qnaErr) {
-        console.error(`Failed to fetch Q&A for ${asin}:`, qnaErr)
-        // Non-critical, continue
-      }
-    }
-
-    // ========== STEP 5: Save all collected data ==========
-    // Merge keyword search data (use first keyword's data for backward compat, store all in array)
+    // ========== STEP 3: Save collected data & show products for selection ==========
+    // Reviews + Q&A are now fetched AFTER user confirms product selection (in backgroundAnalyze)
     const keywordSearchData = keywordsList.length === 1
       ? allKeywordSearchData[0] || {}
       : { keywords: allKeywordSearchData }
@@ -483,14 +355,12 @@ export async function POST(
       top_asins: topAsins,
       competitors_data: competitorsData,
       keyword_search_data: keywordSearchData,
-      reviews_data: reviewsData,
-      questions_data: questionsData,
       oxylabs_calls_used: oxylabsCallsUsed,
       progress: {
         step: 'awaiting_selection',
         current: 0,
         total: 0,
-        message: `Data collection complete. ${topAsins.length} products found. Select products for analysis.`,
+        message: `Found ${topAsins.length} products. Select which to analyze.`,
       },
       updated_at: new Date().toISOString(),
     }).eq('id', params.id)
@@ -499,8 +369,6 @@ export async function POST(
       status: 'awaiting_selection',
       asins_found: topAsins.length,
       competitors_fetched: competitorsData.filter(c => !c.error).length,
-      reviews_fetched: Object.keys(reviewsData).length,
-      questions_fetched: Object.keys(questionsData).length,
       oxylabs_calls_used: oxylabsCallsUsed,
     })
   } catch (err) {

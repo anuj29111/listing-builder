@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
+
+const BACKGROUND_STATES = ['pending', 'collecting', 'analyzing']
+const STALE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 
 // GET: Fetch full record (for polling + report viewing)
 export async function GET(
@@ -19,6 +22,23 @@ export async function GET(
 
     if (error || !data) {
       return NextResponse.json({ error: 'Record not found' }, { status: 404 })
+    }
+
+    // Stale detection: auto-fail jobs stuck in background states for 30+ min
+    if (
+      BACKGROUND_STATES.includes(data.status) &&
+      data.updated_at &&
+      new Date(data.updated_at).getTime() < Date.now() - STALE_TIMEOUT_MS
+    ) {
+      const admin = createAdminClient()
+      await admin.from('lb_market_intelligence').update({
+        status: 'failed',
+        error_message: 'Timed out after 30 minutes',
+        updated_at: new Date().toISOString(),
+      }).eq('id', params.id)
+
+      data.status = 'failed'
+      data.error_message = 'Timed out after 30 minutes'
     }
 
     return NextResponse.json(data)
