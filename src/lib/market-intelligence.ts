@@ -1,5 +1,6 @@
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { fetchReviews, fetchQuestions } from '@/lib/oxylabs'
+import { fetchReviewsViaApify, normalizeApifyReview } from '@/lib/apify'
 import {
   analyzeMarketIntelligencePhase1Reviews,
   analyzeMarketIntelligencePhase2QnA,
@@ -52,7 +53,8 @@ export async function backgroundAnalyze(
     const admin = createAdminClient()
 
     // ========== PHASE A: Fetch reviews for selected products ==========
-    const PER_ASIN_TIMEOUT = 65_000 // 65s hard timeout per ASIN fetch
+    const PER_ASIN_TIMEOUT_OXYLABS = 65_000 // 65s for Oxylabs
+    const PER_ASIN_TIMEOUT_APIFY = 330_000 // 5.5 min for Apify actor runs
     const reviewsData: Record<string, Array<Record<string, unknown>>> = {}
 
     for (let i = 0; i < selectedAsins.length; i++) {
@@ -82,7 +84,7 @@ export async function backgroundAnalyze(
             return cachedReviews.reviews as Array<Record<string, unknown>>
           }
 
-          // Fetch fresh
+          // Try Oxylabs first
           const result = await fetchReviews(asin, oxylabsDomain, 1, Math.min(reviewPages, 20))
           oxylabsCallsUsed++
 
@@ -105,7 +107,50 @@ export async function backgroundAnalyze(
             return result.data.reviews as unknown as Array<Record<string, unknown>>
           }
 
-          // Fallback: top_reviews from product lookup
+          // Oxylabs failed — try Apify as fallback
+          console.log(`[MI ${id}] Oxylabs reviews failed for ${asin}, trying Apify...`)
+          await updateMI(id, {
+            progress: {
+              step: 'review_fetch',
+              current: i,
+              total: selectedAsins.length,
+              message: `Fetching reviews for ${asin} via Apify (${i + 1}/${selectedAsins.length})...`,
+            },
+          })
+
+          try {
+            const apifyResult = await fetchReviewsViaApify(
+              asin,
+              country.amazon_domain,
+              reviewsPerProduct,
+              'recent'
+            )
+
+            if (apifyResult.success && apifyResult.data?.reviews?.length) {
+              const normalized = apifyResult.data.reviews.map(normalizeApifyReview)
+
+              // Cache upsert (fire-and-forget)
+              admin.from('lb_asin_reviews').upsert({
+                asin,
+                country_id: record.country_id as string,
+                marketplace_domain: country.amazon_domain,
+                total_reviews: normalized.length,
+                overall_rating: null,
+                rating_stars_distribution: null,
+                reviews: normalized,
+                raw_response: { provider: 'apify', runId: apifyResult.data.runId },
+                sort_by: 'recent',
+                fetched_by: userId,
+                updated_at: new Date().toISOString(),
+              }, { onConflict: 'asin,country_id,sort_by' })
+
+              return normalized as unknown as Array<Record<string, unknown>>
+            }
+          } catch (apifyErr) {
+            console.error(`[MI ${id}] Apify fallback also failed for ${asin}:`, apifyErr)
+          }
+
+          // Final fallback: top_reviews from product lookup
           const comp = competitorsRaw.find(c => c.asin === asin)
           return (comp?.top_reviews || null) as Array<Record<string, unknown>> | null
         })().catch(() => {
@@ -115,7 +160,7 @@ export async function backgroundAnalyze(
         new Promise<null>((resolve) => setTimeout(() => {
           console.error(`[MI ${id}] Review fetch for ${asin} timed out — skipping`)
           resolve(null)
-        }, PER_ASIN_TIMEOUT)),
+        }, PER_ASIN_TIMEOUT_APIFY)),
       ])
 
       if (reviewResult) {
@@ -128,7 +173,7 @@ export async function backgroundAnalyze(
         }
       }
 
-      // Rate-limit delay between Oxylabs calls
+      // Rate-limit delay between calls
       if (i < selectedAsins.length - 1) {
         await new Promise((resolve) => setTimeout(resolve, 2000))
       }
@@ -193,7 +238,7 @@ export async function backgroundAnalyze(
         new Promise<null>((resolve) => setTimeout(() => {
           console.error(`[MI ${id}] Q&A fetch for ${asin} timed out — skipping`)
           resolve(null)
-        }, PER_ASIN_TIMEOUT)),
+        }, PER_ASIN_TIMEOUT_OXYLABS)),
       ])
 
       if (qnaResult) {

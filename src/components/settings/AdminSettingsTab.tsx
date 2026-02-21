@@ -48,6 +48,12 @@ const API_KEY_SLOTS = [
     description: 'Paired with Oxylabs Username above',
     placeholder: 'your_password',
   },
+  {
+    key: 'apify_api_token',
+    label: 'Apify API Token',
+    description: 'Used for Amazon review scraping via Apify actors',
+    placeholder: 'apify_api_...',
+  },
 ]
 
 // Keys managed by dedicated UI components (not shown in generic grid)
