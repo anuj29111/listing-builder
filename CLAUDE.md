@@ -147,18 +147,21 @@ npm run lint         # ESLint
 38. **Creative Brief layer** — `lb_image_workshops` has `creative_brief JSONB`, `product_photos TEXT[]`, `product_photo_descriptions JSONB`. Brief is generated via `POST /api/images/workshop/creative-brief` (uses all research + Market Intelligence). Prepended to `buildImageResearchContext()` and propagates to ALL 6 prompt builders automatically.
 39. **Product photo upload** — `POST /api/images/workshop/upload-photos` (FormData → Supabase Storage `lb-images/product-photos/{workshopId}/`). `POST /api/images/workshop/analyze-photos` → Claude Vision base64 analysis. Anthropic SDK 0.24.3 requires base64 images not URL-based — use `fetchImageAsBase64()` helper.
 40. **ConceptCard `imageType` prop** — Controls which metadata fields show inline. Main: camera_angle, frame_fill, emotional_target, lighting. Secondary: target_audience, mood, layout_type + color swatches + sub_headline + usp always visible. Thumbnail: camera, mood, lighting. Swatch: minimal.
-41. **Workshop Step 1 sub-flow** — After generating prompts: shows `WorkshopProductPhotos` (drag-drop upload + analyze), `CreativeBriefPanel` (expandable sections for pain points, USPs, personas, visual direction), then prompt cards with inline metadata.
+41. **Workshop 3-state flow** — State 1: no workshop → "Start Workshop" button. State 2: workshop exists, no prompts → `WorkshopProductPhotos` + `CreativeBriefPanel` + "Generate Concepts" CTA. State 3: prompts exist → collapsible research context + concept cards. `skip_prompt_generation: true` flag creates empty workshop for photo-first flow.
+44. **Reference images in generation** — Product photos passed as visual references to OpenAI (`images.edit()` with `toFile()`) and Gemini (`inlineData` parts). `fetchReferenceImages()` fetches ONCE per batch at route level, reused across all prompts. Higgsfield skips (queue-based). Prompt prefixed with branding instruction.
+45. **OpenAI edit vs generate** — `images.edit()` uses `gpt-image-1` model (not `gpt-image-1.5`). Accepts up to 16 reference images as `Uploadable[]`. `images.generate()` remains for text-only prompts with `gpt-image-1.5`.
 
 42. **Listing quality rules** — Titles: 185-200 chars (post-gen validation + retry). Bullets: sentence case only (NO ALL CAPS except acronyms), max 250 chars, 3 variations per bullet (not 9). Search terms: no word repetition from title/bullets/desc, lowercase, no brand/ASINs. Backend attributes: 25+ Amazon categories (material, target_audience, special_features, etc.).
 43. **DB constraints for bullets** — `lb_listing_sections_section_type_check` must include `bullet_6` through `bullet_10`. `lb_countries`: `bullet_limit=250`, `bullet_count=10`.
+
+44. **Own Product badge** — ASIN Lookup rows show green "Own" badge for ASINs in `lb_products`. Batch API: `GET /api/products/check-asins?asins=...`. Collection badges (colored initials) also inline on rows.
+45. **Oxylabs source limitations** — `amazon_reviews` source returns "Unsupported source" on current plan. `amazon` web scraper can't parse URLs. Fallback: `amazon_product` top reviews (~13). Code auto-detects and shows clean message.
 
 ---
 
 ## Pending Tasks
 
-- **e2e Testing (all modules):** Phased generation (4-phase wizard + keyword coverage), Image Builder (all 5 tabs + drafts), ASIN Lookup (expanded fields + Q&A), Keyword Search (organic/sponsored tabs), Market Intelligence (single + multi-keyword, product selection, 4-phase analysis, Q&A, lightbox, CSV export, Our Product badges, live search), Seller Pull (multi-country, smart categories, bundle toggle, import/scrape/variations flow), Collections/Tags/Notes (CRUD, tag autocomplete, collection picker, inline editing, tag filter)
-- **Oxylabs Plan Upgrade + Full Reviews Testing:**
-  1. Upgrade Oxylabs plan to unlock `amazon_reviews` source
-  2. Test with 500-1000 review product — verify full pagination works
-  3. Code is ready — auto-detects source availability, no changes needed
+- **Market Intelligence — Background Jobs:** Refactor MI to run analysis in background (like Seller Pull jobs pattern). Currently blocks the UI during 4-phase Claude analysis. Use `lb_batch_jobs` or new `lb_market_intelligence_jobs` table with status tracking.
+- **e2e Testing (all modules):** Phased generation (4-phase wizard + keyword coverage), Image Builder (all 5 tabs + drafts), ASIN Lookup (expanded fields + Q&A), Keyword Search (organic/sponsored tabs), Market Intelligence (single + multi-keyword, product selection, 4-phase analysis, Q&A, lightbox, CSV export, Our Product badges, live search), Seller Pull (multi-country, smart categories, bundle toggle, import/scrape/variations flow)
+- **Oxylabs `amazon_reviews` Source:** Contact Oxylabs to enable `amazon_reviews` source on plan. Code is ready — auto-detects and falls back.
 - **Seller Pull — Automated Periodic Pulls:** User wants to automate regular pulls at intervals (not yet built)
