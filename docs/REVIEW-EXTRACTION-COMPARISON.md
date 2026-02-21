@@ -18,6 +18,7 @@
 | **DataForSEO** | Up to 4,490 | Queue-based | $0.0015/product | Location targeting | Verify availability |
 | **Decodo (Smartproxy)** | Likely | Proxy rotation | $0.32-0.88/1K | Global + ZIP | Maybe |
 | **Outscraper** | Yes | Cloud-managed sessions | ~$3/1K records | Regional | Maybe |
+| **Scrapingdog** | Unreliable (auth wall) | Proxy rotation only | $0.063-0.20/1K | All TLDs | No (reviews unreliable) |
 | **Zyte (Scrapy)** | Depends on impl | AI + proxy | $0.40-1.80/1K | 19 countries | Technical teams |
 | **ScraperAPI** | Limited | Proxy only | $0.48-2.45/1K | All domains | No |
 | **ScrapingBee** | No (public only) | None (advises against) | $0.075/1K | All domains | No |
@@ -146,7 +147,34 @@ Named "best proxy of 2025" for affordability. Multi-marketplace support.
 
 **Integration:** SDKs for Python, PHP, Node, Go, Java, Ruby. Zapier/Make integrations.
 
-### 8. Zyte (Scrapy)
+### 8. Scrapingdog (CHEAP BUT UNRELIABLE FOR REVIEWS)
+
+**Endpoint:** `GET https://api.scrapingdog.com/amazon/reviews` with ASIN + domain + page.
+
+**Login wall handling:** Proxy rotation + automatic retry. No cookie injection or star-filter bypass. Their own docs warn: *"It is advised to scrape Amazon reviews with a single concurrency, as scraping has become more challenging since Amazon introduced the auth wall. Scrapingdog does not guarantee any consistency with this API."*
+
+**Review capacity:** Paginated via `page` parameter. No documented max. Supports filtering by star_rating, reviewer_type (verified only), media_type, sort_by.
+
+**Data fields:** `user`, `user_id`, `title`, `review_url`, `rating`, `review` (full text), `date`, `is_helpful`, `extension` (e.g. "Verified Purchase"). Also returns `reviews` (total count), `rating` (overall), `actual_reviews`, `total_ratings`.
+
+**Pricing:**
+
+| Plan | Monthly | Credits | Cost/1K |
+|------|---------|---------|---------|
+| Free | $0 | 1,000 | Free |
+| Lite | $40 | 200,000 | $0.20 |
+| Standard | $90 | 1,000,000 | $0.09 |
+| Pro | $200 | 3,000,000 | $0.067 |
+| Enterprise | $500+ | 8M+ | ~$0.063 |
+| Pay-as-you-go | Variable | Buy as needed | Varies |
+
+**Performance:** 100% success rate in own tests (3.55-5.48s avg). Independent benchmark (Scrape.do) showed 89% success -- roughly 1 in 10 requests fail, needs retry logic. Fastest raw response time among tested providers (2,490ms in some tests).
+
+**Multi-marketplace:** All Amazon TLDs via `domain` parameter.
+
+**Bottom line:** Cheapest at scale ($0.063/1K) and fastest response times, BUT explicitly does not guarantee consistency for reviews due to Amazon's auth wall. Good for product data scraping, **not reliable for the review extraction use case we need**. Could serve as a secondary fallback for non-review Amazon data.
+
+### 9. Zyte (Scrapy)
 
 **Performance:** Fastest at extreme scale (2,000 requests per dollar at 12.5M requests). 2.58s avg response.
 
@@ -161,6 +189,7 @@ Named "best proxy of 2025" for affordability. Multi-marketplace support.
 | Service | Why Not |
 |---------|---------|
 | **Oxylabs** (current) | `amazon_reviews` unsupported on our plan. Even when available, limited by login wall. Reported billing issues. |
+| **Scrapingdog** | Cheapest at scale ($0.063/1K) but explicitly warns "no consistency guarantee" for reviews due to auth wall. 89% success in independent tests. Good for product data, not reviews. |
 | **ScraperAPI** | Slow (22-40s on Amazon in benchmarks). Limited review extraction. |
 | **ScrapingBee** | Explicitly advises against behind-login scraping. Public reviews only (~3-4 featured). |
 | **Keepa** | Tracks review COUNT/RATING history over time. Does NOT provide review TEXT. Wrong tool. |
@@ -184,6 +213,7 @@ Named "best proxy of 2025" for affordability. Multi-marketplace support.
 3. **Cookie injection** (Scrape.do, Unwrangle, some Apify actors): Pass authenticated Amazon session cookies with requests
 4. **System cookies** (Unwrangle): Service manages authenticated cookies for you (US/DE/GB only)
 5. **Pre-collected datasets** (Bright Data): Data already collected before/during wall transition
+6. **Proxy rotation only** (Scrapingdog, ScraperAPI): Relies on IP rotation without addressing auth -- increasingly unreliable post-2025
 
 ---
 
