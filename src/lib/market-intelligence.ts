@@ -127,7 +127,15 @@ export async function backgroundAnalyze(
           reviewsData[asin] = comp.top_reviews as Array<Record<string, unknown>>
         }
       }
+
+      // Rate-limit delay between Oxylabs calls
+      if (i < selectedAsins.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+      }
     }
+
+    // Breathing room between review and Q&A phases
+    await new Promise((resolve) => setTimeout(resolve, 3000))
 
     // ========== PHASE B: Fetch Q&A for selected products ==========
     const questionsData: Record<string, Array<Record<string, unknown>>> = {}
@@ -190,6 +198,11 @@ export async function backgroundAnalyze(
 
       if (qnaResult) {
         questionsData[asin] = qnaResult
+      }
+
+      // Rate-limit delay between Oxylabs calls
+      if (i < selectedAsins.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2000))
       }
     }
 

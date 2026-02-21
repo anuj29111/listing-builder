@@ -148,6 +148,16 @@ export async function POST(
           if (asin) masterAsinSet.add(asin)
         }
       }
+
+      // Rate-limit delay between keyword searches
+      if (ki < keywordsList.length - 1 && !cachedSearch) {
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+      }
+    }
+
+    // Breathing room before ASIN lookup phase (Oxylabs rate-limit protection)
+    if (allKeywordSearchData.some(d => d.source === 'fresh')) {
+      await new Promise((resolve) => setTimeout(resolve, 3000))
     }
 
     // Limit to max_competitors unique ASINs (take top by organic rank order)
@@ -362,6 +372,11 @@ export async function POST(
           error: `Skipped: timed out after ${ASIN_TIMEOUT_MS / 1000}s`,
           source: 'error',
         })
+      }
+
+      // Rate-limit delay between Oxylabs calls (skip for cached results and last ASIN)
+      if (i < topAsins.length - 1 && asinResult?.source !== 'cache') {
+        await new Promise((resolve) => setTimeout(resolve, 2000))
       }
     }
 
