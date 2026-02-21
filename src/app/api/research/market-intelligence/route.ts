@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 
     const { data, error } = await supabase
       .from('lb_market_intelligence')
-      .select('id, keyword, keywords, country_id, status, selected_asins, created_at, updated_at')
+      .select('id, keyword, keywords, country_id, status, selected_asins, top_asins, created_at, updated_at')
       .eq('country_id', countryId)
       .eq('status', 'completed')
       .order('created_at', { ascending: false })

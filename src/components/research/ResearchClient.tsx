@@ -338,6 +338,18 @@ export function ResearchClient({
             </div>
           </div>
 
+          {/* Market Intelligence — link a completed MI report (independent of file uploads) */}
+          <MarketIntelligenceSelector
+            categoryId={categoryId}
+            countryId={countryId}
+            linkedMiId={
+              analyses.find(
+                (a) => a.analysis_type === 'market_intelligence' && a.source === 'linked'
+              )?.market_intelligence_id || null
+            }
+            onLinkChange={fetchAnalyses}
+          />
+
           {/* Step 2: Run Analysis */}
           <div>
             <h2 className="text-lg font-semibold mb-1">Step 2: Run AI Analysis</h2>
@@ -363,20 +375,6 @@ export function ResearchClient({
 
                 <AnalysisViewer analyses={analyses} />
               </div>
-            )}
-
-            {/* Market Intelligence — available regardless of file uploads */}
-            {categoryId && countryId && (
-              <MarketIntelligenceSelector
-                categoryId={categoryId}
-                countryId={countryId}
-                linkedMiId={
-                  analyses.find(
-                    (a) => a.analysis_type === 'market_intelligence' && a.source === 'linked'
-                  )?.market_intelligence_id || null
-                }
-                onLinkChange={fetchAnalyses}
-              />
             )}
           </div>
         </>
