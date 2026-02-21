@@ -14,6 +14,7 @@ const ANALYSIS_LABELS: Record<string, string> = {
   review_analysis: 'Review Analysis',
   qna_analysis: 'Q&A Analysis',
   competitor_analysis: 'Competitor Analysis',
+  market_intelligence: 'Market Intelligence',
 }
 
 function StatusIcon({ status }: { status: string | null }) {

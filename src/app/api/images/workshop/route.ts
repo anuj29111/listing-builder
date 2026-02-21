@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       supabase.from('lb_countries').select('id, name, code').eq('id', country_id).single(),
       supabase
         .from('lb_research_analysis')
-        .select('analysis_type, analysis_result, source')
+        .select('analysis_type, analysis_result, source, market_intelligence_id')
         .eq('category_id', category_id)
         .eq('country_id', country_id)
         .eq('status', 'completed'),
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     const analyses = analysesResult.data || []
 
     // Pick best analysis per type: prefer merged > csv > file
-    const sourcePriority = ['merged', 'csv', 'file']
+    const sourcePriority = ['merged', 'csv', 'file', 'linked']
     const pickBest = (type: string) => {
       const matches = analyses.filter((a) => a.analysis_type === type)
       if (matches.length === 0) return undefined
@@ -77,6 +77,21 @@ export async function POST(request: Request) {
     const competitorAnalysis = competitorRow
       ? (competitorRow.analysis_result as unknown as CompetitorAnalysisResult)
       : null
+
+    // Auto-resolve linked Market Intelligence from research
+    const miRow = analyses.find((a) => a.analysis_type === 'market_intelligence' && a.source === 'linked')
+    let marketIntelligence = null
+    if (miRow?.market_intelligence_id) {
+      const { data: miRecord } = await supabase
+        .from('lb_market_intelligence')
+        .select('analysis_result, status')
+        .eq('id', miRow.market_intelligence_id)
+        .eq('status', 'completed')
+        .single()
+      if (miRecord?.analysis_result) {
+        marketIntelligence = miRecord.analysis_result
+      }
+    }
 
     // Fetch listing content when listing_id is provided (for full context)
     let listingTitle: string | null = null
@@ -161,6 +176,7 @@ export async function POST(request: Request) {
       reviewAnalysis,
       qnaAnalysis,
       competitorAnalysis,
+      marketIntelligence,
       listingTitle,
       bulletPoints,
       listingDescription,

@@ -45,7 +45,7 @@ async function buildGenerationInput(
   // Fetch analyses
   const { data: analyses } = await supabase
     .from('lb_research_analysis')
-    .select('analysis_type, analysis_result, source')
+    .select('analysis_type, analysis_result, source, market_intelligence_id')
     .eq('category_id', categoryId)
     .eq('country_id', countryId)
     .eq('status', 'completed')
@@ -53,7 +53,7 @@ async function buildGenerationInput(
   const allAnalyses = analyses || []
 
   // Pick best analysis per type: prefer merged > csv > file
-  const sourcePriority = ['merged', 'csv', 'file']
+  const sourcePriority = ['merged', 'csv', 'file', 'linked']
   const pickBest = (type: string) => {
     const matches = allAnalyses.filter((a) => a.analysis_type === type)
     if (matches.length === 0) return undefined
@@ -68,6 +68,21 @@ async function buildGenerationInput(
   const reviewRow = pickBest('review_analysis')
   const qnaRow = pickBest('qna_analysis')
   const competitorRow = pickBest('competitor_analysis')
+
+  // Resolve linked Market Intelligence data
+  const miRow = allAnalyses.find((a) => a.analysis_type === 'market_intelligence' && a.source === 'linked')
+  let marketIntelligence = null
+  if (miRow?.market_intelligence_id) {
+    const { data: miRecord } = await supabase
+      .from('lb_market_intelligence')
+      .select('analysis_result, status')
+      .eq('id', miRow.market_intelligence_id)
+      .eq('status', 'completed')
+      .single()
+    if (miRecord?.analysis_result) {
+      marketIntelligence = miRecord.analysis_result
+    }
+  }
 
   return {
     productName: (generationContext.productName as string) || '',
@@ -88,6 +103,7 @@ async function buildGenerationInput(
     reviewAnalysis: reviewRow ? (reviewRow.analysis_result as unknown as ReviewAnalysisResult) : null,
     qnaAnalysis: qnaRow ? (qnaRow.analysis_result as unknown as QnAAnalysisResult) : null,
     competitorAnalysis: competitorRow ? (competitorRow.analysis_result as unknown as CompetitorAnalysisResult) : null,
+    marketIntelligence: marketIntelligence as import('@/types/market-intelligence').MarketIntelligenceResult | null,
     optimizationMode: (optimizationMode as 'new' | 'optimize_existing' | 'based_on_existing') || 'new',
     existingListingText: existingListingText || null,
   }

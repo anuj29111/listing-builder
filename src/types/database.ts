@@ -57,9 +57,10 @@ export interface LbResearchAnalysis {
   id: string
   category_id: string
   country_id: string
-  analysis_type: 'keyword_analysis' | 'review_analysis' | 'qna_analysis' | 'competitor_analysis'
+  analysis_type: 'keyword_analysis' | 'review_analysis' | 'qna_analysis' | 'competitor_analysis' | 'market_intelligence'
   source_file_ids: string[]
   analysis_result: Record<string, unknown>
+  market_intelligence_id: string | null
   model_used: string | null
   tokens_used: number | null
   status: 'pending' | 'processing' | 'completed' | 'failed'
