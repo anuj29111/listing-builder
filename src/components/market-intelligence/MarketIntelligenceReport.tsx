@@ -1,5 +1,8 @@
 'use client'
 
+import { useCallback } from 'react'
+import { Download } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import type { MarketIntelligenceResult, MarketIntelligenceQnAPhaseResult } from '@/types/market-intelligence'
 import { ReviewAnalysisDashboard } from './sections/ReviewAnalysisDashboard'
 import { PainPointsSection } from './sections/PainPointsSection'
@@ -23,6 +26,7 @@ interface MarketIntelligenceReportProps {
   marketplaceDomain?: string
   ourAsins?: Set<string>
   questionsData?: Record<string, Array<Record<string, unknown>>>
+  reviewsData?: Record<string, Array<Record<string, unknown>>>
 }
 
 export function MarketIntelligenceReport({
@@ -31,9 +35,49 @@ export function MarketIntelligenceReport({
   marketplaceDomain,
   ourAsins,
   questionsData,
+  reviewsData,
 }: MarketIntelligenceReportProps) {
   const r = analysisResult
   if (!r) return <div className="text-center py-12 text-muted-foreground">No analysis data available.</div>
+
+  const totalReviewCount = reviewsData
+    ? Object.values(reviewsData).reduce((sum, arr) => sum + (arr?.length || 0), 0)
+    : 0
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const handleExportReviews = useCallback(() => {
+    if (!reviewsData || totalReviewCount === 0) return
+
+    const escape = (val: string) => `"${(val || '').replace(/"/g, '""')}"`
+    const rows = ['ASIN,Brand,Rating,Title,Content,Author,Verified,Helpful Count,Date']
+
+    for (const [asin, reviews] of Object.entries(reviewsData)) {
+      if (!reviews?.length) continue
+      const comp = competitorsData.find(c => (c.asin as string) === asin)
+      const brand = (comp?.brand as string) || ''
+      for (const rev of reviews) {
+        rows.push([
+          asin,
+          escape(brand),
+          (rev.rating as number) || 0,
+          escape((rev.title as string) || ''),
+          escape((rev.content as string) || ''),
+          escape((rev.author as string) || ''),
+          (rev.is_verified as boolean) ? 'Yes' : 'No',
+          (rev.helpful_count as number) || 0,
+          (rev.date as string) || '',
+        ].join(','))
+      }
+    }
+
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `mi-reviews-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [reviewsData, competitorsData, totalReviewCount])
 
   // Extract Q&A result from merged analysis
   const qnaResult: MarketIntelligenceQnAPhaseResult | undefined = r.topQuestions
@@ -48,6 +92,16 @@ export function MarketIntelligenceReport({
 
   return (
     <div className="space-y-8">
+      {/* Export Reviews Button */}
+      {totalReviewCount > 0 && (
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" onClick={handleExportReviews}>
+            <Download className="h-4 w-4 mr-1" />
+            Export All Reviews ({totalReviewCount.toLocaleString()})
+          </Button>
+        </div>
+      )}
+
       {/* Executive Summary */}
       {r.executiveSummary && (
         <div className="rounded-lg border bg-primary/5 p-6">

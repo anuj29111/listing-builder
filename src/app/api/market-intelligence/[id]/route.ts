@@ -3,7 +3,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
 
 const BACKGROUND_STATES = ['pending', 'collecting', 'analyzing']
-const STALE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
+const STALE_TIMEOUT_MS = 90 * 60 * 1000 // 90 minutes — covers Apify review fetching (2-5 min/product × 10+)
 
 // GET: Fetch full record (for polling + report viewing)
 export async function GET(
@@ -33,7 +33,7 @@ export async function GET(
       const admin = createAdminClient()
       await admin.from('lb_market_intelligence').update({
         status: 'failed',
-        error_message: 'Timed out after 30 minutes',
+        error_message: 'Timed out after 90 minutes',
         updated_at: new Date().toISOString(),
       }).eq('id', params.id)
 

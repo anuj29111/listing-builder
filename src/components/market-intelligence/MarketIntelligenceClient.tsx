@@ -1,12 +1,13 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Clock, ChevronRight, Loader2, ArrowLeft, Sparkles, Check, X } from 'lucide-react'
+import { Search, Clock, ChevronRight, Loader2, ArrowLeft, Sparkles, Check, X, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import type { LbCountry, LbMarketIntelligence } from '@/types'
 import type { MarketIntelligenceResult } from '@/types/market-intelligence'
 import { MarketIntelligenceReport } from './MarketIntelligenceReport'
@@ -51,6 +52,8 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
   // Product selection state
   const [selectionProducts, setSelectionProducts] = useState<Array<Record<string, unknown>>>([])
   const [selectedAsins, setSelectedAsins] = useState<Set<string>>(new Set())
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+  const [selectionDomain, setSelectionDomain] = useState<string>('')
 
   // Report state
   const [reportData, setReportData] = useState<LbMarketIntelligence | null>(null)
@@ -91,6 +94,7 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
         const validProducts = competitors.filter(c => !c.error)
         setSelectionProducts(validProducts)
         setSelectedAsins(new Set(validProducts.map(p => p.asin as string)))
+        setSelectionDomain(data.marketplace_domain || '')
         setView('product_selection')
         toast.success(`Found ${validProducts.length} products. Select which to analyze.`)
       } else if (data.status === 'completed') {
@@ -219,6 +223,7 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
           const validProducts = competitors.filter((c: Record<string, unknown>) => !c.error)
           setSelectionProducts(validProducts)
           setSelectedAsins(new Set(validProducts.map((p: Record<string, unknown>) => p.asin as string)))
+          setSelectionDomain(data.marketplace_domain || '')
           setView('product_selection')
         }
       } catch {
@@ -669,7 +674,13 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                 </div>
 
                 {images[0] && (
-                  <div className="w-12 h-12 flex-shrink-0 rounded bg-white overflow-hidden">
+                  <div
+                    className="w-16 h-16 flex-shrink-0 rounded bg-white overflow-hidden cursor-zoom-in border hover:border-primary/50 transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setLightboxImage(images[0])
+                    }}
+                  >
                     <img src={images[0]} alt={title} className="w-full h-full object-contain" loading="lazy" />
                   </div>
                 )}
@@ -679,6 +690,17 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                   <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
                     {brand && <span>{brand}</span>}
                     <span className="font-mono text-[10px]">{asin}</span>
+                    {selectionDomain && (
+                      <a
+                        href={`https://${selectionDomain}/dp/${asin}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 text-primary hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
                     {isOurProduct && (
                       <Badge className="text-[9px] bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 px-1 py-0">Our Product</Badge>
                     )}
@@ -704,6 +726,29 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
             Confirm & Analyze ({selectedAsins.size} products)
           </Button>
         </div>
+
+        {/* Image Lightbox Dialog */}
+        <Dialog open={!!lightboxImage} onOpenChange={() => setLightboxImage(null)}>
+          <DialogContent className="max-w-2xl p-0 bg-black/95 border-none">
+            <div className="relative flex items-center justify-center min-h-[400px]">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute top-2 right-2 text-white hover:bg-white/20 z-10"
+                onClick={() => setLightboxImage(null)}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+              {lightboxImage && (
+                <img
+                  src={lightboxImage}
+                  alt="Product image"
+                  className="max-h-[80vh] max-w-full object-contain p-8"
+                />
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
@@ -742,6 +787,7 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
           marketplaceDomain={reportData.marketplace_domain}
           ourAsins={ourAsins}
           questionsData={(reportData.questions_data || {}) as Record<string, Array<Record<string, unknown>>>}
+          reviewsData={((reportData as unknown as Record<string, unknown>).reviews_data || {}) as Record<string, Array<Record<string, unknown>>>}
         />
       </div>
     )

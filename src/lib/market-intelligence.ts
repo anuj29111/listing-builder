@@ -147,10 +147,14 @@ export async function backgroundCollect(
         .map(item => item.asin as string)
         .filter(Boolean)
 
-      // Only lookup ASINs we haven't already fetched (dedup across keywords)
+      // Per-keyword: up to maxCompetitors NEW ASINs (skip already-fetched for dedup)
       const newAsins = kwAsins.filter(asin => !competitorsMap.has(asin))
-      const remainingSlots = maxCompetitors - competitorsMap.size
-      const asinsToLookup = newAsins.slice(0, Math.max(0, remainingSlots))
+      const asinsToLookup = newAsins.slice(0, maxCompetitors)
+
+      // Rate-limit: delay after keyword search before starting ASIN lookups
+      if (asinsToLookup.length > 0) {
+        await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_CALLS_MS))
+      }
 
       for (let ai = 0; ai < asinsToLookup.length; ai++) {
         const asin = asinsToLookup[ai]
@@ -159,11 +163,11 @@ export async function backgroundCollect(
         await updateMI(id, {
           progress: {
             step: 'asin_lookup',
-            current: totalProcessed,
-            total: maxCompetitors,
+            current: ai + 1,
+            total: asinsToLookup.length,
             message: keywordsList.length > 1
-              ? `[${kw}] Fetching product ${asin} (${totalProcessed}/${maxCompetitors})...`
-              : `Fetching product ${asin} (${totalProcessed}/${maxCompetitors})...`,
+              ? `[${kw}] Fetching product ${asin} (${ai + 1}/${asinsToLookup.length})...`
+              : `Fetching product ${asin} (${ai + 1}/${asinsToLookup.length})...`,
           },
         })
 
@@ -355,6 +359,11 @@ export async function backgroundCollect(
           await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_CALLS_MS))
         }
       }
+
+      // Rate-limit delay between keywords to avoid Oxylabs burst
+      if (ki < keywordsList.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 3_000))
+      }
     }
 
     // ========== Save collected data & transition to awaiting_selection ==========
@@ -435,7 +444,7 @@ export async function backgroundAnalyze(
 
     // ========== PHASE A: Fetch reviews for selected products ==========
     const PER_ASIN_TIMEOUT_OXYLABS = 65_000 // 65s for Oxylabs
-    const PER_ASIN_TIMEOUT_APIFY = 330_000 // 5.5 min for Apify actor runs
+    const PER_ASIN_TIMEOUT_APIFY = 420_000 // 7 min for Apify actor runs (300s internal + buffer)
     const reviewsData: Record<string, Array<Record<string, unknown>>> = {}
 
     for (let i = 0; i < selectedAsins.length; i++) {
@@ -446,13 +455,13 @@ export async function backgroundAnalyze(
           step: 'review_fetch',
           current: i,
           total: selectedAsins.length,
-          message: `Fetching reviews for ${asin} (${i + 1}/${selectedAsins.length})...`,
+          message: `Fetching reviews for ${asin} via Apify (${i + 1}/${selectedAsins.length})... This may take a few minutes per product.`,
         },
       })
 
       const reviewResult = await Promise.race([
         (async () => {
-          // Check cache
+          // 1. Check cache first (7-day TTL)
           const { data: cachedReviews } = await supabase
             .from('lb_asin_reviews')
             .select('reviews')
@@ -462,44 +471,13 @@ export async function backgroundAnalyze(
             .single()
 
           if (cachedReviews?.reviews) {
+            console.log(`[MI ${id}] Reviews for ${asin}: found in cache`)
             return cachedReviews.reviews as Array<Record<string, unknown>>
           }
 
-          // Try Oxylabs first
-          const result = await fetchReviews(asin, oxylabsDomain, 1, Math.min(reviewPages, 20))
-          oxylabsCallsUsed++
-
-          if (result.success && result.data?.reviews) {
-            // Cache upsert (fire-and-forget)
-            admin.from('lb_asin_reviews').upsert({
-              asin,
-              country_id: record.country_id as string,
-              marketplace_domain: country.amazon_domain,
-              reviews_count: result.data.reviews_count || result.data.reviews.length,
-              rating: result.data.rating,
-              rating_stars_distribution: result.data.rating_stars_distribution,
-              reviews: result.data.reviews,
-              raw_response: result.data,
-              sort_by: 'recent',
-              fetched_by: userId,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: 'asin,country_id,sort_by' })
-
-            return result.data.reviews as unknown as Array<Record<string, unknown>>
-          }
-
-          // Oxylabs failed — try Apify as fallback
-          console.log(`[MI ${id}] Oxylabs reviews failed for ${asin}, trying Apify...`)
-          await updateMI(id, {
-            progress: {
-              step: 'review_fetch',
-              current: i,
-              total: selectedAsins.length,
-              message: `Fetching reviews for ${asin} via Apify (${i + 1}/${selectedAsins.length})...`,
-            },
-          })
-
+          // 2. Try Apify first (primary — gets 100-500 reviews)
           try {
+            console.log(`[MI ${id}] Trying Apify for ${asin} reviews...`)
             const apifyResult = await fetchReviewsViaApify(
               asin,
               country.amazon_domain,
@@ -525,13 +503,49 @@ export async function backgroundAnalyze(
                 updated_at: new Date().toISOString(),
               }, { onConflict: 'asin,country_id,sort_by' })
 
+              console.log(`[MI ${id}] Apify returned ${normalized.length} reviews for ${asin}`)
               return normalized as unknown as Array<Record<string, unknown>>
             }
+            console.log(`[MI ${id}] Apify returned no reviews for ${asin}`)
           } catch (apifyErr) {
-            console.error(`[MI ${id}] Apify fallback also failed for ${asin}:`, apifyErr)
+            console.error(`[MI ${id}] Apify failed for ${asin}:`, apifyErr)
           }
 
-          // Final fallback: top_reviews from product lookup
+          // 3. Oxylabs fallback (only if Apify completely failed)
+          console.log(`[MI ${id}] Falling back to Oxylabs for ${asin} reviews...`)
+          await updateMI(id, {
+            progress: {
+              step: 'review_fetch',
+              current: i,
+              total: selectedAsins.length,
+              message: `Fetching reviews for ${asin} via Oxylabs fallback (${i + 1}/${selectedAsins.length})...`,
+            },
+          })
+
+          const result = await fetchReviews(asin, oxylabsDomain, 1, Math.min(reviewPages, 20))
+          oxylabsCallsUsed++
+
+          if (result.success && result.data?.reviews) {
+            // Cache upsert (fire-and-forget)
+            admin.from('lb_asin_reviews').upsert({
+              asin,
+              country_id: record.country_id as string,
+              marketplace_domain: country.amazon_domain,
+              reviews_count: result.data.reviews_count || result.data.reviews.length,
+              rating: result.data.rating,
+              rating_stars_distribution: result.data.rating_stars_distribution,
+              reviews: result.data.reviews,
+              raw_response: result.data,
+              sort_by: 'recent',
+              fetched_by: userId,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'asin,country_id,sort_by' })
+
+            return result.data.reviews as unknown as Array<Record<string, unknown>>
+          }
+
+          // 4. Final fallback: top_reviews from product lookup (~12 reviews)
+          console.log(`[MI ${id}] All providers failed for ${asin}, using top_reviews fallback`)
           const comp = competitorsRaw.find(c => c.asin === asin)
           return (comp?.top_reviews || null) as Array<Record<string, unknown>> | null
         })().catch(() => {
@@ -539,7 +553,7 @@ export async function backgroundAnalyze(
           return (comp?.top_reviews || null) as Array<Record<string, unknown>> | null
         }),
         new Promise<null>((resolve) => setTimeout(() => {
-          console.error(`[MI ${id}] Review fetch for ${asin} timed out — skipping`)
+          console.error(`[MI ${id}] Review fetch for ${asin} timed out after ${PER_ASIN_TIMEOUT_APIFY / 1000}s — skipping`)
           resolve(null)
         }, PER_ASIN_TIMEOUT_APIFY)),
       ])
