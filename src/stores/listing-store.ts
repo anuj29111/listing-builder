@@ -306,9 +306,10 @@ export const useListingStore = create<ListingWizardState>((set) => ({
       const rawBullets = state.scrapedData.bullet_points
         ? state.scrapedData.bullet_points.split('\n').filter((b) => b.trim())
         : []
-      // Pad to 5 bullets
+      // Pad to at least 5 bullets, allow up to bulletCount (default 10)
+      const maxBullets = state.charLimits.bulletCount || 10
       while (rawBullets.length < 5) rawBullets.push('')
-      const bullets = rawBullets.slice(0, 5)
+      const bullets = rawBullets.slice(0, maxBullets)
 
       const isOptimize = state.optimizationMode === 'optimize_existing' || state.optimizationMode === 'based_on_existing'
 

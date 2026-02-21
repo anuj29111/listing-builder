@@ -75,12 +75,18 @@ export async function POST(request: Request) {
 
     let formatted: string | { headers: string[]; rows: string[][] }
 
+    // Dynamically determine bullet count from existing sections
+    const bulletSections = sortedSections
+      .filter((s) => s.section_type.startsWith('bullet_'))
+      .sort((a, b) => parseInt(a.section_type.split('_')[1]) - parseInt(b.section_type.split('_')[1]))
+    const bulletCount = bulletSections.length || 5
+
     if (export_type === 'clipboard') {
       // Build formatted plain text
       const lines: string[] = []
       lines.push(`TITLE: ${getSelectedText('title')}`)
       lines.push('')
-      for (let i = 1; i <= 5; i++) {
+      for (let i = 1; i <= bulletCount; i++) {
         lines.push(`BULLET ${i}: ${getSelectedText(`bullet_${i}`)}`)
       }
       lines.push('')
@@ -99,6 +105,7 @@ export async function POST(request: Request) {
 
       for (const sectionType of SECTION_TYPES) {
         const text = getSelectedText(sectionType)
+        if (!text && sectionType.startsWith('bullet_')) continue // Skip empty bullet slots
         const label = SECTION_TYPE_LABELS[sectionType] || sectionType
         rows.push([label, text, String(text.length)])
       }
@@ -106,32 +113,20 @@ export async function POST(request: Request) {
       formatted = { headers, rows }
     } else {
       // flat_file format (Amazon Seller Central format)
-      const headers = [
-        'item_name',
-        'bullet_point1',
-        'bullet_point2',
-        'bullet_point3',
-        'bullet_point4',
-        'bullet_point5',
-        'product_description',
-        'generic_keywords',
-        'subject_matter',
-      ]
-      const rows: string[][] = [
-        [
-          getSelectedText('title'),
-          getSelectedText('bullet_1'),
-          getSelectedText('bullet_2'),
-          getSelectedText('bullet_3'),
-          getSelectedText('bullet_4'),
-          getSelectedText('bullet_5'),
-          getSelectedText('description'),
-          getSelectedText('search_terms'),
-          getSelectedText('subject_matter'),
-        ],
-      ]
+      const headers = ['item_name']
+      const row = [getSelectedText('title')]
+      for (let i = 1; i <= bulletCount; i++) {
+        headers.push(`bullet_point${i}`)
+        row.push(getSelectedText(`bullet_${i}`))
+      }
+      headers.push('product_description', 'generic_keywords', 'subject_matter')
+      row.push(
+        getSelectedText('description'),
+        getSelectedText('search_terms'),
+        getSelectedText('subject_matter'),
+      )
 
-      formatted = { headers, rows }
+      formatted = { headers, rows: [row] }
     }
 
     return NextResponse.json({
