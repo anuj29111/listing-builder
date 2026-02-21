@@ -2,11 +2,30 @@ import { createAdminClient } from '@/lib/supabase/server'
 
 const OXYLABS_TIMEOUT_MS = 60_000 // 60 seconds
 
-/** Fetch with AbortController timeout — prevents Oxylabs hangs */
-function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = OXYLABS_TIMEOUT_MS): Promise<Response> {
+/**
+ * Full Oxylabs request with timeout — covers connection, response body, AND JSON parsing.
+ * Returns parsed JSON or throws on timeout.
+ */
+async function oxylabsFetch(options: RequestInit, timeoutMs = OXYLABS_TIMEOUT_MS): Promise<Record<string, unknown>> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
-  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer))
+
+  try {
+    const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+      ...options,
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(`Oxylabs API error (${response.status}): ${text}`)
+    }
+
+    const json = await response.json()
+    return json as Record<string, unknown>
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 interface OxylabsCredentials {
@@ -247,40 +266,39 @@ export async function lookupAsin(
   asin: string,
   domain: string
 ): Promise<{ success: boolean; data?: OxylabsProductResult; error?: string }> {
-  const { username, password } = await getCredentials()
+  try {
+    const { username, password } = await getCredentials()
 
-  const response = await fetchWithTimeout('https://realtime.oxylabs.io/v1/queries', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization:
-        'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
-    },
-    body: JSON.stringify({
-      source: 'amazon_product',
-      domain,
-      query: asin,
-      parse: true,
-    }),
-  })
+    const json = await oxylabsFetch({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization:
+          'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
+      },
+      body: JSON.stringify({
+        source: 'amazon_product',
+        domain,
+        query: asin,
+        parse: true,
+      }),
+    })
 
-  if (!response.ok) {
-    const text = await response.text()
-    return {
-      success: false,
-      error: `Oxylabs API error (${response.status}): ${text}`,
+    // Oxylabs returns { results: [{ content: { ... } }] }
+    const results = json.results as Array<Record<string, unknown>> | undefined
+    const content = results?.[0]?.content
+    if (!content) {
+      return { success: false, error: 'No results returned from Oxylabs' }
     }
+
+    return { success: true, data: content as OxylabsProductResult }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { success: false, error: `Timed out after ${OXYLABS_TIMEOUT_MS / 1000}s` }
+    }
+    return { success: false, error: msg }
   }
-
-  const json = await response.json()
-
-  // Oxylabs returns { results: [{ content: { ... } }] }
-  const content = json.results?.[0]?.content
-  if (!content) {
-    return { success: false, error: 'No results returned from Oxylabs' }
-  }
-
-  return { success: true, data: content as OxylabsProductResult }
 }
 
 export async function searchKeyword(
@@ -288,40 +306,39 @@ export async function searchKeyword(
   domain: string,
   pages: number = 1
 ): Promise<{ success: boolean; data?: OxylabsSearchResponse; error?: string }> {
-  const { username, password } = await getCredentials()
+  try {
+    const { username, password } = await getCredentials()
 
-  const response = await fetchWithTimeout('https://realtime.oxylabs.io/v1/queries', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization:
-        'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
-    },
-    body: JSON.stringify({
-      source: 'amazon_search',
-      domain,
-      query: keyword,
-      pages,
-      parse: true,
-    }),
-  })
+    const json = await oxylabsFetch({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization:
+          'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
+      },
+      body: JSON.stringify({
+        source: 'amazon_search',
+        domain,
+        query: keyword,
+        pages,
+        parse: true,
+      }),
+    })
 
-  if (!response.ok) {
-    const text = await response.text()
-    return {
-      success: false,
-      error: `Oxylabs API error (${response.status}): ${text}`,
+    const results = json.results as Array<Record<string, unknown>> | undefined
+    const content = results?.[0]?.content
+    if (!content) {
+      return { success: false, error: 'No search results returned from Oxylabs' }
     }
+
+    return { success: true, data: content as OxylabsSearchResponse }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { success: false, error: `Timed out after ${OXYLABS_TIMEOUT_MS / 1000}s` }
+    }
+    return { success: false, error: msg }
   }
-
-  const json = await response.json()
-
-  const content = json.results?.[0]?.content
-  if (!content) {
-    return { success: false, error: 'No search results returned from Oxylabs' }
-  }
-
-  return { success: true, data: content as OxylabsSearchResponse }
 }
 
 export async function fetchReviews(
@@ -331,46 +348,43 @@ export async function fetchReviews(
   pages: number = 1,
   sortBy: string = 'recent'
 ): Promise<{ success: boolean; data?: OxylabsReviewsResponse; error?: string }> {
-  const { username, password } = await getCredentials()
+  try {
+    const { username, password } = await getCredentials()
 
-  const response = await fetchWithTimeout('https://realtime.oxylabs.io/v1/queries', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization:
-        'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
-    },
-    body: JSON.stringify({
-      source: 'amazon_reviews',
-      domain,
-      query: asin,
-      start_page: startPage,
-      pages,
-      parse: true,
-      context: [{ key: 'sort_by', value: sortBy }],
-    }),
-  })
+    const json = await oxylabsFetch({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization:
+          'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
+      },
+      body: JSON.stringify({
+        source: 'amazon_reviews',
+        domain,
+        query: asin,
+        start_page: startPage,
+        pages,
+        parse: true,
+        context: [{ key: 'sort_by', value: sortBy }],
+      }),
+    })
 
-  if (!response.ok) {
-    const text = await response.text()
-    console.error(`[fetchReviews] Oxylabs HTTP ${response.status} for ${asin} on ${domain}:`, text)
-    return {
-      success: false,
-      error: `Oxylabs API error (${response.status}): ${text}`,
+    const results = json.results as Array<Record<string, unknown>> | undefined
+    const content = results?.[0]?.content as Record<string, unknown> | undefined
+    if (!content) {
+      const statusCode = results?.[0]?.status_code
+      console.error(`[fetchReviews] No content for ${asin} on ${domain}. status_code=${statusCode}, results_count=${results?.length}`)
+      return { success: false, error: `No reviews content returned (status_code=${statusCode})` }
     }
+
+    return { success: true, data: content as unknown as OxylabsReviewsResponse }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { success: false, error: `Timed out after ${OXYLABS_TIMEOUT_MS / 1000}s` }
+    }
+    return { success: false, error: msg }
   }
-
-  const json = await response.json()
-
-  const content = json.results?.[0]?.content
-  if (!content) {
-    const statusCode = json.results?.[0]?.status_code
-    const parseStatus = json.results?.[0]?.content?.parse_status_code
-    console.error(`[fetchReviews] No content for ${asin} on ${domain}. status_code=${statusCode}, parse_status=${parseStatus}, results_count=${json.results?.length}`)
-    return { success: false, error: `No reviews content returned (status_code=${statusCode})` }
-  }
-
-  return { success: true, data: content as OxylabsReviewsResponse }
 }
 
 // Fallback: fetch reviews via 'amazon' web scraper source with direct reviews page URL
@@ -380,85 +394,70 @@ export async function fetchReviewsViaWebScraper(
   page: number = 1,
   sortBy: string = 'recent'
 ): Promise<{ success: boolean; data?: OxylabsReviewsResponse; error?: string }> {
-  const { username, password } = await getCredentials()
+  try {
+    const { username, password } = await getCredentials()
 
-  const reviewsUrl = `https://www.amazon.${domain}/product-reviews/${asin}?sortBy=${sortBy}&pageNumber=${page}`
+    const reviewsUrl = `https://www.amazon.${domain}/product-reviews/${asin}?sortBy=${sortBy}&pageNumber=${page}`
 
-  const response = await fetchWithTimeout('https://realtime.oxylabs.io/v1/queries', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization:
-        'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
-    },
-    body: JSON.stringify({
-      source: 'amazon',
-      url: reviewsUrl,
-      parse: true,
-    }),
-  })
+    const json = await oxylabsFetch({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization:
+          'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
+      },
+      body: JSON.stringify({
+        source: 'amazon',
+        url: reviewsUrl,
+        parse: true,
+      }),
+    })
 
-  if (!response.ok) {
-    const text = await response.text()
-    console.error(`[fetchReviewsViaWebScraper] Oxylabs HTTP ${response.status} for ${asin} on ${domain}:`, text)
-    return {
-      success: false,
-      error: `Oxylabs web scraper error (${response.status}): ${text}`,
+    const results = json.results as Array<Record<string, unknown>> | undefined
+    const result = results?.[0]
+    const content = result?.content as Record<string, unknown> | undefined
+
+    if (!content) {
+      const statusCode = result?.status_code
+      console.error(`[fetchReviewsViaWebScraper] No content for ${asin} on ${domain}. status_code=${statusCode}`)
+      return { success: false, error: `No content from web scraper (status_code=${statusCode})` }
     }
-  }
 
-  const json = await response.json()
-  const result = json.results?.[0]
-  const content = result?.content
+    // The 'amazon' source with a reviews page URL should return parsed review data
+    // Map to OxylabsReviewsResponse format
+    const reviews: OxylabsReviewItem[] = ((content.reviews || []) as Array<Record<string, unknown>>).map((r: Record<string, unknown>) => ({
+      id: String(r.id || r.review_id || ''),
+      title: String(r.title || ''),
+      author: String(r.author || ''),
+      rating: Number(r.rating || 0),
+      content: String(r.content || r.text || ''),
+      timestamp: String(r.timestamp || r.date || ''),
+      is_verified: Boolean(r.is_verified || r.verified_purchase),
+      helpful_count: Number(r.helpful_count || r.helpful_votes || 0),
+      product_attributes: r.product_attributes ? String(r.product_attributes) : null,
+      images: Array.isArray(r.images) ? r.images.map(String) : [],
+    }))
 
-  if (!content) {
-    const statusCode = result?.status_code
-    console.error(`[fetchReviewsViaWebScraper] No content for ${asin} on ${domain}. status_code=${statusCode}`)
-    return { success: false, error: `No content from web scraper (status_code=${statusCode})` }
-  }
-
-  // Log the content keys so we can understand the response structure
-  console.log(`[fetchReviewsViaWebScraper] Response keys for ${asin}:`, Object.keys(content))
-  console.log(`[fetchReviewsViaWebScraper] parse_status_code=${content.parse_status_code}, status_code=${result?.status_code}`)
-  if (content.reviews) {
-    console.log(`[fetchReviewsViaWebScraper] Found ${content.reviews.length} reviews in content.reviews`)
-  } else {
-    // Log first-level keys that contain arrays — might indicate where reviews live
-    const arrayKeys = Object.keys(content).filter(k => Array.isArray(content[k]))
-    console.log(`[fetchReviewsViaWebScraper] No content.reviews. Array keys:`, arrayKeys)
-    // Log a sample of the content structure
-    const sampleKeys = Object.keys(content).slice(0, 20)
-    console.log(`[fetchReviewsViaWebScraper] Sample content structure:`, sampleKeys.map(k => `${k}(${typeof content[k]})`))
-  }
-
-  // The 'amazon' source with a reviews page URL should return parsed review data
-  // Map to OxylabsReviewsResponse format
-  const reviews: OxylabsReviewItem[] = (content.reviews || []).map((r: Record<string, unknown>) => ({
-    id: String(r.id || r.review_id || ''),
-    title: String(r.title || ''),
-    author: String(r.author || ''),
-    rating: Number(r.rating || 0),
-    content: String(r.content || r.text || ''),
-    timestamp: String(r.timestamp || r.date || ''),
-    is_verified: Boolean(r.is_verified || r.verified_purchase),
-    helpful_count: Number(r.helpful_count || r.helpful_votes || 0),
-    product_attributes: r.product_attributes ? String(r.product_attributes) : null,
-    images: Array.isArray(r.images) ? r.images.map(String) : [],
-  }))
-
-  return {
-    success: true,
-    data: {
-      url: content.url || reviewsUrl,
-      asin: content.asin || asin,
-      page: content.page || page,
-      pages: content.pages || content.last_page || 0,
-      reviews_count: content.reviews_count || content.total_reviews || 0,
-      rating: content.rating || 0,
-      rating_stars_distribution: content.rating_stars_distribution || content.rating_distribution || [],
-      reviews,
-      parse_status_code: content.parse_status_code || 12000,
-    },
+    return {
+      success: true,
+      data: {
+        url: (content.url as string) || reviewsUrl,
+        asin: (content.asin as string) || asin,
+        page: (content.page as number) || page,
+        pages: (content.pages as number) || (content.last_page as number) || 0,
+        reviews_count: (content.reviews_count as number) || (content.total_reviews as number) || 0,
+        rating: (content.rating as number) || 0,
+        rating_stars_distribution: (content.rating_stars_distribution || content.rating_distribution || []) as Array<{ rating: number; percentage: string }>,
+        reviews,
+        parse_status_code: (content.parse_status_code as number) || 12000,
+      },
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { success: false, error: `Timed out after ${OXYLABS_TIMEOUT_MS / 1000}s` }
+    }
+    return { success: false, error: msg }
   }
 }
 
@@ -486,40 +485,39 @@ export async function fetchQuestions(
   domain: string,
   pages: number = 1
 ): Promise<{ success: boolean; data?: OxylabsQnAResponse; error?: string }> {
-  const { username, password } = await getCredentials()
+  try {
+    const { username, password } = await getCredentials()
 
-  const response = await fetchWithTimeout('https://realtime.oxylabs.io/v1/queries', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization:
-        'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
-    },
-    body: JSON.stringify({
-      source: 'amazon_questions',
-      domain,
-      query: asin,
-      pages,
-      parse: true,
-    }),
-  })
+    const json = await oxylabsFetch({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization:
+          'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
+      },
+      body: JSON.stringify({
+        source: 'amazon_questions',
+        domain,
+        query: asin,
+        pages,
+        parse: true,
+      }),
+    })
 
-  if (!response.ok) {
-    const text = await response.text()
-    return {
-      success: false,
-      error: `Oxylabs API error (${response.status}): ${text}`,
+    const results = json.results as Array<Record<string, unknown>> | undefined
+    const content = results?.[0]?.content
+    if (!content) {
+      return { success: false, error: 'No Q&A data returned from Oxylabs' }
     }
+
+    return { success: true, data: content as OxylabsQnAResponse }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { success: false, error: `Timed out after ${OXYLABS_TIMEOUT_MS / 1000}s` }
+    }
+    return { success: false, error: msg }
   }
-
-  const json = await response.json()
-
-  const content = json.results?.[0]?.content
-  if (!content) {
-    return { success: false, error: 'No Q&A data returned from Oxylabs' }
-  }
-
-  return { success: true, data: content as OxylabsQnAResponse }
 }
 
 // --- Seller Product Pull ---
@@ -544,26 +542,26 @@ export async function fetchSellerProducts(
   for (let startPage = 1; startPage <= maxPages; startPage += batchSize) {
     const pagesToFetch = Math.min(batchSize, maxPages - startPage + 1)
 
-    const response = await fetchWithTimeout('https://realtime.oxylabs.io/v1/queries', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: authHeader,
-      },
-      body: JSON.stringify({
-        source: 'amazon_search',
-        domain,
-        query: ' ',
-        start_page: startPage,
-        pages: pagesToFetch,
-        parse: true,
-        context: [{ key: 'merchant_id', value: sellerId }],
-      }),
-    })
-
-    if (!response.ok) {
-      const text = await response.text()
-      // If rate limited but we have some results, return what we have
+    let json: Record<string, unknown>
+    try {
+      json = await oxylabsFetch({
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({
+          source: 'amazon_search',
+          domain,
+          query: ' ',
+          start_page: startPage,
+          pages: pagesToFetch,
+          parse: true,
+          context: [{ key: 'merchant_id', value: sellerId }],
+        }),
+      })
+    } catch (err) {
+      // If we have some results, return what we have
       if (allProducts.length > 0) {
         return {
           success: true,
@@ -572,11 +570,9 @@ export async function fetchSellerProducts(
       }
       return {
         success: false,
-        error: `Oxylabs API error (${response.status}): ${text}`,
+        error: err instanceof Error ? err.message : 'Oxylabs API error',
       }
     }
-
-    const json = await response.json()
 
     if (json.message) {
       // Rate limit or other error from Oxylabs
@@ -586,40 +582,41 @@ export async function fetchSellerProducts(
           data: { products: allProducts, totalPages, pagesScraped },
         }
       }
-      return { success: false, error: json.message }
+      return { success: false, error: json.message as string }
     }
 
-    const results = json.results || []
+    const results = (json.results || []) as Array<Record<string, unknown>>
     let foundProducts = false
 
     for (const result of results) {
-      const content = result?.content
+      const content = result?.content as Record<string, unknown> | undefined
       if (!content || typeof content !== 'object') continue
 
       pagesScraped++
 
       // Capture total pages from first result
       if (totalPages === 0 && content.last_visible_page) {
-        totalPages = content.last_visible_page
+        totalPages = content.last_visible_page as number
       }
 
-      const organic = content.results?.organic || []
+      const contentResults = content.results as Record<string, unknown> | undefined
+      const organic = ((contentResults?.organic || []) as Array<Record<string, unknown>>)
       for (const item of organic) {
-        const asin = item.asin
+        const asin = item.asin as string
         if (!asin || seen.has(asin)) continue
         seen.add(asin)
         foundProducts = true
 
         allProducts.push({
           asin,
-          title: item.title || '',
-          price: item.price ?? null,
-          rating: item.rating ?? null,
-          reviews_count: item.reviews_count ?? null,
-          is_prime: item.is_prime ?? false,
-          url_image: item.url_image ?? null,
-          manufacturer: item.manufacturer ?? null,
-          sales_volume: item.sales_volume ?? null,
+          title: (item.title as string) || '',
+          price: (item.price as number) ?? null,
+          rating: (item.rating as number) ?? null,
+          reviews_count: (item.reviews_count as number) ?? null,
+          is_prime: (item.is_prime as boolean) ?? false,
+          url_image: (item.url_image as string) ?? null,
+          manufacturer: (item.manufacturer as string) ?? null,
+          sales_volume: (item.sales_volume as string) ?? null,
         })
       }
     }

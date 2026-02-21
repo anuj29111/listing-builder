@@ -52,6 +52,7 @@ export async function backgroundAnalyze(
     const admin = createAdminClient()
 
     // ========== PHASE A: Fetch reviews for selected products ==========
+    const PER_ASIN_TIMEOUT = 65_000 // 65s hard timeout per ASIN fetch
     const reviewsData: Record<string, Array<Record<string, unknown>>> = {}
 
     for (let i = 0; i < selectedAsins.length; i++) {
@@ -66,49 +67,61 @@ export async function backgroundAnalyze(
         },
       })
 
-      // Check cache
-      const { data: cachedReviews } = await supabase
-        .from('lb_asin_reviews')
-        .select('reviews')
-        .eq('asin', asin)
-        .eq('country_id', record.country_id as string)
-        .gte('updated_at', cacheThreshold)
-        .single()
+      const reviewResult = await Promise.race([
+        (async () => {
+          // Check cache
+          const { data: cachedReviews } = await supabase
+            .from('lb_asin_reviews')
+            .select('reviews')
+            .eq('asin', asin)
+            .eq('country_id', record.country_id as string)
+            .gte('updated_at', cacheThreshold)
+            .single()
 
-      if (cachedReviews?.reviews) {
-        reviewsData[asin] = cachedReviews.reviews as Array<Record<string, unknown>>
-        continue
-      }
+          if (cachedReviews?.reviews) {
+            return cachedReviews.reviews as Array<Record<string, unknown>>
+          }
 
-      // Fetch fresh
-      try {
-        const reviewResult = await fetchReviews(asin, oxylabsDomain, 1, Math.min(reviewPages, 20))
-        oxylabsCallsUsed++
+          // Fetch fresh
+          const result = await fetchReviews(asin, oxylabsDomain, 1, Math.min(reviewPages, 20))
+          oxylabsCallsUsed++
 
-        if (reviewResult.success && reviewResult.data?.reviews) {
-          reviewsData[asin] = reviewResult.data.reviews as unknown as Array<Record<string, unknown>>
+          if (result.success && result.data?.reviews) {
+            // Cache upsert (fire-and-forget)
+            admin.from('lb_asin_reviews').upsert({
+              asin,
+              country_id: record.country_id as string,
+              marketplace_domain: country.amazon_domain,
+              reviews_count: result.data.reviews_count || result.data.reviews.length,
+              rating: result.data.rating,
+              rating_stars_distribution: result.data.rating_stars_distribution,
+              reviews: result.data.reviews,
+              raw_response: result.data,
+              sort_by: 'recent',
+              fetched_by: userId,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'asin,country_id,sort_by' })
 
-          await admin.from('lb_asin_reviews').upsert({
-            asin,
-            country_id: record.country_id as string,
-            marketplace_domain: country.amazon_domain,
-            reviews_count: reviewResult.data.reviews_count || reviewResult.data.reviews.length,
-            rating: reviewResult.data.rating,
-            rating_stars_distribution: reviewResult.data.rating_stars_distribution,
-            reviews: reviewResult.data.reviews,
-            raw_response: reviewResult.data,
-            sort_by: 'recent',
-            fetched_by: userId,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'asin,country_id,sort_by' })
-        } else {
+            return result.data.reviews as unknown as Array<Record<string, unknown>>
+          }
+
           // Fallback: top_reviews from product lookup
           const comp = competitorsRaw.find(c => c.asin === asin)
-          if (comp?.top_reviews) {
-            reviewsData[asin] = comp.top_reviews as Array<Record<string, unknown>>
-          }
-        }
-      } catch {
+          return (comp?.top_reviews || null) as Array<Record<string, unknown>> | null
+        })().catch(() => {
+          const comp = competitorsRaw.find(c => c.asin === asin)
+          return (comp?.top_reviews || null) as Array<Record<string, unknown>> | null
+        }),
+        new Promise<null>((resolve) => setTimeout(() => {
+          console.error(`[MI ${id}] Review fetch for ${asin} timed out — skipping`)
+          resolve(null)
+        }, PER_ASIN_TIMEOUT)),
+      ])
+
+      if (reviewResult) {
+        reviewsData[asin] = reviewResult
+      } else {
+        // Fallback: top_reviews from product lookup
         const comp = competitorsRaw.find(c => c.asin === asin)
         if (comp?.top_reviews) {
           reviewsData[asin] = comp.top_reviews as Array<Record<string, unknown>>
@@ -131,40 +144,52 @@ export async function backgroundAnalyze(
         },
       })
 
-      // Check cache
-      const { data: cachedQnA } = await supabase
-        .from('lb_asin_questions')
-        .select('questions')
-        .eq('asin', asin)
-        .eq('country_id', record.country_id as string)
-        .gte('updated_at', cacheThreshold)
-        .single()
+      const qnaResult = await Promise.race([
+        (async () => {
+          // Check cache
+          const { data: cachedQnA } = await supabase
+            .from('lb_asin_questions')
+            .select('questions')
+            .eq('asin', asin)
+            .eq('country_id', record.country_id as string)
+            .gte('updated_at', cacheThreshold)
+            .single()
 
-      if (cachedQnA?.questions) {
-        questionsData[asin] = cachedQnA.questions as Array<Record<string, unknown>>
-        continue
-      }
+          if (cachedQnA?.questions) {
+            return cachedQnA.questions as Array<Record<string, unknown>>
+          }
 
-      try {
-        const qnaResult = await fetchQuestions(asin, oxylabsDomain, 1)
-        oxylabsCallsUsed++
+          const result = await fetchQuestions(asin, oxylabsDomain, 1)
+          oxylabsCallsUsed++
 
-        if (qnaResult.success && qnaResult.data?.questions) {
-          questionsData[asin] = qnaResult.data.questions as unknown as Array<Record<string, unknown>>
+          if (result.success && result.data?.questions) {
+            // Cache upsert (fire-and-forget)
+            admin.from('lb_asin_questions').upsert({
+              asin,
+              country_id: record.country_id as string,
+              marketplace_domain: country.amazon_domain,
+              total_questions: result.data.questions.length,
+              questions: result.data.questions,
+              raw_response: result.data,
+              fetched_by: userId,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'asin,country_id' })
 
-          await admin.from('lb_asin_questions').upsert({
-            asin,
-            country_id: record.country_id as string,
-            marketplace_domain: country.amazon_domain,
-            total_questions: qnaResult.data.questions.length,
-            questions: qnaResult.data.questions,
-            raw_response: qnaResult.data,
-            fetched_by: userId,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'asin,country_id' })
-        }
-      } catch (qnaErr) {
-        console.error(`[MI ${id}] Failed to fetch Q&A for ${asin}:`, qnaErr)
+            return result.data.questions as unknown as Array<Record<string, unknown>>
+          }
+          return null
+        })().catch((err) => {
+          console.error(`[MI ${id}] Failed to fetch Q&A for ${asin}:`, err)
+          return null
+        }),
+        new Promise<null>((resolve) => setTimeout(() => {
+          console.error(`[MI ${id}] Q&A fetch for ${asin} timed out — skipping`)
+          resolve(null)
+        }, PER_ASIN_TIMEOUT)),
+      ])
+
+      if (qnaResult) {
+        questionsData[asin] = qnaResult
       }
     }
 

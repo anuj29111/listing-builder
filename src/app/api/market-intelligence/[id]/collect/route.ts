@@ -163,6 +163,7 @@ export async function POST(
     }
 
     // ========== STEP 2: Fetch product data for each ASIN ==========
+    const ASIN_TIMEOUT_MS = 65_000 // 65s hard limit per ASIN (slightly above Oxylabs 60s)
     const competitorsData: Array<Record<string, unknown>> = []
     const totalSteps = topAsins.length
 
@@ -179,166 +180,186 @@ export async function POST(
         updated_at: new Date().toISOString(),
       }).eq('id', params.id)
 
-      // Check cache
-      const { data: cachedLookup } = await supabase
-        .from('lb_asin_lookups')
-        .select('*')
-        .eq('asin', asin)
-        .eq('country_id', record.country_id)
-        .gte('updated_at', cacheThreshold)
-        .single()
+      // Wrap entire ASIN processing in Promise.race with hard timeout
+      const asinResult = await Promise.race([
+        (async (): Promise<Record<string, unknown> | null> => {
+          // Check cache
+          const { data: cachedLookup } = await supabase
+            .from('lb_asin_lookups')
+            .select('*')
+            .eq('asin', asin)
+            .eq('country_id', record.country_id)
+            .gte('updated_at', cacheThreshold)
+            .single()
 
-      if (cachedLookup) {
+          if (cachedLookup) {
+            return {
+              asin: cachedLookup.asin,
+              title: cachedLookup.title,
+              brand: cachedLookup.brand,
+              price: cachedLookup.price,
+              price_initial: cachedLookup.price_initial,
+              currency: cachedLookup.currency,
+              rating: cachedLookup.rating,
+              reviews_count: cachedLookup.reviews_count,
+              bullet_points: cachedLookup.bullet_points,
+              description: cachedLookup.description,
+              product_overview: cachedLookup.product_overview,
+              product_details: cachedLookup.product_details,
+              images: cachedLookup.images,
+              is_prime_eligible: cachedLookup.is_prime_eligible,
+              amazon_choice: cachedLookup.amazon_choice,
+              deal_type: cachedLookup.deal_type,
+              coupon: cachedLookup.coupon,
+              coupon_discount_percentage: cachedLookup.coupon_discount_percentage,
+              discount_percentage: cachedLookup.discount_percentage,
+              sales_volume: cachedLookup.sales_volume,
+              sales_rank: cachedLookup.sales_rank,
+              category: cachedLookup.category,
+              featured_merchant: cachedLookup.featured_merchant,
+              variations: cachedLookup.variations,
+              stock: cachedLookup.stock,
+              parent_asin: cachedLookup.parent_asin,
+              answered_questions_count: cachedLookup.answered_questions_count,
+              has_videos: cachedLookup.has_videos,
+              max_quantity: cachedLookup.max_quantity,
+              pricing_count: cachedLookup.pricing_count,
+              product_dimensions: cachedLookup.product_dimensions,
+              delivery: cachedLookup.delivery,
+              buybox: cachedLookup.buybox,
+              lightning_deal: cachedLookup.lightning_deal,
+              rating_stars_distribution: cachedLookup.rating_stars_distribution,
+              sns_discounts: cachedLookup.sns_discounts,
+              top_reviews: cachedLookup.top_reviews,
+              marketplace_domain: country.amazon_domain,
+              source: 'cache',
+            }
+          }
+
+          // Fetch fresh
+          const lookupResult = await lookupAsin(asin, oxylabsDomain)
+          oxylabsCallsUsed++
+
+          if (!lookupResult.success || !lookupResult.data) {
+            throw new Error(lookupResult.error || 'Lookup failed')
+          }
+
+          const p = lookupResult.data
+
+          // Upsert to cache
+          await admin.from('lb_asin_lookups').upsert({
+            asin,
+            country_id: record.country_id,
+            marketplace_domain: country.amazon_domain,
+            raw_response: p,
+            title: p.title || null,
+            brand: p.brand || null,
+            price: p.price ?? null,
+            price_upper: p.price_upper ?? null,
+            price_sns: p.price_sns ?? null,
+            price_initial: p.price_initial ?? null,
+            price_shipping: p.price_shipping ?? null,
+            currency: p.currency || null,
+            rating: p.rating ?? null,
+            reviews_count: p.reviews_count ?? null,
+            bullet_points: p.bullet_points || null,
+            description: p.description || null,
+            images: p.images || [],
+            sales_rank: p.sales_rank || null,
+            category: p.category || null,
+            featured_merchant: p.featured_merchant || null,
+            variations: p.variation || null,
+            is_prime_eligible: p.is_prime_eligible ?? false,
+            stock: p.stock || null,
+            deal_type: p.deal_type || null,
+            coupon: p.coupon || null,
+            coupon_discount_percentage: p.coupon_discount_percentage ?? null,
+            discount_percentage: p.discount?.percentage ?? null,
+            amazon_choice: p.amazon_choice ?? false,
+            parent_asin: p.parent_asin || null,
+            answered_questions_count: p.answered_questions_count ?? null,
+            has_videos: p.has_videos ?? false,
+            sales_volume: p.sales_volume || null,
+            max_quantity: p.max_quantity ?? null,
+            pricing_count: p.pricing_count ?? null,
+            product_dimensions: p.product_dimensions || null,
+            product_details: p.product_details || null,
+            product_overview: p.product_overview || null,
+            delivery: p.delivery || null,
+            buybox: p.buybox || null,
+            lightning_deal: p.lightning_deal || null,
+            rating_stars_distribution: p.rating_stars_distribution || null,
+            sns_discounts: p.sns_discounts || null,
+            top_reviews: p.reviews || null,
+            lookup_by: lbUser.id,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'asin,country_id' })
+
+          return {
+            asin,
+            title: p.title,
+            brand: p.brand,
+            price: p.price,
+            price_initial: p.price_initial,
+            currency: p.currency,
+            rating: p.rating,
+            reviews_count: p.reviews_count,
+            bullet_points: p.bullet_points,
+            description: p.description,
+            product_overview: p.product_overview,
+            product_details: p.product_details,
+            images: p.images,
+            is_prime_eligible: p.is_prime_eligible,
+            amazon_choice: p.amazon_choice,
+            deal_type: p.deal_type,
+            coupon: p.coupon,
+            coupon_discount_percentage: p.coupon_discount_percentage,
+            discount_percentage: p.discount?.percentage,
+            sales_volume: p.sales_volume,
+            sales_rank: p.sales_rank,
+            category: p.category,
+            featured_merchant: p.featured_merchant,
+            variations: p.variation,
+            stock: p.stock,
+            parent_asin: p.parent_asin,
+            answered_questions_count: p.answered_questions_count,
+            has_videos: p.has_videos,
+            max_quantity: p.max_quantity,
+            pricing_count: p.pricing_count,
+            product_dimensions: p.product_dimensions,
+            delivery: p.delivery,
+            buybox: p.buybox,
+            lightning_deal: p.lightning_deal,
+            rating_stars_distribution: p.rating_stars_distribution,
+            sns_discounts: p.sns_discounts,
+            top_reviews: p.reviews,
+            marketplace_domain: country.amazon_domain,
+            source: 'fresh',
+          }
+        })().catch((lookupErr) => {
+          console.error(`Failed to lookup ${asin}:`, lookupErr)
+          return {
+            asin,
+            error: lookupErr instanceof Error ? lookupErr.message : 'Lookup failed',
+            source: 'error',
+          } as Record<string, unknown>
+        }),
+        // Hard timeout: skip this ASIN after 65s
+        new Promise<null>((resolve) =>
+          setTimeout(() => {
+            console.error(`[MI] ASIN ${asin} timed out after ${ASIN_TIMEOUT_MS / 1000}s — skipping`)
+            resolve(null)
+          }, ASIN_TIMEOUT_MS)
+        ),
+      ])
+
+      if (asinResult) {
+        competitorsData.push(asinResult)
+      } else {
+        // Timed out — add error entry so user sees it was skipped
         competitorsData.push({
-          asin: cachedLookup.asin,
-          title: cachedLookup.title,
-          brand: cachedLookup.brand,
-          price: cachedLookup.price,
-          price_initial: cachedLookup.price_initial,
-          currency: cachedLookup.currency,
-          rating: cachedLookup.rating,
-          reviews_count: cachedLookup.reviews_count,
-          bullet_points: cachedLookup.bullet_points,
-          description: cachedLookup.description,
-          product_overview: cachedLookup.product_overview,
-          product_details: cachedLookup.product_details,
-          images: cachedLookup.images,
-          is_prime_eligible: cachedLookup.is_prime_eligible,
-          amazon_choice: cachedLookup.amazon_choice,
-          deal_type: cachedLookup.deal_type,
-          coupon: cachedLookup.coupon,
-          coupon_discount_percentage: cachedLookup.coupon_discount_percentage,
-          discount_percentage: cachedLookup.discount_percentage,
-          sales_volume: cachedLookup.sales_volume,
-          sales_rank: cachedLookup.sales_rank,
-          category: cachedLookup.category,
-          featured_merchant: cachedLookup.featured_merchant,
-          variations: cachedLookup.variations,
-          stock: cachedLookup.stock,
-          parent_asin: cachedLookup.parent_asin,
-          answered_questions_count: cachedLookup.answered_questions_count,
-          has_videos: cachedLookup.has_videos,
-          max_quantity: cachedLookup.max_quantity,
-          pricing_count: cachedLookup.pricing_count,
-          product_dimensions: cachedLookup.product_dimensions,
-          delivery: cachedLookup.delivery,
-          buybox: cachedLookup.buybox,
-          lightning_deal: cachedLookup.lightning_deal,
-          rating_stars_distribution: cachedLookup.rating_stars_distribution,
-          sns_discounts: cachedLookup.sns_discounts,
-          top_reviews: cachedLookup.top_reviews,
-          marketplace_domain: country.amazon_domain,
-          source: 'cache',
-        })
-        continue
-      }
-
-      // Fetch fresh
-      try {
-        const lookupResult = await lookupAsin(asin, oxylabsDomain)
-        oxylabsCallsUsed++
-
-        if (!lookupResult.success || !lookupResult.data) {
-          throw new Error(lookupResult.error || 'Lookup failed')
-        }
-
-        const p = lookupResult.data
-
-        // Upsert to cache
-        await admin.from('lb_asin_lookups').upsert({
           asin,
-          country_id: record.country_id,
-          marketplace_domain: country.amazon_domain,
-          raw_response: p,
-          title: p.title || null,
-          brand: p.brand || null,
-          price: p.price ?? null,
-          price_upper: p.price_upper ?? null,
-          price_sns: p.price_sns ?? null,
-          price_initial: p.price_initial ?? null,
-          price_shipping: p.price_shipping ?? null,
-          currency: p.currency || null,
-          rating: p.rating ?? null,
-          reviews_count: p.reviews_count ?? null,
-          bullet_points: p.bullet_points || null,
-          description: p.description || null,
-          images: p.images || [],
-          sales_rank: p.sales_rank || null,
-          category: p.category || null,
-          featured_merchant: p.featured_merchant || null,
-          variations: p.variation || null,
-          is_prime_eligible: p.is_prime_eligible ?? false,
-          stock: p.stock || null,
-          deal_type: p.deal_type || null,
-          coupon: p.coupon || null,
-          coupon_discount_percentage: p.coupon_discount_percentage ?? null,
-          discount_percentage: p.discount?.percentage ?? null,
-          amazon_choice: p.amazon_choice ?? false,
-          parent_asin: p.parent_asin || null,
-          answered_questions_count: p.answered_questions_count ?? null,
-          has_videos: p.has_videos ?? false,
-          sales_volume: p.sales_volume || null,
-          max_quantity: p.max_quantity ?? null,
-          pricing_count: p.pricing_count ?? null,
-          product_dimensions: p.product_dimensions || null,
-          product_details: p.product_details || null,
-          product_overview: p.product_overview || null,
-          delivery: p.delivery || null,
-          buybox: p.buybox || null,
-          lightning_deal: p.lightning_deal || null,
-          rating_stars_distribution: p.rating_stars_distribution || null,
-          sns_discounts: p.sns_discounts || null,
-          top_reviews: p.reviews || null,
-          lookup_by: lbUser.id,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'asin,country_id' })
-
-        competitorsData.push({
-          asin,
-          title: p.title,
-          brand: p.brand,
-          price: p.price,
-          price_initial: p.price_initial,
-          currency: p.currency,
-          rating: p.rating,
-          reviews_count: p.reviews_count,
-          bullet_points: p.bullet_points,
-          description: p.description,
-          product_overview: p.product_overview,
-          product_details: p.product_details,
-          images: p.images,
-          is_prime_eligible: p.is_prime_eligible,
-          amazon_choice: p.amazon_choice,
-          deal_type: p.deal_type,
-          coupon: p.coupon,
-          coupon_discount_percentage: p.coupon_discount_percentage,
-          discount_percentage: p.discount?.percentage,
-          sales_volume: p.sales_volume,
-          sales_rank: p.sales_rank,
-          category: p.category,
-          featured_merchant: p.featured_merchant,
-          variations: p.variation,
-          stock: p.stock,
-          parent_asin: p.parent_asin,
-          answered_questions_count: p.answered_questions_count,
-          has_videos: p.has_videos,
-          max_quantity: p.max_quantity,
-          pricing_count: p.pricing_count,
-          product_dimensions: p.product_dimensions,
-          delivery: p.delivery,
-          buybox: p.buybox,
-          lightning_deal: p.lightning_deal,
-          rating_stars_distribution: p.rating_stars_distribution,
-          sns_discounts: p.sns_discounts,
-          top_reviews: p.reviews,
-          marketplace_domain: country.amazon_domain,
-          source: 'fresh',
-        })
-      } catch (lookupErr) {
-        console.error(`Failed to lookup ${asin}:`, lookupErr)
-        competitorsData.push({
-          asin,
-          error: lookupErr instanceof Error ? lookupErr.message : 'Lookup failed',
+          error: `Skipped: timed out after ${ASIN_TIMEOUT_MS / 1000}s`,
           source: 'error',
         })
       }
