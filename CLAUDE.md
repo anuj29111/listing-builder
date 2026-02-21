@@ -9,7 +9,7 @@
 | **State** | Zustand (`use<Name>Store`) |
 | **Database** | Supabase PostgreSQL (project `yawaopfqkkvdqtsagmng`, shared DB) |
 | **Auth** | Google OAuth via Supabase Auth (`@chalkola.com` only) |
-| **Deployment** | Railway (auto-deploy from GitHub `main`) |
+| **Deployment** | Railway (`railway up` CLI — auto-deploy unreliable) |
 | **Production URL** | `https://listing-builder-production.up.railway.app` |
 | **GitHub** | `anuj29111/listing-builder` |
 | **Table Prefix** | `lb_` (21 tables, 66 RLS policies) |
@@ -86,8 +86,8 @@ npm run start        # Production server
 npm run lint         # ESLint
 ```
 
-**Deploy:** commit → push to `main` → Railway auto-deploys (Nixpacks).
-**If auto-deploy fails:** use `railway up` CLI to force deploy.
+**Deploy:** commit → push to `main` → `railway up` CLI to deploy (Nixpacks). Railway "Redeploy" button re-uses old image — does NOT pull new code.
+**NEVER rely on Railway auto-deploy or dashboard Redeploy** — always use `railway up` from local with latest `main`.
 **Health check:** `GET /api/health`
 
 ---
@@ -99,7 +99,7 @@ npm run lint         # ESLint
 3. **Route groups** — Don't create redirect-only `page.tsx` inside route groups (missing manifest error).
 4. **Nixpacks** — Don't use `output: 'standalone'`. **Middleware** — Must run Supabase client for ALL routes for cookie propagation.
 5. **FormData uploads** — Never set `Content-Type` header manually. **DataDive CSV BOM** — Strip `\uFEFF` before header detection.
-6. **Railway auto-deploy** — Can silently fail. Use `railway up` as fallback. **TypeScript Set** — Use `Array.from(new Set())`.
+6. **Railway deploy** — Auto-deploy and dashboard "Redeploy" are unreliable (re-use cached image). ALWAYS use `railway up` CLI. **TypeScript Set** — Use `Array.from(new Set())`.
 7. **Supabase Redirect URLs** — Each app needs its callback URL added to Auth config.
 8. **Claude JSON responses** — Always `stripMarkdownFences()` before `JSON.parse()`.
 9. **Supabase Storage MIME types** — `lb-research-files`: csv, excel, txt, markdown, json, octet-stream.
@@ -110,7 +110,7 @@ npm run lint         # ESLint
 20. **Image builder** — Dual entry: `/listings/[id]` and `/images` (standalone). 5 tabs. `image_type` column filters workshops per tab. Drafts panel resumes saved workshops.
 21. **Listings** — Bullet variations: 3 per bullet (was 9, reduced for clarity). SectionCard: `final_text` = approved. Phased generation: 4 sequential API calls via `/api/listings/generate` with `phase` param. Title generation has post-gen length validation with retry (LLMs can't count chars). Bullets support 5-10 dynamically. Collapsible bullet containers in wizard + review. Auto-advance from generation to Review step.
 22. **Competitor analysis** — `analysis_type='competitor_analysis'` in `lb_research_analysis`. Max 5 competitors, 5000 chars each.
-23. **Admin settings keys are lowercase** — `anthropic_api_key`, `openai_api_key`, `google_ai_api_key`.
+23. **Admin settings keys are lowercase** — `anthropic_api_key`, `openai_api_key`, `google_ai_api_key`, `apify_api_token`.
 24. **Image providers** — `openai` (GPT Image 1.5), `gemini` (Flash + Nano Banana Pro), `higgsfield` (queue-based via `hf_prompt_queue`). Models: `nano-banana-pro`, `chatgpt`, `seedream`, `soul`.
 25. **SP Prompts xlsx parsing** — xlsx parsed server-side (`import('xlsx')`) → CSV. Wired into Q&A analysis with niche-filtering.
 26. **Product Mapper** — `lb_products` table (ASIN unique key). `/products` page. Import upserts on ASIN in batches of 100.
@@ -118,6 +118,7 @@ npm run lint         # ESLint
 28. **ASIN Lookup via Oxylabs** — Oxylabs E-Commerce Scraper API. Credentials in `lb_admin_settings`. `domain` from `lb_countries.amazon_domain` minus `amazon.` prefix. `searchKeyword()`, `lookupAsin()`, `fetchQuestions()` return `{ success, data?, error? }` — always unwrap `.data`.
 29. **ASIN Lookup page is 5-tabbed** — "ASIN Lookup" | "Keyword Search" | "Reviews" | "Market Intelligence" | "Collections". Tables: `lb_asin_lookups` (UNIQUE asin+country), `lb_keyword_searches` (UNIQUE keyword+country), `lb_asin_reviews` (UNIQUE asin+country+sort_by), `lb_market_intelligence`, `lb_asin_questions` (7-day cache TTL). Keyword search URLs are relative — `toAbsoluteAmazonUrl()` prepends domain.
 30. **Oxylabs `amazon_reviews` NOT on free plan** — Fallback uses `amazon_product` top reviews. Code auto-detects. Full pagination works when upgraded.
+51. **Apify review provider** — `src/lib/apify.ts`. Actor: `delicious_zebu~amazon-reviews-scraper-with-advanced-filters`. Token from `lb_admin_settings` key `apify_api_token`. Reviews tab has Provider dropdown (Oxylabs/Apify). Apify returns AI extras: `customersSay`, `reviewAspects`. Normalized to same format as Oxylabs via `normalizeApifyReview()`. Also wired into MI background analysis.
 31. **Market Intelligence** — Multi-keyword → deduplicate ASINs → product selection → 4-phase Claude analysis (Reviews → Q&A → Market → Strategy, 16384 tokens each). Status: `pending → collecting → awaiting_selection → analyzing → completed/failed`. `reviews_per_product` 100-500. "Our Product" badges via `lb_products`. Competitor cards: expandable, lightbox, CSV export.
 32. **ASIN Lookup auto-fetches Q&A** — `POST /api/asin-lookup` fetches Q&A alongside product data. Cached in `lb_asin_questions`.
 33. **Collections, Tags & Notes** — All 4 research tables have `tags TEXT[]` (GIN-indexed) + `notes TEXT`. `lb_collections` + `lb_collection_items` (junction, CASCADE). API: `/api/collections` CRUD, `/api/tags` autocomplete. PATCH on all 4 entity `[id]` routes. Shared: `TagInput`, `NotesEditor`, `CollectionPicker`. Zustand `collection-store`. 5th Collections tab. Inline tag badges + notes indicator on history rows.
@@ -168,5 +169,5 @@ npm run lint         # ESLint
 ## Pending Tasks
 
 - **e2e Testing (all modules):** Phased generation (4-phase wizard + keyword coverage), Image Builder (all 5 tabs + drafts), ASIN Lookup (expanded fields + Q&A), Keyword Search (organic/sponsored tabs), Market Intelligence (single + multi-keyword, product selection, 4-phase analysis, Q&A, lightbox, CSV export, Our Product badges, live search), Seller Pull (multi-country, smart categories, bundle toggle, import/scrape/variations flow)
-- **Oxylabs `amazon_reviews` Source:** Contact Oxylabs to enable `amazon_reviews` source on plan. Code is ready — auto-detects and falls back.
+- **Apify API Token:** Configure in Admin Settings to enable Apify review provider.
 - **Seller Pull — Automated Periodic Pulls:** Automate regular pulls at intervals (not yet built)

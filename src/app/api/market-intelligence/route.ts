@@ -84,7 +84,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from('lb_market_intelligence')
       .select(
-        'id, keyword, country_id, marketplace_domain, max_competitors, top_asins, status, progress, error_message, model_used, tokens_used, oxylabs_calls_used, created_by, tags, notes, created_at, updated_at'
+        'id, keyword, keywords, country_id, marketplace_domain, max_competitors, top_asins, status, progress, error_message, model_used, tokens_used, oxylabs_calls_used, created_by, tags, notes, created_at, updated_at'
       )
       .order('created_at', { ascending: false })
       .limit(20)
