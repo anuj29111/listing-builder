@@ -1,5 +1,14 @@
 import { createAdminClient } from '@/lib/supabase/server'
 
+const OXYLABS_TIMEOUT_MS = 60_000 // 60 seconds
+
+/** Fetch with AbortController timeout — prevents Oxylabs hangs */
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = OXYLABS_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer))
+}
+
 interface OxylabsCredentials {
   username: string
   password: string
@@ -240,7 +249,7 @@ export async function lookupAsin(
 ): Promise<{ success: boolean; data?: OxylabsProductResult; error?: string }> {
   const { username, password } = await getCredentials()
 
-  const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+  const response = await fetchWithTimeout('https://realtime.oxylabs.io/v1/queries', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -281,7 +290,7 @@ export async function searchKeyword(
 ): Promise<{ success: boolean; data?: OxylabsSearchResponse; error?: string }> {
   const { username, password } = await getCredentials()
 
-  const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+  const response = await fetchWithTimeout('https://realtime.oxylabs.io/v1/queries', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -324,7 +333,7 @@ export async function fetchReviews(
 ): Promise<{ success: boolean; data?: OxylabsReviewsResponse; error?: string }> {
   const { username, password } = await getCredentials()
 
-  const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+  const response = await fetchWithTimeout('https://realtime.oxylabs.io/v1/queries', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -375,7 +384,7 @@ export async function fetchReviewsViaWebScraper(
 
   const reviewsUrl = `https://www.amazon.${domain}/product-reviews/${asin}?sortBy=${sortBy}&pageNumber=${page}`
 
-  const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+  const response = await fetchWithTimeout('https://realtime.oxylabs.io/v1/queries', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -479,7 +488,7 @@ export async function fetchQuestions(
 ): Promise<{ success: boolean; data?: OxylabsQnAResponse; error?: string }> {
   const { username, password } = await getCredentials()
 
-  const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+  const response = await fetchWithTimeout('https://realtime.oxylabs.io/v1/queries', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -535,7 +544,7 @@ export async function fetchSellerProducts(
   for (let startPage = 1; startPage <= maxPages; startPage += batchSize) {
     const pagesToFetch = Math.min(batchSize, maxPages - startPage + 1)
 
-    const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+    const response = await fetchWithTimeout('https://realtime.oxylabs.io/v1/queries', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
