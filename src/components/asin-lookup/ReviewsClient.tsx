@@ -23,6 +23,7 @@ import {
   ThumbsUp,
   MessageSquare as MessageSquareIcon,
   ImageIcon,
+  Sparkles,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCountry, LbAsinReview } from '@/types'
@@ -50,6 +51,20 @@ interface ReviewItem {
   images: string[]
 }
 
+interface ApifyExtras {
+  customersSay: string | null
+  reviewAspects: Array<{
+    aspect: string
+    positive: number
+    negative: number
+    mixed?: number
+    total?: number
+  }> | null
+  computeUnits: number
+  durationMs: number
+  runId: string
+}
+
 interface ReviewsData {
   id?: string
   asin: string
@@ -61,8 +76,9 @@ interface ReviewsData {
   reviews_fetched: number
   reviews: ReviewItem[]
   sort_by: string
-  source?: 'amazon_reviews' | 'amazon_product'
+  source?: 'amazon_reviews' | 'amazon_product' | 'apify'
   fallback_reason?: string | null
+  apify?: ApifyExtras
 }
 
 export function ReviewsClient({
@@ -75,6 +91,7 @@ export function ReviewsClient({
   )
   const [pages, setPages] = useState(10)
   const [sortBy, setSortBy] = useState('recent')
+  const [provider, setProvider] = useState<'oxylabs' | 'apify'>('oxylabs')
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState<ReviewsData | null>(null)
   const [reviews, setReviews] = useState<Partial<LbAsinReview>[]>(initialReviews)
@@ -139,6 +156,7 @@ export function ReviewsClient({
           country_id: countryId,
           pages,
           sort_by: sortBy,
+          provider,
         }),
       })
       const json = await res.json()
@@ -148,8 +166,10 @@ export function ReviewsClient({
       }
 
       setResults(json as ReviewsData)
+
+      const providerLabel = provider === 'apify' ? ' via Apify' : ''
       toast.success(
-        `Fetched ${json.reviews_fetched} reviews` +
+        `Fetched ${json.reviews_fetched} reviews${providerLabel}` +
           (json.total_reviews ? ` out of ${json.total_reviews.toLocaleString()} total` : '')
       )
 
@@ -239,7 +259,7 @@ export function ReviewsClient({
     <div className="space-y-6">
       {/* Search Form */}
       <div className="rounded-lg border bg-card p-4">
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_180px_120px_120px_auto] gap-3 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_180px_120px_120px_120px_auto] gap-3 items-end">
           <div>
             <label className="text-sm font-medium mb-1.5 block">ASIN</label>
             <Input
@@ -294,6 +314,18 @@ export function ReviewsClient({
               </SelectContent>
             </Select>
           </div>
+          <div>
+            <label className="text-sm font-medium mb-1.5 block">Provider</label>
+            <Select value={provider} onValueChange={(v) => setProvider(v as 'oxylabs' | 'apify')}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="oxylabs">Oxylabs</SelectItem>
+                <SelectItem value="apify">Apify</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <Button
             onClick={handleFetch}
             disabled={loading || !asin.trim()}
@@ -310,8 +342,9 @@ export function ReviewsClient({
         {asin.trim() && selectedCountry && (
           <p className="text-xs text-muted-foreground mt-2">
             Fetching reviews for {asin.trim().toUpperCase()} on{' '}
-            {selectedCountry.amazon_domain} ({pages === 0 ? 'all reviews' : `~${pages * 10} reviews max`}, sorted by {sortBy})
-            {pages >= 100 && <span className="ml-1 text-amber-600 dark:text-amber-400">— large fetch, may take a while</span>}
+            {selectedCountry.amazon_domain} via {provider === 'apify' ? 'Apify' : 'Oxylabs'} ({pages === 0 ? 'all reviews' : `~${pages * 10} reviews max`}, sorted by {sortBy})
+            {provider === 'apify' && <span className="ml-1 text-blue-600 dark:text-blue-400">— Apify runs may take 1-5 min</span>}
+            {pages >= 100 && provider !== 'apify' && <span className="ml-1 text-amber-600 dark:text-amber-400">— large fetch, may take a while</span>}
           </p>
         )}
       </div>
@@ -323,8 +356,14 @@ export function ReviewsClient({
           <div className="rounded-lg border bg-card p-4 mb-4">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <h2 className="text-lg font-semibold">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
                   Reviews for {results.asin}
+                  {results.source === 'apify' && (
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5 gap-1 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                      <Sparkles className="h-3 w-3" />
+                      Apify
+                    </Badge>
+                  )}
                 </h2>
                 <p className="text-xs text-muted-foreground">
                   {results.reviews_fetched} reviews fetched
@@ -349,6 +388,65 @@ export function ReviewsClient({
                 </div>
               )}
             </div>
+
+            {/* Apify AI Summary */}
+            {results.apify?.customersSay && (
+              <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 p-3 mb-3">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Sparkles className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                  <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                    Customers Say (AI Summary)
+                  </span>
+                </div>
+                <p className="text-sm text-foreground leading-relaxed">
+                  {results.apify.customersSay}
+                </p>
+              </div>
+            )}
+
+            {/* Apify Review Aspects */}
+            {results.apify?.reviewAspects && results.apify.reviewAspects.length > 0 && (
+              <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 p-3 mb-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Sparkles className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                  <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                    Review Aspects (AI Analysis)
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {results.apify.reviewAspects.map((aspect, i) => (
+                    <div
+                      key={i}
+                      className="inline-flex items-center gap-1.5 text-xs rounded-md border bg-card px-2 py-1"
+                    >
+                      <span className="font-medium">{aspect.aspect}</span>
+                      {aspect.positive > 0 && (
+                        <span className="text-green-600 dark:text-green-400">
+                          +{aspect.positive}
+                        </span>
+                      )}
+                      {aspect.negative > 0 && (
+                        <span className="text-red-600 dark:text-red-400">
+                          -{aspect.negative}
+                        </span>
+                      )}
+                      {aspect.mixed != null && aspect.mixed > 0 && (
+                        <span className="text-amber-600 dark:text-amber-400">
+                          ~{aspect.mixed}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Apify run stats */}
+            {results.apify && (
+              <p className="text-[10px] text-muted-foreground">
+                Apify run: {(results.apify.computeUnits || 0).toFixed(4)} CU, {Math.round((results.apify.durationMs || 0) / 1000)}s
+              </p>
+            )}
 
             {/* Rating distribution bar */}
             {results.rating_stars_distribution &&
