@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Clock, ChevronRight, Loader2, ArrowLeft, Sparkles, Check, X, MoreHorizontal } from 'lucide-react'
+import { Search, Clock, ChevronRight, Loader2, ArrowLeft, Sparkles, Check, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -11,9 +11,10 @@ import type { LbCountry, LbMarketIntelligence } from '@/types'
 import type { MarketIntelligenceResult } from '@/types/market-intelligence'
 import { MarketIntelligenceReport } from './MarketIntelligenceReport'
 import toast from 'react-hot-toast'
-import { TagBadge, TagInput } from '@/components/shared/TagInput'
-import { NotesEditor, NotesIndicator } from '@/components/shared/NotesEditor'
-import { CollectionPicker } from '@/components/shared/CollectionPicker'
+import { TagBadge } from '@/components/shared/TagInput'
+import { NotesIndicator } from '@/components/shared/NotesEditor'
+import { QuickActions } from '@/components/shared/QuickActions'
+import { BulkActionBar } from '@/components/shared/BulkActionBar'
 import { useCollectionStore } from '@/stores/collection-store'
 
 interface MarketIntelligenceClientProps {
@@ -37,7 +38,8 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
   const [history, setHistory] = useState<Partial<LbMarketIntelligence>[]>(initialIntelligence)
   const [historyFilter, setHistoryFilter] = useState('')
   const [ourAsins, setOurAsins] = useState<Set<string>>(new Set())
-  const [expandedMetaId, setExpandedMetaId] = useState<string | null>(null)
+  const [historySelectedIds, setHistorySelectedIds] = useState<Set<string>>(new Set())
+  const lastClickedIdxRef = useRef<number>(-1)
   const fetchAllTags = useCollectionStore((s) => s.fetchAllTags)
 
   // Progress state
@@ -293,6 +295,32 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
       })
     : history
 
+  const toggleHistorySelect = (id: string, idx: number, shiftKey: boolean) => {
+    setHistorySelectedIds((prev) => {
+      const next = new Set(prev)
+      if (shiftKey && lastClickedIdxRef.current >= 0) {
+        const start = Math.min(lastClickedIdxRef.current, idx)
+        const end = Math.max(lastClickedIdxRef.current, idx)
+        for (let i = start; i <= end; i++) {
+          const lid = filteredHistory[i]?.id
+          if (lid) next.add(lid)
+        }
+      } else {
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+      }
+      lastClickedIdxRef.current = idx
+      return next
+    })
+  }
+
+  const toggleHistorySelectAll = () => {
+    const allIds = filteredHistory.map((h) => h.id).filter(Boolean) as string[]
+    setHistorySelectedIds((prev) => (prev.size === allIds.length ? new Set() : new Set(allIds)))
+  }
+
+  const clearHistorySelection = () => setHistorySelectedIds(new Set())
+
   // --- SEARCH VIEW ---
   if (view === 'search') {
     return (
@@ -387,8 +415,28 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
               />
             </div>
 
+            <BulkActionBar
+              selectedIds={Array.from(historySelectedIds)}
+              entityType="market_intelligence"
+              onClear={clearHistorySelection}
+              onUpdate={() => { refreshHistory(); clearHistorySelection() }}
+            />
+
+            {/* Select all header */}
+            <div className="px-3 py-2 flex items-center gap-3 bg-muted/30 rounded-lg border">
+              <input
+                type="checkbox"
+                checked={historySelectedIds.size > 0 && historySelectedIds.size === filteredHistory.filter((h) => h.id).length}
+                onChange={toggleHistorySelectAll}
+                className="h-3.5 w-3.5 rounded border-gray-300 accent-primary cursor-pointer"
+              />
+              <span className="text-xs text-muted-foreground">
+                {historySelectedIds.size > 0 ? `${historySelectedIds.size} selected` : 'Select all'}
+              </span>
+            </div>
+
             <div className="grid gap-2">
-              {filteredHistory.map((record) => {
+              {filteredHistory.map((record, recordIdx) => {
                 const country = countries.find(c => c.id === record.country_id)
                 const keywords = (record as Record<string, unknown>).keywords as string[] | undefined
                 const statusColor = record.status === 'completed' ? 'text-green-600 bg-green-50' :
@@ -396,15 +444,23 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                   record.status === 'awaiting_selection' ? 'text-blue-600 bg-blue-50' :
                   'text-yellow-600 bg-yellow-50'
 
-                const isMetaExpanded = expandedMetaId === record.id
-
                 return (
                   <div
                     key={record.id}
-                    className="rounded-lg border bg-card hover:bg-muted/30 transition-colors group"
+                    className={`rounded-lg border bg-card hover:bg-muted/30 transition-colors group ${historySelectedIds.has(record.id || '') ? 'bg-primary/5 border-primary/30' : ''}`}
                   >
                     <div className="p-3 flex items-center justify-between">
                       <div className="flex items-center gap-3 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={historySelectedIds.has(record.id || '')}
+                          onChange={() => {}}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (record.id) toggleHistorySelect(record.id, recordIdx, e.shiftKey)
+                          }}
+                          className="h-3.5 w-3.5 rounded border-gray-300 accent-primary cursor-pointer flex-shrink-0"
+                        />
                         <div className="flex-shrink-0 text-lg">{country?.flag_emoji || '\ud83c\udf10'}</div>
                         <div className="min-w-0">
                           <div className="font-medium text-sm truncate">
@@ -433,14 +489,16 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setExpandedMetaId(isMetaExpanded ? null : record.id || null)}
-                          className="p-1 hover:bg-muted rounded"
-                          title="Tags, notes & collections"
-                        >
-                          <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-                        </button>
+                        {record.id && (
+                          <QuickActions
+                            entityId={record.id}
+                            entityType="market_intelligence"
+                            tags={(record.tags as string[]) || []}
+                            notes={(record.notes as string | null) ?? null}
+                            onTagsChange={(tags) => handleUpdateTagsNotes(record.id!, { tags })}
+                            onNotesChange={(notes) => handleUpdateTagsNotes(record.id!, { notes })}
+                          />
+                        )}
                         {record.status === 'completed' && (
                           <Button size="sm" variant="outline" onClick={() => handleViewBrief(record)} className="text-xs">
                             View Brief <ChevronRight className="h-3 w-3 ml-1" />
@@ -464,32 +522,6 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                         )}
                       </div>
                     </div>
-                    {isMetaExpanded && record.id && (
-                      <div className="px-3 pb-3 border-t bg-muted/20 pt-2">
-                        <div className="flex flex-wrap items-start gap-4">
-                          <div className="flex-1 min-w-[200px]">
-                            <p className="text-xs font-medium text-muted-foreground mb-1">Tags</p>
-                            <TagInput
-                              tags={(record.tags as string[]) || []}
-                              onTagsChange={(tags) => handleUpdateTagsNotes(record.id!, { tags })}
-                              compact
-                            />
-                          </div>
-                          <div className="flex-1 min-w-[200px]">
-                            <p className="text-xs font-medium text-muted-foreground mb-1">Notes</p>
-                            <NotesEditor
-                              notes={(record.notes as string | null) ?? null}
-                              onSave={(notes) => handleUpdateTagsNotes(record.id!, { notes })}
-                              compact
-                            />
-                          </div>
-                          <div>
-                            <p className="text-xs font-medium text-muted-foreground mb-1">Collections</p>
-                            <CollectionPicker entityType="market_intelligence" entityId={record.id} compact />
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )
               })}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -11,13 +11,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Loader2, Search, Star, TrendingUp, Crown, Clock, RefreshCw, ExternalLink, Megaphone, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
+import { Loader2, Search, Star, TrendingUp, Crown, Clock, RefreshCw, ExternalLink, Megaphone, ChevronDown, ChevronUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCountry, LbKeywordSearch } from '@/types'
 import type { OxylabsSearchResultItem } from '@/lib/oxylabs'
-import { TagBadge, TagInput } from '@/components/shared/TagInput'
-import { NotesEditor, NotesIndicator } from '@/components/shared/NotesEditor'
-import { CollectionPicker } from '@/components/shared/CollectionPicker'
+import { TagBadge } from '@/components/shared/TagInput'
+import { NotesIndicator } from '@/components/shared/NotesEditor'
+import { QuickActions } from '@/components/shared/QuickActions'
+import { BulkActionBar } from '@/components/shared/BulkActionBar'
 import { useCollectionStore } from '@/stores/collection-store'
 
 interface KeywordSearchClientProps {
@@ -56,11 +57,38 @@ export function KeywordSearchClient({
   const [searches, setSearches] = useState<Partial<LbKeywordSearch>[]>(initialSearches)
   const [historySearch, setHistorySearch] = useState('')
   const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null)
-  const [expandedMetaId, setExpandedMetaId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const lastClickedIdx = useRef<number>(-1)
 
   const selectedCountry = countries.find((c) => c.id === countryId)
   const fetchAllTags = useCollectionStore((s) => s.fetchAllTags)
   const allTags = useCollectionStore((s) => s.allTags)
+
+  const toggleSelect = (id: string, idx: number, shiftKey: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (shiftKey && lastClickedIdx.current >= 0) {
+        const start = Math.min(lastClickedIdx.current, idx)
+        const end = Math.max(lastClickedIdx.current, idx)
+        for (let i = start; i <= end; i++) {
+          const lid = searches[i]?.id
+          if (lid) next.add(lid)
+        }
+      } else {
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+      }
+      lastClickedIdx.current = idx
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    const allIds = searches.map((s) => s.id).filter(Boolean) as string[]
+    setSelectedIds((prev) => (prev.size === allIds.length ? new Set() : new Set(allIds)))
+  }
+
+  const clearSelection = () => setSelectedIds(new Set())
 
   const handleSearch = async () => {
     if (!keyword.trim()) {
@@ -463,25 +491,52 @@ export function KeywordSearchClient({
           </Button>
         </div>
 
+        <BulkActionBar
+          selectedIds={Array.from(selectedIds)}
+          entityType="keyword_search"
+          onClear={clearSelection}
+          onUpdate={() => { refreshHistory(); clearSelection() }}
+        />
+
         {searches.length === 0 ? (
           <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
             No keyword searches yet. Enter a keyword above to search.
           </div>
         ) : (
           <div className="rounded-lg border bg-card divide-y">
-            {searches.map((s) => {
+            <div className="px-3 py-2 flex items-center gap-3 bg-muted/30">
+              <input
+                type="checkbox"
+                checked={selectedIds.size > 0 && selectedIds.size === searches.filter((s) => s.id).length}
+                onChange={toggleSelectAll}
+                className="h-3.5 w-3.5 rounded border-gray-300 accent-primary cursor-pointer"
+              />
+              <span className="text-xs text-muted-foreground">
+                {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select all'}
+              </span>
+            </div>
+            {searches.map((s, sIdx) => {
               const isLoading = loadingHistoryId === s.id
-              const isMetaExpanded = expandedMetaId === s.id
               return (
-                <div key={s.id}>
+                <div key={s.id} className={selectedIds.has(s.id || '') ? 'bg-primary/5' : ''}>
                   <div
-                    className="p-3 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer"
+                    className="p-3 flex items-center gap-3 hover:bg-muted/50 transition-colors cursor-pointer"
                     onClick={() => {
                       if (s.id && !isLoading) {
                         loadHistoryItem(s.id, s.keyword || '', s.marketplace_domain || '')
                       }
                     }}
                   >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(s.id || '')}
+                      onChange={() => {}}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (s.id) toggleSelect(s.id, sIdx, e.shiftKey)
+                      }}
+                      className="h-3.5 w-3.5 rounded border-gray-300 accent-primary cursor-pointer flex-shrink-0"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium">&ldquo;{s.keyword}&rdquo;</p>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 flex-wrap">
@@ -503,17 +558,18 @@ export function KeywordSearchClient({
                       <span className="text-xs text-muted-foreground">
                         {formatTimeAgo(s.updated_at || s.created_at || '')}
                       </span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setExpandedMetaId(isMetaExpanded ? null : s.id || null)
-                        }}
-                        className="p-1 hover:bg-muted rounded"
-                        title="Tags, notes & collections"
-                      >
-                        <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-                      </button>
+                      {s.id && (
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <QuickActions
+                            entityId={s.id}
+                            entityType="keyword_search"
+                            tags={(s.tags as string[]) || []}
+                            notes={(s.notes as string | null) ?? null}
+                            onTagsChange={(tags) => handleUpdateTagsNotes(s.id!, { tags })}
+                            onNotesChange={(notes) => handleUpdateTagsNotes(s.id!, { notes })}
+                          />
+                        </div>
+                      )}
                       {isLoading ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                       ) : (
@@ -521,32 +577,6 @@ export function KeywordSearchClient({
                       )}
                     </div>
                   </div>
-                  {isMetaExpanded && s.id && (
-                    <div className="px-3 pb-3 border-t bg-muted/20 pt-2">
-                      <div className="flex flex-wrap items-start gap-4">
-                        <div className="flex-1 min-w-[200px]">
-                          <p className="text-xs font-medium text-muted-foreground mb-1">Tags</p>
-                          <TagInput
-                            tags={(s.tags as string[]) || []}
-                            onTagsChange={(tags) => handleUpdateTagsNotes(s.id!, { tags })}
-                            compact
-                          />
-                        </div>
-                        <div className="flex-1 min-w-[200px]">
-                          <p className="text-xs font-medium text-muted-foreground mb-1">Notes</p>
-                          <NotesEditor
-                            notes={(s.notes as string | null) ?? null}
-                            onSave={(notes) => handleUpdateTagsNotes(s.id!, { notes })}
-                            compact
-                          />
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-muted-foreground mb-1">Collections</p>
-                          <CollectionPicker entityType="keyword_search" entityId={s.id} compact />
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )
             })}

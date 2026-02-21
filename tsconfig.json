@@ -23,5 +23,5 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "sleepy-cannon", "flamboyant-cannon", "funny-fermat", "suspicious-kapitsa", "laughing-matsumoto", "confident-euclid", "goofy-hellman", "determined-shockley", "AI Listing Optimisation", "AI Listing Prompt", "Amazon Prompts", "DataDive", "Prompt", "Sample Website"]
+  "exclude": ["node_modules", "sleepy-cannon", "flamboyant-cannon", "funny-fermat", "suspicious-kapitsa", "laughing-matsumoto", "confident-euclid", "goofy-hellman", "determined-shockley", "gallant-bartik", "flamboyant-lehmann", "AI Listing Optimisation", "AI Listing Prompt", "Amazon Prompts", "DataDive", "Prompt", "Sample Website"]
 }

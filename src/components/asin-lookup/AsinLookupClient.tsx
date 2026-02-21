@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
@@ -20,6 +20,8 @@ import { AsinResultCard } from './AsinResultCard'
 import { TagBadge } from '@/components/shared/TagInput'
 import { NotesIndicator } from '@/components/shared/NotesEditor'
 import { CollectionBadges } from '@/components/shared/CollectionPicker'
+import { QuickActions } from '@/components/shared/QuickActions'
+import { BulkActionBar } from '@/components/shared/BulkActionBar'
 import { useCollectionStore } from '@/stores/collection-store'
 
 interface AsinLookupClientProps {
@@ -66,6 +68,8 @@ export function AsinLookupClient({
     Record<string, Array<{ collection_id: string; name: string; color: string }>>
   >({})
   const [ownProductAsins, setOwnProductAsins] = useState<Record<string, boolean>>({})
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const lastClickedIdx = useRef<number>(-1)
 
   const selectedCountry = countries.find((c) => c.id === countryId)
   const allTags = useCollectionStore((s) => s.allTags)
@@ -108,6 +112,47 @@ export function AsinLookupClient({
     fetchMemberships(lookups)
     fetchOwnProducts(lookups)
   }, [lookups, fetchMemberships, fetchOwnProducts])
+
+  const handleUpdateTagsNotes = async (id: string, updates: { tags?: string[]; notes?: string }) => {
+    try {
+      const res = await fetch(`/api/asin-lookup/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      if (res.ok) {
+        setLookups((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates } : l)))
+      }
+    } catch {
+      // silent
+    }
+  }
+
+  const toggleSelect = (id: string, idx: number, shiftKey: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (shiftKey && lastClickedIdx.current >= 0) {
+        const start = Math.min(lastClickedIdx.current, idx)
+        const end = Math.max(lastClickedIdx.current, idx)
+        for (let i = start; i <= end; i++) {
+          const lid = lookups[i]?.id
+          if (lid) next.add(lid)
+        }
+      } else {
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+      }
+      lastClickedIdx.current = idx
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    const allIds = lookups.map((l) => l.id).filter(Boolean) as string[]
+    setSelectedIds((prev) => (prev.size === allIds.length ? new Set() : new Set(allIds)))
+  }
+
+  const clearSelection = () => setSelectedIds(new Set())
 
   const parseAsins = useCallback((input: string): string[] => {
     return input
@@ -388,13 +433,31 @@ export function AsinLookupClient({
           </Button>
         </div>
 
+        <BulkActionBar
+          selectedIds={Array.from(selectedIds)}
+          entityType="asin_lookup"
+          onClear={clearSelection}
+          onUpdate={() => { refreshHistory(); clearSelection() }}
+        />
+
         {lookups.length === 0 ? (
           <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
             No lookups yet. Enter ASINs above to fetch product data.
           </div>
         ) : (
           <div className="rounded-lg border bg-card divide-y">
-            {lookups.map((lookup) => {
+            <div className="px-3 py-2 flex items-center gap-3 bg-muted/30">
+              <input
+                type="checkbox"
+                checked={selectedIds.size > 0 && selectedIds.size === lookups.filter((l) => l.id).length}
+                onChange={toggleSelectAll}
+                className="h-3.5 w-3.5 rounded border-gray-300 accent-primary cursor-pointer"
+              />
+              <span className="text-xs text-muted-foreground">
+                {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select all'}
+              </span>
+            </div>
+            {lookups.map((lookup, lookupIdx) => {
               const firstImage = (lookup.images as string[] | undefined)?.[0]
               const bsr = (
                 lookup.sales_rank as Array<{ rank: number }> | undefined
@@ -403,12 +466,22 @@ export function AsinLookupClient({
               const isLoading = loadingLookupId === lookup.id
 
               return (
-                <div key={lookup.id}>
+                <div key={lookup.id} className={selectedIds.has(lookup.id || '') ? 'bg-primary/5' : ''}>
                   {/* Clickable row */}
                   <div
                     className="p-3 flex items-center gap-3 hover:bg-muted/50 transition-colors cursor-pointer"
                     onClick={() => lookup.id && toggleHistoryItem(lookup.id, lookup.asin, lookup.country_id)}
                   >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(lookup.id || '')}
+                      onChange={() => {}}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (lookup.id) toggleSelect(lookup.id, lookupIdx, e.shiftKey)
+                      }}
+                      className="h-3.5 w-3.5 rounded border-gray-300 accent-primary cursor-pointer flex-shrink-0"
+                    />
                     {firstImage && (
                       <div className="w-10 h-10 flex-shrink-0 rounded overflow-hidden bg-muted">
                         <img
@@ -476,6 +549,18 @@ export function AsinLookupClient({
                       <span className="text-xs text-muted-foreground hidden sm:inline">
                         {formatTimeAgo(lookup.updated_at || lookup.created_at || '')}
                       </span>
+                      {lookup.id && (
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <QuickActions
+                            entityId={lookup.id}
+                            entityType="asin_lookup"
+                            tags={(lookup.tags as string[]) || []}
+                            notes={(lookup.notes as string | null) ?? null}
+                            onTagsChange={(tags) => handleUpdateTagsNotes(lookup.id!, { tags })}
+                            onNotesChange={(notes) => handleUpdateTagsNotes(lookup.id!, { notes })}
+                          />
+                        </div>
+                      )}
                       {isLoading ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                       ) : isExpanded ? (

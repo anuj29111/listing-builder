@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -26,9 +26,10 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCountry, LbAsinReview } from '@/types'
-import { TagBadge, TagInput } from '@/components/shared/TagInput'
-import { NotesEditor, NotesIndicator } from '@/components/shared/NotesEditor'
-import { CollectionPicker } from '@/components/shared/CollectionPicker'
+import { TagBadge } from '@/components/shared/TagInput'
+import { NotesIndicator } from '@/components/shared/NotesEditor'
+import { QuickActions } from '@/components/shared/QuickActions'
+import { BulkActionBar } from '@/components/shared/BulkActionBar'
 import { useCollectionStore } from '@/stores/collection-store'
 
 interface ReviewsClientProps {
@@ -82,9 +83,37 @@ export function ReviewsClient({
   const [expandedReviewData, setExpandedReviewData] = useState<ReviewsData | null>(null)
   const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null)
   const [ratingFilter, setRatingFilter] = useState<number | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const lastClickedIdx = useRef<number>(-1)
 
   const selectedCountry = countries.find((c) => c.id === countryId)
   const fetchAllTags = useCollectionStore((s) => s.fetchAllTags)
+
+  const toggleSelect = (id: string, idx: number, shiftKey: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (shiftKey && lastClickedIdx.current >= 0) {
+        const start = Math.min(lastClickedIdx.current, idx)
+        const end = Math.max(lastClickedIdx.current, idx)
+        for (let i = start; i <= end; i++) {
+          const lid = reviews[i]?.id
+          if (lid) next.add(lid)
+        }
+      } else {
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+      }
+      lastClickedIdx.current = idx
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    const allIds = reviews.map((r) => r.id).filter(Boolean) as string[]
+    setSelectedIds((prev) => (prev.size === allIds.length ? new Set() : new Set(allIds)))
+  }
+
+  const clearSelection = () => setSelectedIds(new Set())
 
   const handleFetch = async () => {
     const trimmed = asin.trim().toUpperCase()
@@ -420,22 +449,50 @@ export function ReviewsClient({
           </Button>
         </div>
 
+        <BulkActionBar
+          selectedIds={Array.from(selectedIds)}
+          entityType="asin_review"
+          onClear={clearSelection}
+          onUpdate={() => { refreshHistory(); clearSelection() }}
+        />
+
         {reviews.length === 0 ? (
           <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
             No review fetches yet. Enter an ASIN above to get started.
           </div>
         ) : (
           <div className="rounded-lg border bg-card divide-y">
-            {reviews.map((r) => {
+            <div className="px-3 py-2 flex items-center gap-3 bg-muted/30">
+              <input
+                type="checkbox"
+                checked={selectedIds.size > 0 && selectedIds.size === reviews.filter((r) => r.id).length}
+                onChange={toggleSelectAll}
+                className="h-3.5 w-3.5 rounded border-gray-300 accent-primary cursor-pointer"
+              />
+              <span className="text-xs text-muted-foreground">
+                {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select all'}
+              </span>
+            </div>
+            {reviews.map((r, rIdx) => {
               const isExpanded = expandedReviewId === r.id
               const isLoading = loadingHistoryId === r.id
 
               return (
-                <div key={r.id}>
+                <div key={r.id} className={selectedIds.has(r.id || '') ? 'bg-primary/5' : ''}>
                   <div
-                    className="p-3 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer"
+                    className="p-3 flex items-center gap-3 hover:bg-muted/50 transition-colors cursor-pointer"
                     onClick={() => r.id && toggleHistoryItem(r.id)}
                   >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(r.id || '')}
+                      onChange={() => {}}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (r.id) toggleSelect(r.id, rIdx, e.shiftKey)
+                      }}
+                      className="h-3.5 w-3.5 rounded border-gray-300 accent-primary cursor-pointer flex-shrink-0"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium font-mono">
                         {r.asin}
@@ -469,6 +526,18 @@ export function ReviewsClient({
                       <span className="text-xs text-muted-foreground">
                         {formatTimeAgo(r.updated_at || r.created_at || '')}
                       </span>
+                      {r.id && (
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <QuickActions
+                            entityId={r.id}
+                            entityType="asin_review"
+                            tags={(r.tags as string[]) || []}
+                            notes={(r.notes as string | null) ?? null}
+                            onTagsChange={(tags) => handleUpdateTagsNotes(r.id!, { tags })}
+                            onNotesChange={(notes) => handleUpdateTagsNotes(r.id!, { notes })}
+                          />
+                        </div>
+                      )}
                       {isLoading ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                       ) : isExpanded ? (
@@ -482,29 +551,6 @@ export function ReviewsClient({
                   {/* Expanded reviews */}
                   {isExpanded && expandedReviewData && (
                     <div className="border-t bg-muted/20 p-4 space-y-3 max-h-[500px] overflow-y-auto">
-                      {/* Tags, Notes, Collections */}
-                      <div className="flex flex-wrap items-start gap-4 pb-3 border-b">
-                        <div className="flex-1 min-w-[200px]">
-                          <p className="text-xs font-medium text-muted-foreground mb-1">Tags</p>
-                          <TagInput
-                            tags={(r.tags as string[]) || []}
-                            onTagsChange={(tags) => r.id && handleUpdateTagsNotes(r.id, { tags })}
-                            compact
-                          />
-                        </div>
-                        <div className="flex-1 min-w-[200px]">
-                          <p className="text-xs font-medium text-muted-foreground mb-1">Notes</p>
-                          <NotesEditor
-                            notes={(r.notes as string | null) ?? null}
-                            onSave={(notes) => r.id && handleUpdateTagsNotes(r.id, { notes })}
-                            compact
-                          />
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-muted-foreground mb-1">Collections</p>
-                          {r.id && <CollectionPicker entityType="asin_review" entityId={r.id} compact />}
-                        </div>
-                      </div>
                       <p className="text-xs text-muted-foreground">
                         {expandedReviewData.reviews_fetched} reviews loaded
                       </p>
