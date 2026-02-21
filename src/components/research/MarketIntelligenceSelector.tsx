@@ -27,6 +27,7 @@ interface MiOption {
   keyword: string
   keywords: string[] | null
   selected_asins: string[] | null
+  top_asins: string[] | null
   created_at: string
 }
 
@@ -137,8 +138,14 @@ export function MarketIntelligenceSelector({
     return kws.join(', ')
   }
 
+  const getProductCount = (mi: MiOption) => {
+    // selected_asins is set for multi-keyword MI with explicit product selection
+    // top_asins is set for single-keyword MI where all discovered products are analyzed
+    return mi.selected_asins?.length || mi.top_asins?.length || 0
+  }
+
   return (
-    <div className="rounded-lg border overflow-hidden mt-4">
+    <div className="rounded-lg border overflow-hidden">
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
         className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
@@ -202,7 +209,7 @@ export function MarketIntelligenceSelector({
                 </p>
                 <p>
                   <span className="font-medium text-foreground">Competitors:</span>{' '}
-                  {linkedMi.selected_asins?.length || 0} products analyzed
+                  {getProductCount(linkedMi)} products analyzed
                 </p>
                 <p>
                   <span className="font-medium text-foreground">Date:</span>{' '}
@@ -248,7 +255,7 @@ export function MarketIntelligenceSelector({
                       <SelectContent>
                         {options.map((mi) => (
                           <SelectItem key={mi.id} value={mi.id}>
-                            {formatKeywords(mi)} — {mi.selected_asins?.length || 0} products — {formatDate(mi.created_at)}
+                            {formatKeywords(mi)} — {getProductCount(mi)} products — {formatDate(mi.created_at)}
                           </SelectItem>
                         ))}
                       </SelectContent>
