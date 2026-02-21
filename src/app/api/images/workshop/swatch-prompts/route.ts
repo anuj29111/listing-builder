@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
 import { generateSwatchPrompts } from '@/lib/claude'
-import type { GenerateSwatchPromptsRequest } from '@/types/api'
+import type { GenerateSwatchPromptsRequest, ProductPhotoDescription } from '@/types/api'
 
 // Allow up to 5 minutes for Claude swatch prompt generation
 export const maxDuration = 300
@@ -49,14 +49,43 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Category not found' }, { status: 404 })
     }
 
+    // Look up product photos + photo descriptions from a main workshop for this product
+    let sourceProductPhotos: string[] | null = null
+    let sourcePhotoDescriptions: Record<string, ProductPhotoDescription> | null = null
+    {
+      const mainWorkshopQuery = supabase
+        .from('lb_image_workshops')
+        .select('product_photos, product_photo_descriptions')
+        .eq('image_type', 'main')
+        .eq('category_id', category_id)
+        .eq('country_id', country_id)
+        .not('product_photos', 'is', null)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+
+      if (listing_id) {
+        mainWorkshopQuery.eq('listing_id', listing_id)
+      }
+
+      const { data: mainWorkshops } = await mainWorkshopQuery
+      if (mainWorkshops?.[0]) {
+        const photos = mainWorkshops[0].product_photos as string[]
+        if (photos?.length > 0) {
+          sourceProductPhotos = photos
+          sourcePhotoDescriptions = (mainWorkshops[0].product_photo_descriptions as Record<string, ProductPhotoDescription>) || null
+        }
+      }
+    }
+
     const { result } = await generateSwatchPrompts({
       productName: product_name,
       brand,
       categoryName: category.name,
       variants: validVariants,
+      productPhotoDescriptions: sourcePhotoDescriptions || undefined,
     })
 
-    // Create workshop record with prompts persisted
+    // Create workshop record with prompts persisted (inherit product photos from main workshop)
     const workshopName = `${brand} ${product_name} — Swatches — ${new Date().toLocaleDateString()}`
     const allIndices = result.concepts.map((_: unknown, i: number) => i)
     const { data: workshop, error: insertError } = await adminClient
@@ -76,6 +105,10 @@ export async function POST(request: Request) {
         selected_prompt_indices: allIndices,
         image_type: 'swatch',
         created_by: lbUser.id,
+        ...(sourceProductPhotos && sourceProductPhotos.length > 0 && {
+          product_photos: sourceProductPhotos,
+          product_photo_descriptions: sourcePhotoDescriptions,
+        }),
       })
       .select()
       .single()
