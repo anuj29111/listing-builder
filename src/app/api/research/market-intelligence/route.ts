@@ -39,7 +39,7 @@ export async function GET(request: Request) {
 // POST: Link an MI record to a research category+country
 export async function POST(request: Request) {
   try {
-    const { authUser } = await getAuthenticatedUser()
+    const { lbUser } = await getAuthenticatedUser()
     const supabase = createClient()
     const body = await request.json()
 
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
           analysis_result: {},
           market_intelligence_id,
           status: 'completed',
-          analyzed_by: authUser.id,
+          analyzed_by: lbUser.id,
         },
         { onConflict: 'category_id,country_id,analysis_type,source' }
       )
