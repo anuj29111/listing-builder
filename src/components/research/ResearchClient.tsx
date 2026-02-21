@@ -13,7 +13,7 @@ import { FileUploader } from '@/components/research/FileUploader'
 import { FileList } from '@/components/research/FileList'
 import { AnalysisStatusPanel } from '@/components/research/AnalysisProgress'
 import { AnalysisViewer } from '@/components/research/AnalysisViewer'
-import { CompetitorInput } from '@/components/research/CompetitorInput'
+import { MarketIntelligenceSelector } from '@/components/research/MarketIntelligenceSelector'
 import { Info } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCategory, LbCountry } from '@/types'
@@ -35,6 +35,7 @@ interface AnalysisRecord {
   analysis_type: string
   source: string
   analysis_result: Record<string, unknown>
+  market_intelligence_id?: string | null
   status: 'pending' | 'processing' | 'completed' | 'failed'
   error_message: string | null
   model_used: string | null
@@ -364,12 +365,17 @@ export function ResearchClient({
               </div>
             )}
 
-            {/* Competitor Analysis — available regardless of file uploads */}
+            {/* Market Intelligence — available regardless of file uploads */}
             {categoryId && countryId && (
-              <CompetitorInput
+              <MarketIntelligenceSelector
                 categoryId={categoryId}
                 countryId={countryId}
-                onAnalysisComplete={fetchAnalyses}
+                linkedMiId={
+                  analyses.find(
+                    (a) => a.analysis_type === 'market_intelligence' && a.source === 'linked'
+                  )?.market_intelligence_id || null
+                }
+                onLinkChange={fetchAnalyses}
               />
             )}
           </div>

@@ -6,7 +6,7 @@ export const BRANDS = ['Chalkola', 'Spedalon', 'Funcils', 'Other'] as const
 
 export const FILE_TYPES = ['keywords', 'reviews', 'qna', 'rufus_qna', 'keywords_analysis', 'reviews_analysis', 'qna_analysis', 'sp_prompts'] as const
 
-export const ANALYSIS_TYPES = ['keyword_analysis', 'review_analysis', 'qna_analysis', 'competitor_analysis'] as const
+export const ANALYSIS_TYPES = ['keyword_analysis', 'review_analysis', 'qna_analysis', 'market_intelligence'] as const
 
 export const LISTING_STATUSES = ['draft', 'review', 'approved', 'exported'] as const
 

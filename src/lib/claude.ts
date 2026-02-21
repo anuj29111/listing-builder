@@ -586,6 +586,7 @@ export interface ListingGenerationInput {
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
   competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
   optimizationMode?: 'new' | 'optimize_existing' | 'based_on_existing'
   existingListingText?: { title: string; bullets: string[]; description: string; reference_asin?: string } | null
 }
@@ -611,13 +612,127 @@ export interface ListingGenerationResult {
   backendAttributes: Record<string, string[]>
 }
 
+// --- Shared helper: build competitive intelligence section from MI or legacy competitor data ---
+
+function buildCompetitiveSection(
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null,
+  marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null,
+  options?: { sliceCaps?: boolean }
+): string {
+  const cap = options?.sliceCaps !== false // default true for listings, false for images
+  // Prefer Market Intelligence over legacy competitor analysis
+  if (marketIntelligence) {
+    const mi = marketIntelligence
+    const landscape = (cap ? mi.competitiveLandscape?.slice(0, 8) : mi.competitiveLandscape)
+      ?.map((c) => `${c.brand} — Rating: ${c.avgRating}, Reviews: ${c.reviewCount}, Features: ${c.keyFeatures?.join(', ') || 'N/A'}`)
+      .join('\n  ') || 'N/A'
+    const titlePatterns = (cap ? mi.competitorPatterns?.titlePatterns?.slice(0, 5) : mi.competitorPatterns?.titlePatterns)
+      ?.map((p) => `"${p.pattern}" (${p.frequency}x) — e.g. "${p.example}"`)
+      .join('\n  ') || 'N/A'
+    const bulletThemes = (cap ? mi.competitorPatterns?.bulletThemes?.slice(0, 6) : mi.competitorPatterns?.bulletThemes)
+      ?.map((t) => `${t.theme} (${t.frequency}x)`)
+      .join(', ') || 'N/A'
+    const painPoints = (cap ? mi.topPainPoints?.slice(0, 5) : mi.topPainPoints)
+      ?.map((p) => `${p.title}: ${p.description} (Impact: ${p.impactPercentage}%)`)
+      .join('\n  ') || 'N/A'
+    const segments = (cap ? mi.customerSegments?.slice(0, 4) : mi.customerSegments)
+      ?.map((s) => `${s.name} (${s.ageRange}, ${s.occupation})`)
+      .join('\n  ') || 'N/A'
+    const messaging = mi.messagingFramework
+    const msgStr = messaging
+      ? `Primary: "${messaging.primaryMessage}"\n  Support: ${messaging.supportPoints?.join('; ') || 'N/A'}\n  Proof: ${messaging.proofPoints?.join('; ') || 'N/A'}`
+      : 'N/A'
+    const voicePhrases = mi.customerVoicePhrases
+    const emotionalVoice = (cap ? voicePhrases?.positiveEmotional?.slice(0, 6) : voicePhrases?.positiveEmotional)
+      ?.map((p) => `"${p}"`)
+      .join(', ') || ''
+    const functionalVoice = (cap ? voicePhrases?.functional?.slice(0, 6) : voicePhrases?.functional)
+      ?.map((p) => `"${p}"`)
+      .join(', ') || ''
+    const pricing = mi.competitorPatterns?.pricingRange
+    const pricingStr = pricing
+      ? `$${pricing.min}-$${pricing.max} (avg $${pricing.average}, ${pricing.currency})`
+      : 'N/A'
+    const stratRecs = mi.strategicRecommendations
+    const stratStr = stratRecs
+      ? `Pricing: ${(cap ? stratRecs.pricing?.slice(0, 3) : stratRecs.pricing)?.join('; ') || 'N/A'}\n  Product: ${(cap ? stratRecs.product?.slice(0, 3) : stratRecs.product)?.join('; ') || 'N/A'}`
+      : 'N/A'
+    const imageRecs = mi.imageRecommendations?.join('\n  ') || ''
+    const avatars = (cap ? mi.detailedAvatars?.slice(0, 3) : mi.detailedAvatars)
+      ?.map((a) => `${a.name} (${a.role}) — ${a.keyMotivations}`)
+      .join('\n  ') || ''
+
+    let section = `
+=== MARKET INTELLIGENCE ===
+Executive Summary: ${mi.executiveSummary || 'N/A'}
+Competitive landscape:
+  ${landscape}
+Competitor title patterns:
+  ${titlePatterns}
+Common bullet themes: ${bulletThemes}
+Pricing range: ${pricingStr}
+Top customer pain points:
+  ${painPoints}
+Customer segments:
+  ${segments}
+Messaging framework:
+  ${msgStr}
+Strategic recommendations:
+  ${stratStr}`
+    if (emotionalVoice || functionalVoice) {
+      section += `\nCustomer voice phrases: ${emotionalVoice}${emotionalVoice && functionalVoice ? ', ' : ''}${functionalVoice}`
+    }
+    if (avatars) {
+      section += `\nDetailed customer avatars:
+  ${avatars}`
+    }
+    if (imageRecs) {
+      section += `\nImage recommendations:
+  ${imageRecs}`
+    }
+    return section
+  }
+
+  // Fallback: legacy competitor analysis
+  if (competitorAnalysis) {
+    const titlePatterns = competitorAnalysis.titlePatterns
+      ?.slice(0, 5)
+      .map((p) => `"${p.pattern}" (${p.frequency}x) — e.g. "${p.example}"`)
+      .join('\n  ') || 'N/A'
+    const bulletThemes = competitorAnalysis.bulletThemes
+      ?.slice(0, 6)
+      .map((t) => `${t.theme} (${t.frequency}x)`)
+      .join(', ') || 'N/A'
+    const gaps = competitorAnalysis.differentiationGaps
+      ?.slice(0, 5)
+      .map((g) => `${g.gap}: ${g.opportunity} (${g.priority})`)
+      .join('\n  ') || 'N/A'
+    const usps = competitorAnalysis.usps
+      ?.slice(0, 4)
+      .map((u) => `${u.usp} — Competitor weakness: ${u.competitorWeakness}`)
+      .join('\n  ') || 'N/A'
+    return `
+=== COMPETITOR INTELLIGENCE ===
+Executive Summary: ${competitorAnalysis.executiveSummary}
+Competitor title patterns to learn from (and differentiate against):
+  ${titlePatterns}
+Common bullet themes across competitors: ${bulletThemes}
+Differentiation gaps to exploit:
+  ${gaps}
+Our unique selling propositions:
+  ${usps}`
+  }
+
+  return ''
+}
+
 // --- Listing Generation Prompt ---
 
 function buildListingGenerationPrompt(input: ListingGenerationInput): string {
   const {
     productName, brand, asin, attributes, categoryName, countryName, language,
     charLimits, keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
-    optimizationMode, existingListingText,
+    marketIntelligence, optimizationMode, existingListingText,
   } = input
 
   const attrStr = Object.entries(attributes)
@@ -752,36 +867,7 @@ FAQ to weave into description:
   ${faqs}${specStr}${contradStr}${riskStr}${defenseStr}`
   }
 
-  let competitorSection = ''
-  if (competitorAnalysis) {
-    const titlePatterns = competitorAnalysis.titlePatterns
-      ?.slice(0, 5)
-      .map((p) => `"${p.pattern}" (${p.frequency}x) — e.g. "${p.example}"`)
-      .join('\n  ') || 'N/A'
-    const bulletThemes = competitorAnalysis.bulletThemes
-      ?.slice(0, 6)
-      .map((t) => `${t.theme} (${t.frequency}x)`)
-      .join(', ') || 'N/A'
-    const gaps = competitorAnalysis.differentiationGaps
-      ?.slice(0, 5)
-      .map((g) => `${g.gap}: ${g.opportunity} (${g.priority})`)
-      .join('\n  ') || 'N/A'
-    const usps = competitorAnalysis.usps
-      ?.slice(0, 4)
-      .map((u) => `${u.usp} — Competitor weakness: ${u.competitorWeakness}`)
-      .join('\n  ') || 'N/A'
-
-    competitorSection = `
-=== COMPETITOR INTELLIGENCE ===
-Executive Summary: ${competitorAnalysis.executiveSummary}
-Competitor title patterns to learn from (and differentiate against):
-  ${titlePatterns}
-Common bullet themes across competitors: ${bulletThemes}
-Differentiation gaps to exploit:
-  ${gaps}
-Our unique selling propositions:
-  ${usps}`
-  }
+  const competitorSection = buildCompetitiveSection(competitorAnalysis, marketIntelligence, { sliceCaps: true })
 
   let existingListingSection = ''
   if (optimizationMode === 'optimize_existing' && existingListingText) {
@@ -980,7 +1066,7 @@ function buildSharedContext(input: ListingGenerationInput): string {
   const {
     productName, brand, asin, attributes, categoryName, countryName, language,
     charLimits, keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
-    optimizationMode, existingListingText,
+    marketIntelligence, optimizationMode, existingListingText,
   } = input
 
   const attrStr = Object.entries(attributes)
@@ -1115,36 +1201,7 @@ FAQ to weave into description:
   ${faqs}${specStr}${contradStr}${riskStr}${defenseStr}`
   }
 
-  let competitorSection = ''
-  if (competitorAnalysis) {
-    const titlePatterns = competitorAnalysis.titlePatterns
-      ?.slice(0, 5)
-      .map((p) => `"${p.pattern}" (${p.frequency}x) — e.g. "${p.example}"`)
-      .join('\n  ') || 'N/A'
-    const bulletThemes = competitorAnalysis.bulletThemes
-      ?.slice(0, 6)
-      .map((t) => `${t.theme} (${t.frequency}x)`)
-      .join(', ') || 'N/A'
-    const gaps = competitorAnalysis.differentiationGaps
-      ?.slice(0, 5)
-      .map((g) => `${g.gap}: ${g.opportunity} (${g.priority})`)
-      .join('\n  ') || 'N/A'
-    const usps = competitorAnalysis.usps
-      ?.slice(0, 4)
-      .map((u) => `${u.usp} — Competitor weakness: ${u.competitorWeakness}`)
-      .join('\n  ') || 'N/A'
-
-    competitorSection = `
-=== COMPETITOR INTELLIGENCE ===
-Executive Summary: ${competitorAnalysis.executiveSummary}
-Competitor title patterns to learn from (and differentiate against):
-  ${titlePatterns}
-Common bullet themes across competitors: ${bulletThemes}
-Differentiation gaps to exploit:
-  ${gaps}
-Our unique selling propositions:
-  ${usps}`
-  }
+  const competitorSection = buildCompetitiveSection(competitorAnalysis, marketIntelligence, { sliceCaps: true })
 
   let existingListingSection = ''
   if (optimizationMode === 'optimize_existing' && existingListingText) {
@@ -2090,10 +2147,11 @@ function buildImageStackRecommendationPrompt(
   keywordAnalysis?: KeywordAnalysisResult | null,
   reviewAnalysis?: ReviewAnalysisResult | null,
   qnaAnalysis?: QnAAnalysisResult | null,
-  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null,
+  marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
 ): string {
   const researchContext = buildImageResearchContext({
-    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
   })
 
   return `You are an expert Amazon listing image strategist. Based on research data, recommend the optimal 9 secondary image types for position 2-10 of an Amazon listing.
@@ -2143,11 +2201,12 @@ export async function generateImageStackRecommendations(
   keywordAnalysis?: KeywordAnalysisResult | null,
   reviewAnalysis?: ReviewAnalysisResult | null,
   qnaAnalysis?: QnAAnalysisResult | null,
-  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null,
+  marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
 ): Promise<{ result: import('@/types/api').ImageStackRecommendationsResult; model: string; tokensUsed: number }> {
   const client = await getClient()
   const model = await getModel()
-  const prompt = buildImageStackRecommendationPrompt(categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis)
+  const prompt = buildImageStackRecommendationPrompt(categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence)
 
   const response = await client.messages.create({
     model,
@@ -2965,6 +3024,7 @@ export interface APlusStrategyInput {
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
   competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
   listingTitle?: string | null
   bulletPoints?: string[]
   listingDescription?: string | null
@@ -2973,10 +3033,10 @@ export interface APlusStrategyInput {
 
 function buildAPlusStrategyPrompt(input: APlusStrategyInput): string {
   const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis,
-          competitorAnalysis, listingTitle, bulletPoints, listingDescription, creativeBrief } = input
+          competitorAnalysis, marketIntelligence, listingTitle, bulletPoints, listingDescription, creativeBrief } = input
 
   const researchContext = buildImageResearchContext({
-    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
     listingTitle, bulletPoints, listingDescription, creativeBrief,
   })
 
@@ -3108,6 +3168,7 @@ export interface VideoStoryboardInput {
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
   competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
   listingTitle?: string | null
   bulletPoints?: string[]
   listingDescription?: string | null
@@ -3134,10 +3195,10 @@ export interface VideoStoryboardResult {
 
 function buildVideoStoryboardPrompt(input: VideoStoryboardInput): string {
   const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis,
-          competitorAnalysis, listingTitle, bulletPoints, listingDescription, creativeBrief } = input
+          competitorAnalysis, marketIntelligence, listingTitle, bulletPoints, listingDescription, creativeBrief } = input
 
   const researchContext = buildImageResearchContext({
-    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
     listingTitle, bulletPoints, listingDescription, creativeBrief,
   })
 
@@ -3245,6 +3306,7 @@ export interface VideoScriptInput {
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
   competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
   listingTitle?: string | null
   bulletPoints?: string[]
   listingDescription?: string | null
@@ -3273,10 +3335,10 @@ export interface VideoScriptResult {
 
 function buildVideoScriptPrompt(input: VideoScriptInput): string {
   const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis,
-          competitorAnalysis, listingTitle, bulletPoints, listingDescription, creativeBrief, storyboard } = input
+          competitorAnalysis, marketIntelligence, listingTitle, bulletPoints, listingDescription, creativeBrief, storyboard } = input
 
   const researchContext = buildImageResearchContext({
-    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
     listingTitle, bulletPoints, listingDescription, creativeBrief,
   })
 
@@ -3758,6 +3820,7 @@ export interface ImageResearchContext {
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
   competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
   listingTitle?: string | null
   bulletPoints?: string[]
   listingDescription?: string | null
@@ -3771,7 +3834,7 @@ export interface ImageResearchContext {
  * If you add fields to buildSharedContext(), add them here too.
  */
 function buildImageResearchContext(ctx: ImageResearchContext): string {
-  const { keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+  const { keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
           listingTitle, bulletPoints, listingDescription, creativeBrief } = ctx
 
   // === KEYWORD SECTION (mirrors buildSharedContext) ===
@@ -3916,32 +3979,8 @@ FAQ insights:
   ${faqs}${specStr}${contradStr}${riskStr}${defenseStr}\n`
   }
 
-  // === COMPETITOR SECTION (mirrors buildSharedContext) ===
-  let competitorSection = ''
-  if (competitorAnalysis) {
-    const titlePatterns = competitorAnalysis.titlePatterns
-      ?.map((p) => `"${p.pattern}" (${p.frequency}x) — e.g. "${p.example}"`)
-      .join('\n  ') || 'N/A'
-    const bulletThemes = competitorAnalysis.bulletThemes
-      ?.map((t) => `${t.theme} (${t.frequency}x)`)
-      .join(', ') || 'N/A'
-    const gaps = competitorAnalysis.differentiationGaps
-      ?.map((g) => `${g.gap}: ${g.opportunity} (${g.priority})`)
-      .join('\n  ') || 'N/A'
-    const usps = competitorAnalysis.usps
-      ?.map((u) => `${u.usp} — Competitor weakness: ${u.competitorWeakness}`)
-      .join('\n  ') || 'N/A'
-
-    competitorSection = `\n=== COMPETITOR INTELLIGENCE ===
-Executive Summary: ${competitorAnalysis.executiveSummary}
-Competitor title patterns:
-  ${titlePatterns}
-Common bullet themes: ${bulletThemes}
-Differentiation gaps to exploit:
-  ${gaps}
-Our unique selling propositions:
-  ${usps}\n`
-  }
+  // === COMPETITIVE INTELLIGENCE SECTION (MI preferred, fallback to legacy competitor) ===
+  const competitorSection = buildCompetitiveSection(competitorAnalysis, marketIntelligence, { sliceCaps: false })
 
   // === LISTING CONTENT (when available — from listing context) ===
   let listingSection = ''
@@ -4023,6 +4062,7 @@ export interface WorkshopPromptInput {
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
   competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
   listingTitle?: string | null
   bulletPoints?: string[]
   listingDescription?: string | null
@@ -4054,10 +4094,10 @@ export interface WorkshopPromptResult {
 
 function buildWorkshopPromptsPrompt(input: WorkshopPromptInput): string {
   const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis,
-          competitorAnalysis, listingTitle, bulletPoints, listingDescription, creativeBrief } = input
+          competitorAnalysis, marketIntelligence, listingTitle, bulletPoints, listingDescription, creativeBrief } = input
 
   const researchContext = buildImageResearchContext({
-    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
     listingTitle, bulletPoints, listingDescription, creativeBrief,
   })
 
@@ -4165,6 +4205,7 @@ export interface SecondaryPromptInput {
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
   competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
   creativeBrief?: import('@/types/api').CreativeBrief | null
 }
 
@@ -4194,10 +4235,10 @@ export interface SecondaryConceptResult {
 
 function buildSecondaryPromptsPrompt(input: SecondaryPromptInput): string {
   const { productName, brand, categoryName, listingTitle, bulletPoints, listingDescription,
-          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, creativeBrief } = input
+          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence, creativeBrief } = input
 
   const researchContext = buildImageResearchContext({
-    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
     listingTitle, bulletPoints, listingDescription, creativeBrief,
   })
 
@@ -4320,6 +4361,7 @@ export interface ThumbnailPromptInput {
   reviewAnalysis?: ReviewAnalysisResult | null
   qnaAnalysis?: QnAAnalysisResult | null
   competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
+  marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
   creativeBrief?: import('@/types/api').CreativeBrief | null
 }
 
@@ -4341,10 +4383,10 @@ export interface ThumbnailConceptResult {
 
 function buildThumbnailPromptsPrompt(input: ThumbnailPromptInput): string {
   const { productName, brand, categoryName, listingTitle, bulletPoints, listingDescription,
-          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, creativeBrief } = input
+          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence, creativeBrief } = input
 
   const researchContext = buildImageResearchContext({
-    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
+    keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
     listingTitle, bulletPoints, listingDescription, creativeBrief,
   })
 

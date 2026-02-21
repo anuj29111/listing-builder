@@ -35,23 +35,12 @@ export async function POST(request: Request) {
       supabase.from('lb_categories').select('id, name, brand').eq('id', category_id).single(),
       supabase
         .from('lb_research_analysis')
-        .select('analysis_type, analysis_result, source')
+        .select('analysis_type, analysis_result, source, market_intelligence_id')
         .eq('category_id', category_id)
         .eq('country_id', country_id)
         .eq('status', 'completed'),
       supabase.from('lb_image_workshops').select('product_photos, product_photo_descriptions').eq('id', workshop_id).single(),
     ])
-
-    // Optionally fetch Market Intelligence
-    let miData: { analysis_result: unknown } | null = null
-    if (market_intelligence_id) {
-      const { data } = await supabase.from('lb_market_intelligence')
-        .select('analysis_result, status')
-        .eq('id', market_intelligence_id)
-        .eq('status', 'completed')
-        .single()
-      miData = data
-    }
 
     if (!catResult.data) {
       return NextResponse.json({ error: 'Category not found' }, { status: 404 })
@@ -60,8 +49,8 @@ export async function POST(request: Request) {
     const category = catResult.data
     const analyses = analysesResult.data || []
 
-    // Pick best analysis per type: prefer merged > csv > file
-    const sourcePriority = ['merged', 'csv', 'file']
+    // Pick best analysis per type: prefer merged > csv > file > linked
+    const sourcePriority = ['merged', 'csv', 'file', 'linked']
     const pickBest = (type: string) => {
       const matches = analyses.filter((a) => a.analysis_type === type)
       if (matches.length === 0) return undefined
@@ -103,10 +92,21 @@ export async function POST(request: Request) {
       }
     }
 
-    // Extract Market Intelligence data
-    const marketIntelligence = miData
-      ? (miData.analysis_result as unknown as MarketIntelligenceResult)
-      : null
+    // Auto-resolve linked Market Intelligence from research bridge record
+    const miRow = analyses.find((a) => a.analysis_type === 'market_intelligence' && a.source === 'linked')
+    const resolvedMiId = market_intelligence_id || miRow?.market_intelligence_id
+    let marketIntelligence: MarketIntelligenceResult | null = null
+    if (resolvedMiId) {
+      const { data: miRecord } = await supabase
+        .from('lb_market_intelligence')
+        .select('analysis_result, status')
+        .eq('id', resolvedMiId)
+        .eq('status', 'completed')
+        .single()
+      if (miRecord?.analysis_result) {
+        marketIntelligence = miRecord.analysis_result as unknown as MarketIntelligenceResult
+      }
+    }
 
     // Extract product photo descriptions from workshop
     const productPhotoDescriptions = (workshopResult?.data?.product_photo_descriptions as Record<string, ProductPhotoDescription> | null) || null

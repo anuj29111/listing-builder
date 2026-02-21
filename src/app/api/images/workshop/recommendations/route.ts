@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     // Fetch analyses
     const { data: analyses } = await supabase
       .from('lb_research_analysis')
-      .select('analysis_type, analysis_result, source')
+      .select('analysis_type, analysis_result, source, market_intelligence_id')
       .eq('category_id', category_id)
       .eq('country_id', country_id)
       .eq('status', 'completed')
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     const allAnalyses = analyses || []
 
     // Pick best analysis per type
-    const sourcePriority = ['merged', 'csv', 'file']
+    const sourcePriority = ['merged', 'csv', 'file', 'linked']
     const pickBest = (type: string) => {
       const matches = allAnalyses.filter((a) => a.analysis_type === type)
       if (matches.length === 0) return undefined
@@ -75,12 +75,28 @@ export async function POST(request: Request) {
       ? (competitorRow.analysis_result as unknown as CompetitorAnalysisResult)
       : null
 
+    // Auto-resolve linked Market Intelligence
+    const miRow = allAnalyses.find((a) => a.analysis_type === 'market_intelligence' && a.source === 'linked')
+    let marketIntelligence = null
+    if (miRow?.market_intelligence_id) {
+      const { data: miRecord } = await supabase
+        .from('lb_market_intelligence')
+        .select('analysis_result, status')
+        .eq('id', miRow.market_intelligence_id)
+        .eq('status', 'completed')
+        .single()
+      if (miRecord?.analysis_result) {
+        marketIntelligence = miRecord.analysis_result
+      }
+    }
+
     const { result, model, tokensUsed } = await generateImageStackRecommendations(
       cat.name,
       keywordAnalysis,
       reviewAnalysis,
       qnaAnalysis,
-      competitorAnalysis
+      competitorAnalysis,
+      marketIntelligence
     )
 
     return NextResponse.json({
