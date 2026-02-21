@@ -3825,6 +3825,7 @@ export interface ImageResearchContext {
   bulletPoints?: string[]
   listingDescription?: string | null
   creativeBrief?: import('@/types/api').CreativeBrief | null
+  productPhotoDescriptions?: Record<string, import('@/types/api').ProductPhotoDescription> | null
 }
 
 /**
@@ -3835,7 +3836,7 @@ export interface ImageResearchContext {
  */
 function buildImageResearchContext(ctx: ImageResearchContext): string {
   const { keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
-          listingTitle, bulletPoints, listingDescription, creativeBrief } = ctx
+          listingTitle, bulletPoints, listingDescription, creativeBrief, productPhotoDescriptions } = ctx
 
   // === KEYWORD SECTION (mirrors buildSharedContext) ===
   let keywordSection = ''
@@ -4047,11 +4048,32 @@ ${creativeBrief.image_position_strategy || 'N/A'}
 `
   }
 
-  if (!briefSection && !keywordSection && !reviewSection && !qnaSection && !competitorSection && !listingSection) {
+  // === PRODUCT PHOTO DESCRIPTIONS (fallback when creative brief lacks product_description_from_photos) ===
+  let photoDescSection = ''
+  const hasPhotoDescInBrief = creativeBrief?.product_description_from_photos
+  if (productPhotoDescriptions && Object.keys(productPhotoDescriptions).length > 0 && !hasPhotoDescInBrief) {
+    const photoEntries = Object.values(productPhotoDescriptions)
+      .map((desc, i) => {
+        const d = desc as import('@/types/api').ProductPhotoDescription
+        return `Photo ${i + 1}: ${d.description}
+   Features: ${d.detected_features?.join(', ') || 'N/A'}
+   Colors: ${d.dominant_colors?.join(', ') || 'N/A'}
+   Type: ${d.photo_type || 'N/A'}`
+      })
+      .join('\n')
+
+    photoDescSection = `\n=== ACTUAL PRODUCT APPEARANCE (from uploaded photos) ===
+${photoEntries}
+
+IMPORTANT: Your prompts must describe THIS specific product accurately — its exact colors, materials, shapes, and features as described above. Do NOT write generic product descriptions.
+`
+  }
+
+  if (!briefSection && !keywordSection && !reviewSection && !qnaSection && !competitorSection && !listingSection && !photoDescSection) {
     return '\nNo research data available. Use general best practices for Amazon product photography.\n'
   }
 
-  return `${briefSection}${keywordSection}${reviewSection}${qnaSection}${competitorSection}${listingSection}`
+  return `${briefSection}${photoDescSection}${keywordSection}${reviewSection}${qnaSection}${competitorSection}${listingSection}`
 }
 
 export interface WorkshopPromptInput {
@@ -4067,6 +4089,7 @@ export interface WorkshopPromptInput {
   bulletPoints?: string[]
   listingDescription?: string | null
   creativeBrief?: import('@/types/api').CreativeBrief | null
+  productPhotoDescriptions?: Record<string, import('@/types/api').ProductPhotoDescription> | null
 }
 
 export interface WorkshopPromptResult {
@@ -4094,11 +4117,12 @@ export interface WorkshopPromptResult {
 
 function buildWorkshopPromptsPrompt(input: WorkshopPromptInput): string {
   const { productName, brand, categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis,
-          competitorAnalysis, marketIntelligence, listingTitle, bulletPoints, listingDescription, creativeBrief } = input
+          competitorAnalysis, marketIntelligence, listingTitle, bulletPoints, listingDescription,
+          creativeBrief, productPhotoDescriptions } = input
 
   const researchContext = buildImageResearchContext({
     keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
-    listingTitle, bulletPoints, listingDescription, creativeBrief,
+    listingTitle, bulletPoints, listingDescription, creativeBrief, productPhotoDescriptions,
   })
 
   return `You are an expert Amazon product photography director who creates hyper-specific, production-ready image prompts. You specialize in translating product research and real product photos into prompts that AI image generators can execute accurately.
@@ -4207,6 +4231,7 @@ export interface SecondaryPromptInput {
   competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
   marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
   creativeBrief?: import('@/types/api').CreativeBrief | null
+  productPhotoDescriptions?: Record<string, import('@/types/api').ProductPhotoDescription> | null
 }
 
 export interface SecondaryConceptResult {
@@ -4235,11 +4260,12 @@ export interface SecondaryConceptResult {
 
 function buildSecondaryPromptsPrompt(input: SecondaryPromptInput): string {
   const { productName, brand, categoryName, listingTitle, bulletPoints, listingDescription,
-          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence, creativeBrief } = input
+          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
+          creativeBrief, productPhotoDescriptions } = input
 
   const researchContext = buildImageResearchContext({
     keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
-    listingTitle, bulletPoints, listingDescription, creativeBrief,
+    listingTitle, bulletPoints, listingDescription, creativeBrief, productPhotoDescriptions,
   })
 
   return `You are an expert Amazon listing image strategist and visual storyteller. Generate 9 highly detailed, production-ready secondary image concepts for an Amazon product listing.
@@ -4363,6 +4389,7 @@ export interface ThumbnailPromptInput {
   competitorAnalysis?: import('@/types/api').CompetitorAnalysisResult | null
   marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
   creativeBrief?: import('@/types/api').CreativeBrief | null
+  productPhotoDescriptions?: Record<string, import('@/types/api').ProductPhotoDescription> | null
 }
 
 export interface ThumbnailConceptResult {
@@ -4383,11 +4410,12 @@ export interface ThumbnailConceptResult {
 
 function buildThumbnailPromptsPrompt(input: ThumbnailPromptInput): string {
   const { productName, brand, categoryName, listingTitle, bulletPoints, listingDescription,
-          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence, creativeBrief } = input
+          keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
+          creativeBrief, productPhotoDescriptions } = input
 
   const researchContext = buildImageResearchContext({
     keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence,
-    listingTitle, bulletPoints, listingDescription, creativeBrief,
+    listingTitle, bulletPoints, listingDescription, creativeBrief, productPhotoDescriptions,
   })
 
   return `You are an expert Amazon product video thumbnail designer and visual strategist. Generate 5 highly detailed video thumbnail concepts for an Amazon product listing video.
@@ -4484,6 +4512,7 @@ export interface SwatchPromptInput {
     material?: string
     description?: string
   }>
+  productPhotoDescriptions?: Record<string, import('@/types/api').ProductPhotoDescription> | null
 }
 
 export interface SwatchConceptResult {
@@ -4495,7 +4524,7 @@ export interface SwatchConceptResult {
 }
 
 function buildSwatchPromptsPrompt(input: SwatchPromptInput): string {
-  const { productName, brand, categoryName, variants } = input
+  const { productName, brand, categoryName, variants, productPhotoDescriptions } = input
 
   const variantList = variants
     .map((v, i) => {
@@ -4507,13 +4536,25 @@ function buildSwatchPromptsPrompt(input: SwatchPromptInput): string {
     })
     .join('\n')
 
+  // Build product appearance section from photo descriptions if available
+  let photoSection = ''
+  if (productPhotoDescriptions && Object.keys(productPhotoDescriptions).length > 0) {
+    const photoEntries = Object.values(productPhotoDescriptions)
+      .map((desc, i) => {
+        const d = desc as import('@/types/api').ProductPhotoDescription
+        return `Photo ${i + 1}: ${d.description}\n   Features: ${d.detected_features?.join(', ') || 'N/A'}\n   Colors: ${d.dominant_colors?.join(', ') || 'N/A'}`
+      })
+      .join('\n')
+    photoSection = `\n=== ACTUAL PRODUCT APPEARANCE (from uploaded photos) ===\n${photoEntries}\n\nIMPORTANT: Describe THIS specific product accurately in each swatch — its exact shape, form factor, and distinguishing features. Only vary the color/material per variant.\n`
+  }
+
   return `You are an expert Amazon product photography director specializing in swatch and variant images. Generate image prompts for product variant swatches.
 
 === PRODUCT ===
 Product: ${productName}
 Brand: ${brand}
 Category: ${categoryName}
-
+${photoSection}
 === VARIANTS ===
 ${variantList}
 

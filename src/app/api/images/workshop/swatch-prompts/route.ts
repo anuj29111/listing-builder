@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
 import { generateSwatchPrompts } from '@/lib/claude'
-import type { GenerateSwatchPromptsRequest } from '@/types/api'
+import type { GenerateSwatchPromptsRequest, ProductPhotoDescription } from '@/types/api'
 
 // Allow up to 5 minutes for Claude swatch prompt generation
 export const maxDuration = 300
@@ -49,9 +49,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Category not found' }, { status: 404 })
     }
 
-    // Look up product photos from a main workshop for this product
+    // Look up product photos + photo descriptions from a main workshop for this product
     let sourceProductPhotos: string[] | null = null
-    let sourcePhotoDescriptions: Record<string, unknown> | null = null
+    let sourcePhotoDescriptions: Record<string, ProductPhotoDescription> | null = null
     {
       const mainWorkshopQuery = supabase
         .from('lb_image_workshops')
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
         const photos = mainWorkshops[0].product_photos as string[]
         if (photos?.length > 0) {
           sourceProductPhotos = photos
-          sourcePhotoDescriptions = (mainWorkshops[0].product_photo_descriptions as Record<string, unknown>) || null
+          sourcePhotoDescriptions = (mainWorkshops[0].product_photo_descriptions as Record<string, ProductPhotoDescription>) || null
         }
       }
     }
@@ -82,6 +82,7 @@ export async function POST(request: Request) {
       brand,
       categoryName: category.name,
       variants: validVariants,
+      productPhotoDescriptions: sourcePhotoDescriptions || undefined,
     })
 
     // Create workshop record with prompts persisted (inherit product photos from main workshop)

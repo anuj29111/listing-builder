@@ -7,7 +7,7 @@ import {
   type ReviewAnalysisResult,
   type QnAAnalysisResult,
 } from '@/lib/claude'
-import type { GenerateSecondaryPromptsRequest, CompetitorAnalysisResult, CreativeBrief } from '@/types/api'
+import type { GenerateSecondaryPromptsRequest, CompetitorAnalysisResult, CreativeBrief, ProductPhotoDescription } from '@/types/api'
 
 // Secondary prompts generate 9 rich concepts — Claude can take 60-90s
 export const maxDuration = 300
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
     // Fetch creative brief and product photos from existing workshop if available
     let creativeBrief: CreativeBrief | null = null
     let sourceProductPhotos: string[] | null = null
-    let sourcePhotoDescriptions: Record<string, unknown> | null = null
+    let sourcePhotoDescriptions: Record<string, ProductPhotoDescription> | null = null
     if (workshop_id) {
       const { data: existingWorkshop } = await supabase
         .from('lb_image_workshops')
@@ -124,14 +124,14 @@ export async function POST(request: Request) {
         .single()
       creativeBrief = (existingWorkshop?.creative_brief as unknown as CreativeBrief) || null
       sourceProductPhotos = (existingWorkshop?.product_photos as string[]) || null
-      sourcePhotoDescriptions = (existingWorkshop?.product_photo_descriptions as Record<string, unknown>) || null
+      sourcePhotoDescriptions = (existingWorkshop?.product_photo_descriptions as Record<string, ProductPhotoDescription>) || null
     }
 
-    // If no product photos from workshop_id, look up from a main workshop for this product
-    if (!sourceProductPhotos || sourceProductPhotos.length === 0) {
+    // If missing data, look up from a main workshop for this product
+    if (!sourceProductPhotos || sourceProductPhotos.length === 0 || !creativeBrief) {
       const mainWorkshopQuery = supabase
         .from('lb_image_workshops')
-        .select('product_photos, product_photo_descriptions')
+        .select('product_photos, product_photo_descriptions, creative_brief')
         .eq('image_type', 'main')
         .eq('category_id', category_id)
         .eq('country_id', country_id)
@@ -146,9 +146,15 @@ export async function POST(request: Request) {
       const { data: mainWorkshops } = await mainWorkshopQuery
       if (mainWorkshops?.[0]) {
         const photos = mainWorkshops[0].product_photos as string[]
-        if (photos?.length > 0) {
+        if (photos?.length > 0 && (!sourceProductPhotos || sourceProductPhotos.length === 0)) {
           sourceProductPhotos = photos
-          sourcePhotoDescriptions = (mainWorkshops[0].product_photo_descriptions as Record<string, unknown>) || null
+          sourcePhotoDescriptions = (mainWorkshops[0].product_photo_descriptions as Record<string, ProductPhotoDescription>) || null
+        }
+        if (!creativeBrief && mainWorkshops[0].creative_brief) {
+          creativeBrief = mainWorkshops[0].creative_brief as unknown as CreativeBrief
+        }
+        if (!sourcePhotoDescriptions && mainWorkshops[0].product_photo_descriptions) {
+          sourcePhotoDescriptions = (mainWorkshops[0].product_photo_descriptions as Record<string, ProductPhotoDescription>) || null
         }
       }
     }
@@ -174,6 +180,7 @@ export async function POST(request: Request) {
         : null,
       marketIntelligence,
       creativeBrief,
+      productPhotoDescriptions: sourcePhotoDescriptions || undefined,
     })
 
     // Create workshop record with prompts persisted (inherit product photos from main workshop)
