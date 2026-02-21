@@ -102,10 +102,19 @@ export async function POST(
           source: 'cache',
         }
       } else {
-        const searchResult = await searchKeyword(kw, oxylabsDomain, 1)
+        // Promise.race timeout — AbortController alone is unreliable after mass aborts
+        const searchResult = await Promise.race([
+          searchKeyword(kw, oxylabsDomain, 1),
+          new Promise<{ success: false; error: string }>((resolve) =>
+            setTimeout(() => {
+              console.error(`[MI] Keyword search "${kw}" timed out after 65s`)
+              resolve({ success: false, error: 'Keyword search timed out after 65s' })
+            }, ASIN_TIMEOUT_MS)
+          ),
+        ])
         oxylabsCallsUsed++
 
-        if (!searchResult.success || !searchResult.data) {
+        if (!searchResult.success || !('data' in searchResult) || !searchResult.data) {
           console.error(`Keyword search failed for "${kw}": ${searchResult.error}`)
           continue
         }
