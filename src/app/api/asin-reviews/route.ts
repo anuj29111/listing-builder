@@ -49,6 +49,27 @@ export async function POST(request: Request) {
 
     const sortBy = sort_by || 'recent'
 
+    // Check if there's already an active fetch for this ASIN+country
+    if (provider === 'apify') {
+      const { data: existing } = await supabase
+        .from('lb_asin_reviews')
+        .select('id, status')
+        .eq('asin', trimmedAsin)
+        .eq('country_id', country_id)
+        .eq('sort_by', sortBy || 'recent')
+        .in('status', ['pending', 'fetching'])
+        .single()
+
+      if (existing) {
+        return NextResponse.json(
+          {
+            error: `Reviews for ${trimmedAsin} are already being fetched (status: ${existing.status}). Please wait for the current fetch to complete.`,
+          },
+          { status: 409 }
+        )
+      }
+    }
+
     // Route to appropriate provider
     if (provider === 'apify') {
       return handleApifyFetch(trimmedAsin, country, sortBy, pages, lbUser.id, supabase)

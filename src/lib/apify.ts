@@ -19,12 +19,16 @@ export interface ApifyReviewItem {
   Images: string[]
   Score: number
   Reviewer: string
+  ReviewerUrl?: string
   ReviewTitle: string
   ReviewContent: string
   Verified: string
   Variant: string
   VariantASIN: string
   HelpfulCounts: number
+  TotalRating?: number
+  TotalReviewCount?: number
+  RatingDistribution?: Record<string, string>
   CustomersSay?: string
   ReviewAspects?: Array<{
     aspect: string
@@ -181,10 +185,31 @@ export async function fetchReviewsViaApify(
     )
 
     // Start actor run
+    // NOTE: Actor has TWO filter mechanisms:
+    //   - `filterByRating` (simple string) — we always set "allStars"
+    //   - `filter_by_ratings` (array) — DEFAULTS to ["five_star"] if not set!
+    //     Must explicitly send all ratings to avoid only getting 5-star reviews.
     const input: Record<string, unknown> = {
       ASIN_or_URL: [productUrl],
       sortBy: sortBy === 'helpful' ? 'helpful' : 'recent',
       filterByRating,
+      // Explicitly set ALL advanced filters to avoid actor defaults filtering data
+      filter_by_ratings: [
+        'five_star',
+        'four_star',
+        'three_star',
+        'two_star',
+        'one_star',
+      ],
+      filter_by_verified_purchase_only: [
+        'all_reviews',
+        'avp_only_reviews',
+      ],
+      filter_by_mediaType: [
+        'all_contents',
+        'media_reviews_only',
+      ],
+      get_customers_say: true,
     }
 
     // Only set max_reviews if not fetching all
@@ -352,9 +377,27 @@ export async function backgroundFetchReviews(
       return true
     })
 
+    // Extract product-level data from first review item
+    const firstItem = result.data.reviews[0]
+    const overallRating = firstItem?.TotalRating ?? null
+    const totalReviewCount = firstItem?.TotalReviewCount ?? null
+    // Convert rating distribution from {"5 star": "70%", "4 star": "20%", ...} to array format
+    let ratingDistribution: Array<{ rating: number; percentage: string }> | null = null
+    if (firstItem?.RatingDistribution) {
+      ratingDistribution = Object.entries(firstItem.RatingDistribution)
+        .map(([key, value]) => {
+          const rating = parseInt(key) || 0
+          return { rating, percentage: String(value).replace('%', '') }
+        })
+        .filter((d) => d.rating >= 1 && d.rating <= 5)
+        .sort((a, b) => b.rating - a.rating)
+    }
+
     await updateReviewRecord(recordId, {
       status: 'completed',
-      total_reviews: uniqueReviews.length,
+      total_reviews: totalReviewCount ?? uniqueReviews.length,
+      overall_rating: overallRating,
+      rating_stars_distribution: ratingDistribution,
       total_pages_fetched: Math.ceil(uniqueReviews.length / 10) || 1,
       reviews: uniqueReviews,
       raw_response: {

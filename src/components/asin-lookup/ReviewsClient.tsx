@@ -255,6 +255,88 @@ export function ReviewsClient({
     URL.revokeObjectURL(url)
   }, [results])
 
+  // Load full review data from history item into main results view
+  const loadFullResults = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/asin-reviews/${id}`)
+      const json = await res.json()
+      if (res.ok && json.data) {
+        const d = json.data as LbAsinReview
+        const raw = d.raw_response as Record<string, unknown> | null
+        const reviewsData: ReviewsData = {
+          id: d.id,
+          asin: d.asin,
+          marketplace: d.marketplace_domain,
+          total_reviews: d.total_reviews,
+          overall_rating: d.overall_rating,
+          rating_stars_distribution: d.rating_stars_distribution,
+          total_pages_available: d.total_pages_fetched,
+          reviews_fetched: d.reviews?.length || 0,
+          reviews: (d.reviews || []) as ReviewItem[],
+          sort_by: d.sort_by,
+          source: raw?.provider === 'apify' ? 'apify' : undefined,
+          apify: raw?.provider === 'apify'
+            ? {
+                customersSay: (raw?.customersSay as string) || null,
+                reviewAspects: (raw?.reviewAspects as ApifyExtras['reviewAspects']) || null,
+                computeUnits: (raw?.computeUnits as number) || 0,
+                durationMs: (raw?.durationMs as number) || 0,
+                runId: (raw?.runId as string) || '',
+              }
+            : undefined,
+        }
+        setResults(reviewsData)
+        setRatingFilter(null)
+        setExpandedReviewId(null)
+        setExpandedReviewData(null)
+        // Scroll to top of results
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }
+    } catch {
+      toast.error('Failed to load reviews')
+    }
+  }, [])
+
+  // Export reviews from a history item as CSV
+  const handleExportHistoryReviews = useCallback(
+    (data: ReviewsData) => {
+      if (!data?.reviews?.length) return
+
+      const escape = (val: string) =>
+        `"${(val || '').replace(/"/g, '""')}"`
+
+      const rows = [
+        'ASIN,Rating,Title,Content,Author,Verified,Helpful Count,Date,Variant,Images',
+      ]
+
+      for (const rev of data.reviews) {
+        rows.push(
+          [
+            data.asin,
+            rev.rating || 0,
+            escape(rev.title || ''),
+            escape(rev.content || ''),
+            escape(rev.author || ''),
+            rev.is_verified ? 'Yes' : 'No',
+            rev.helpful_count || 0,
+            escape(rev.timestamp || ''),
+            escape(rev.product_attributes || ''),
+            rev.images?.length || 0,
+          ].join(',')
+        )
+      }
+
+      const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `reviews-${data.asin}-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    },
+    []
+  )
+
   const refreshHistory = useCallback(async () => {
     try {
       const params = new URLSearchParams()
@@ -290,6 +372,8 @@ export function ReviewsClient({
             toast.success(
               `Reviews fetched for ${data.asin} (${data.reviews?.length || 0} reviews)`
             )
+            // Auto-load completed results into main view
+            loadFullResults(id)
           } else if (data.status === 'failed') {
             stillFetching.delete(id)
             changed = true
@@ -311,7 +395,7 @@ export function ReviewsClient({
         stopPolling()
       }
     }, 3000)
-  }, [fetchingIds, stopPolling, refreshHistory])
+  }, [fetchingIds, stopPolling, refreshHistory, loadFullResults])
 
   // Keep the ref in sync
   startPollingRef.current = startPolling
@@ -816,19 +900,59 @@ export function ReviewsClient({
 
                   {/* Expanded reviews */}
                   {isExpanded && expandedReviewData && (
-                    <div className="border-t bg-muted/20 p-4 space-y-3 max-h-[500px] overflow-y-auto">
-                      <p className="text-xs text-muted-foreground">
-                        {expandedReviewData.reviews_fetched} reviews loaded
-                      </p>
-                      {expandedReviewData.reviews.slice(0, 20).map((review, i) => (
-                        <ReviewCard key={review.id || i} review={review} compact />
-                      ))}
-                      {expandedReviewData.reviews.length > 20 && (
-                        <p className="text-xs text-muted-foreground text-center py-2">
-                          +{expandedReviewData.reviews.length - 20} more reviews
-                          (click ASIN above to view all)
+                    <div className="border-t bg-muted/20 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">
+                          {expandedReviewData.reviews_fetched} reviews loaded
                         </p>
-                      )}
+                        <div className="flex gap-2">
+                          {expandedReviewData.reviews.length > 0 && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1 h-7 text-xs"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleExportHistoryReviews(expandedReviewData)
+                              }}
+                            >
+                              <Download className="h-3 w-3" />
+                              Export CSV
+                            </Button>
+                          )}
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="gap-1 h-7 text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              loadFullResults(r.id!)
+                            }}
+                          >
+                            View All {expandedReviewData.reviews_fetched} Reviews
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="max-h-[500px] overflow-y-auto space-y-3">
+                        {expandedReviewData.reviews.slice(0, 20).map((review, i) => (
+                          <ReviewCard key={review.id || i} review={review} compact />
+                        ))}
+                        {expandedReviewData.reviews.length > 20 && (
+                          <div className="text-center py-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-xs text-primary"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                loadFullResults(r.id!)
+                              }}
+                            >
+                              +{expandedReviewData.reviews.length - 20} more — click to view all
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
