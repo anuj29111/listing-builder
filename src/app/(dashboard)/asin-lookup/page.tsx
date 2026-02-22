@@ -32,7 +32,7 @@ export default async function AsinLookupPage() {
     supabase
       .from('lb_asin_reviews')
       .select(
-        'id, asin, country_id, marketplace_domain, total_reviews, overall_rating, total_pages_fetched, sort_by, tags, notes, created_at, updated_at'
+        'id, asin, country_id, marketplace_domain, total_reviews, overall_rating, total_pages_fetched, sort_by, status, error_message, tags, notes, created_at, updated_at'
       )
       .order('updated_at', { ascending: false })
       .limit(50),

@@ -125,6 +125,7 @@ export function ReviewsClient({
   } | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [resultsCollapsed, setResultsCollapsed] = useState(false)
+  const [expandedPage, setExpandedPage] = useState(1)
 
   const selectedCountry = countries.find((c) => c.id === countryId)
   const fetchAllTags = useCollectionStore((s) => s.fetchAllTags)
@@ -457,6 +458,12 @@ export function ReviewsClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Refresh history on mount to replace stale server data after navigation
+  useEffect(() => {
+    refreshHistory()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Start/restart polling when fetchingIds changes
   useEffect(() => {
     if (fetchingIds.size > 0 && !pollRef.current) {
@@ -489,6 +496,7 @@ export function ReviewsClient({
 
     setExpandedReviewId(itemId)
     setExpandedReviewData(null)
+    setExpandedPage(1)
     setLoadingHistoryId(itemId)
 
     try {
@@ -528,6 +536,13 @@ export function ReviewsClient({
   const paginatedReviews = displayedReviews.slice(
     (currentPage - 1) * REVIEWS_PER_PAGE,
     currentPage * REVIEWS_PER_PAGE
+  )
+
+  const expandedReviews = expandedReviewData?.reviews || []
+  const expandedTotalPages = Math.ceil(expandedReviews.length / REVIEWS_PER_PAGE)
+  const expandedPaginatedReviews = expandedReviews.slice(
+    (expandedPage - 1) * REVIEWS_PER_PAGE,
+    expandedPage * REVIEWS_PER_PAGE
   )
 
   // Reset page when results or filter changes
@@ -1105,26 +1120,49 @@ export function ReviewsClient({
                           </Button>
                         </div>
                       </div>
-                      <div className="max-h-[500px] overflow-y-auto space-y-3">
-                        {expandedReviewData.reviews.slice(0, 20).map((review, i) => (
-                          <ReviewCard key={review.id || i} review={review} compact />
+                      <div className="space-y-3">
+                        {expandedPaginatedReviews.map((review, i) => (
+                          <ReviewCard key={review.id || i} review={review} />
                         ))}
-                        {expandedReviewData.reviews.length > 20 && (
-                          <div className="text-center py-2">
+                      </div>
+                      {expandedTotalPages > 1 && (
+                        <div className="flex items-center justify-between mt-4 px-1">
+                          <p className="text-xs text-muted-foreground">
+                            Showing {((expandedPage - 1) * REVIEWS_PER_PAGE) + 1}&ndash;{Math.min(expandedPage * REVIEWS_PER_PAGE, expandedReviews.length)} of {expandedReviews.length} reviews
+                          </p>
+                          <div className="flex items-center gap-2">
                             <Button
-                              variant="ghost"
+                              variant="outline"
                               size="sm"
-                              className="text-xs text-primary"
+                              disabled={expandedPage <= 1}
                               onClick={(e) => {
                                 e.stopPropagation()
-                                loadFullResults(r.id!)
+                                setExpandedPage((p) => Math.max(1, p - 1))
                               }}
+                              className="h-8 gap-1"
                             >
-                              +{expandedReviewData.reviews.length - 20} more — click to view all
+                              <ChevronLeft className="h-3.5 w-3.5" />
+                              Previous
+                            </Button>
+                            <span className="text-sm text-muted-foreground">
+                              Page {expandedPage} of {expandedTotalPages}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={expandedPage >= expandedTotalPages}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setExpandedPage((p) => Math.min(expandedTotalPages, p + 1))
+                              }}
+                              className="h-8 gap-1"
+                            >
+                              Next
+                              <ChevronRight className="h-3.5 w-3.5" />
                             </Button>
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
