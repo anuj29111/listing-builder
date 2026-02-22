@@ -5,7 +5,7 @@
 const DEFAULTS = {
   apiUrl: 'http://localhost:3000',
   apiKey: '',
-  questionCount: 20,
+  maxQuestions: 200,
   delayBetweenClicks: 3000,
   delayBetweenProducts: 5000,
   selectors: {
@@ -28,7 +28,7 @@ const DEFAULTS = {
 const fields = {
   apiUrl: document.getElementById('apiUrl'),
   apiKey: document.getElementById('apiKey'),
-  questionCount: document.getElementById('questionCount'),
+  maxQuestions: document.getElementById('maxQuestions'),
   delayClicks: document.getElementById('delayClicks'),
   delayProducts: document.getElementById('delayProducts'),
   selRufusBtn: document.getElementById('selRufusBtn'),
@@ -42,7 +42,7 @@ const fields = {
 function populateFields(settings) {
   fields.apiUrl.value = settings.apiUrl || DEFAULTS.apiUrl
   fields.apiKey.value = settings.apiKey || ''
-  fields.questionCount.value = settings.questionCount || DEFAULTS.questionCount
+  fields.maxQuestions.value = settings.maxQuestions || DEFAULTS.maxQuestions
   fields.delayClicks.value = settings.delayBetweenClicks || DEFAULTS.delayBetweenClicks
   fields.delayProducts.value = settings.delayBetweenProducts || DEFAULTS.delayBetweenProducts
 
@@ -59,7 +59,7 @@ function readFields() {
   return {
     apiUrl: fields.apiUrl.value.trim().replace(/\/$/, ''),
     apiKey: fields.apiKey.value.trim(),
-    questionCount: parseInt(fields.questionCount.value, 10) || DEFAULTS.questionCount,
+    maxQuestions: parseInt(fields.maxQuestions.value, 10) || DEFAULTS.maxQuestions,
     delayBetweenClicks: parseInt(fields.delayClicks.value, 10) || DEFAULTS.delayBetweenClicks,
     delayBetweenProducts: parseInt(fields.delayProducts.value, 10) || DEFAULTS.delayBetweenProducts,
     selectors: {

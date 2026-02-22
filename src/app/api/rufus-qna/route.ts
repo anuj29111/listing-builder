@@ -30,8 +30,6 @@ async function resolveCountry(
   marketplace: string
 ): Promise<{ id: string; amazon_domain: string } | null> {
   const adminClient = createAdminClient()
-
-  // marketplace comes as "amazon.com", "amazon.co.uk", etc.
   const { data } = await adminClient
     .from('lb_countries')
     .select('id, amazon_domain')
@@ -39,6 +37,15 @@ async function resolveCountry(
     .single()
 
   return data
+}
+
+interface QAPair {
+  question: string
+  answer: string
+  votes?: number
+  source?: string
+  author?: string
+  date?: string
 }
 
 interface RufusQAPayload {
@@ -51,15 +58,26 @@ interface RufusQAPayload {
 }
 
 /**
+ * Build a dedup key from a Q&A pair.
+ * Only EXACT (question + answer) matches are considered duplicates.
+ * Same question with a different Rufus answer → KEPT (captures variation).
+ */
+function dedupKey(q: string, a: string): string {
+  return `${q.toLowerCase().trim()}|||${a.toLowerCase().trim()}`
+}
+
+/**
  * POST /api/rufus-qna
  *
  * Receives extracted Rufus Q&A data from the Chrome extension.
  * Authenticates via API key stored in lb_admin_settings.
  * Stores Q&A in lb_asin_questions (upserts on asin+country_id).
+ *
+ * Dedup rule: Only exact (question + answer) pairs are duplicates.
+ * Same question with a different answer is KEPT — Rufus may answer differently.
  */
 export async function POST(request: Request) {
   try {
-    // Authenticate
     const isValid = await validateApiKey(request)
     if (!isValid) {
       return NextResponse.json(
@@ -71,7 +89,6 @@ export async function POST(request: Request) {
     const body = (await request.json()) as RufusQAPayload
     const { asin, marketplace, questions } = body
 
-    // Validate input
     if (!asin || !/^[A-Z0-9]{10}$/.test(asin.trim().toUpperCase())) {
       return NextResponse.json(
         { error: 'Invalid ASIN format (must be 10 alphanumeric characters)' },
@@ -93,7 +110,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Resolve country
     const country = await resolveCountry(marketplace)
     if (!country) {
       return NextResponse.json(
@@ -104,18 +120,17 @@ export async function POST(request: Request) {
 
     const cleanedAsin = asin.trim().toUpperCase()
 
-    // Format questions to match OxylabsQnAItem shape
-    const formattedQuestions = questions.map((q) => ({
+    // Format incoming Rufus questions
+    const incomingQuestions: QAPair[] = questions.map((q) => ({
       question: q.question || '',
       answer: q.answer || '',
       votes: 0,
-      source: 'rufus' as const,
+      source: 'rufus',
     }))
 
-    // Upsert into lb_asin_questions
     const adminClient = createAdminClient()
 
-    // Check for existing record — if it has Oxylabs data, merge rather than replace
+    // Fetch existing record (may have Oxylabs Q&A, previous Rufus Q&A, or both)
     const { data: existing } = await adminClient
       .from('lb_asin_questions')
       .select('id, questions')
@@ -123,19 +138,38 @@ export async function POST(request: Request) {
       .eq('country_id', country.id)
       .single()
 
-    let mergedQuestions = formattedQuestions
+    // Merge: keep ALL existing Q&A, then append only truly new pairs
+    // A pair is "new" only if no existing pair has the EXACT same question AND answer
+    let mergedQuestions: QAPair[]
+    let newQuestionsAdded: number
+
     if (existing?.questions && Array.isArray(existing.questions)) {
-      // Keep existing Oxylabs questions, append Rufus questions
-      // De-duplicate by question text (case-insensitive)
-      const existingSet = new Set(
-        (existing.questions as Array<{ question: string }>).map((q) =>
-          q.question.toLowerCase().trim()
-        )
+      const existingPairs = existing.questions as QAPair[]
+
+      // Build set of existing (question+answer) keys
+      const existingKeys = new Set(
+        existingPairs.map((q) => dedupKey(q.question, q.answer))
       )
-      const newOnes = formattedQuestions.filter(
-        (q) => !existingSet.has(q.question.toLowerCase().trim())
+
+      // Only add pairs that don't exist yet (exact Q+A match)
+      const newPairs = incomingQuestions.filter(
+        (q) => !existingKeys.has(dedupKey(q.question, q.answer))
       )
-      mergedQuestions = [...(existing.questions as typeof formattedQuestions), ...newOnes]
+
+      mergedQuestions = [...existingPairs, ...newPairs]
+      newQuestionsAdded = newPairs.length
+    } else {
+      // No existing data — deduplicate within the incoming batch itself
+      const seen = new Set<string>()
+      mergedQuestions = []
+      for (const q of incomingQuestions) {
+        const key = dedupKey(q.question, q.answer)
+        if (!seen.has(key)) {
+          seen.add(key)
+          mergedQuestions.push(q)
+        }
+      }
+      newQuestionsAdded = mergedQuestions.length
     }
 
     const { data: saved, error: saveErr } = await adminClient
@@ -149,7 +183,10 @@ export async function POST(request: Request) {
           questions: mergedQuestions,
           raw_response: {
             source: 'rufus_extension',
-            rufus_count: formattedQuestions.length,
+            last_batch_size: incomingQuestions.length,
+            new_added: newQuestionsAdded,
+            total_rufus: mergedQuestions.filter((q) => q.source === 'rufus').length,
+            total_oxylabs: mergedQuestions.filter((q) => q.source !== 'rufus').length,
             extracted_at: new Date().toISOString(),
           },
           updated_at: new Date().toISOString(),
@@ -172,8 +209,9 @@ export async function POST(request: Request) {
       id: saved?.id,
       asin: cleanedAsin,
       country_id: country.id,
-      questions_stored: mergedQuestions.length,
-      rufus_questions_added: formattedQuestions.length,
+      questions_total: mergedQuestions.length,
+      new_questions_added: newQuestionsAdded,
+      duplicates_skipped: incomingQuestions.length - newQuestionsAdded,
     })
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Internal server error'
@@ -185,8 +223,8 @@ export async function POST(request: Request) {
 /**
  * GET /api/rufus-qna?asin=XXX&marketplace=amazon.com
  *
- * Retrieve stored Rufus Q&A for an ASIN.
- * Also authenticated via API key (for extension use).
+ * Retrieve stored Q&A for an ASIN.
+ * Optional: ?rufus_only=true to filter to only Rufus-sourced questions.
  */
 export async function GET(request: Request) {
   try {
@@ -229,13 +267,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ questions: [], total: 0 })
     }
 
-    // Filter to only rufus-sourced questions if requested
     const rufusOnly = searchParams.get('rufus_only') === 'true'
     let questions = data.questions || []
     if (rufusOnly && Array.isArray(questions)) {
-      questions = (questions as Array<{ source?: string }>).filter(
-        (q) => q.source === 'rufus'
-      )
+      questions = (questions as QAPair[]).filter((q) => q.source === 'rufus')
     }
 
     return NextResponse.json({

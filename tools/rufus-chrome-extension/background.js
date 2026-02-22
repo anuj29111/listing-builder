@@ -3,10 +3,16 @@
  *
  * Manages the ASIN queue, orchestrates tab navigation, and handles
  * communication between the popup, content scripts, and the platform API.
+ *
+ * KEY DESIGN DECISIONS:
+ * - Sequential only — one product at a time (Rufus chat state would mix in parallel)
+ * - Full page refresh between products to reset Rufus chat state
+ * - Runs until Rufus stops producing new questions (no fixed count)
+ * - De-duplication happens both client-side (content.js) and server-side (API)
  */
 
 // ─── State ───────────────────────────────────────────────────────
-let queue = [] // Array of { asin, marketplace, status, questions, error }
+let queue = [] // Array of { asin, marketplace, status, questions, error, ... }
 let isRunning = false
 let currentIndex = -1
 let activeTabId = null
@@ -15,21 +21,15 @@ let activeTabId = null
 const DEFAULT_SETTINGS = {
   apiUrl: 'http://localhost:3000',
   apiKey: '',
-  questionCount: 20,
-  delayBetweenClicks: 3000, // ms between clicking each question
-  delayBetweenProducts: 5000, // ms between navigating to next product
+  maxQuestions: 200, // Safety cap per product
+  delayBetweenClicks: 3000,
+  delayBetweenProducts: 5000,
   selectors: {
-    // Rufus chat trigger button
     rufusButton: '[data-action="rufus-open"], #rufus-entry-point, .rufus-launcher, [aria-label*="Rufus"], [data-testid*="rufus"]',
-    // Suggested question chips inside the Rufus panel
     questionChip: '.rufus-suggestion, [data-testid="rufus-suggestion"], .rufus-chip, [role="button"][data-suggestion]',
-    // Chat message container
     chatContainer: '.rufus-chat-container, [data-testid="rufus-messages"], .rufus-messages',
-    // Individual question bubble (sent by user / clicked suggestion)
     questionBubble: '.rufus-message-user, [data-testid="rufus-user-message"], .rufus-question',
-    // Individual answer bubble (Rufus response)
     answerBubble: '.rufus-message-bot, [data-testid="rufus-bot-message"], .rufus-answer',
-    // Loading indicator (wait for this to disappear)
     loadingIndicator: '.rufus-loading, [data-testid="rufus-loading"], .rufus-typing',
   },
 }
@@ -75,6 +75,7 @@ async function processNext() {
 
   const item = queue[currentIndex]
   item.status = 'processing'
+  item.progress = 'Loading page...'
   broadcastState()
 
   const settings = await getSettings()
@@ -82,12 +83,16 @@ async function processNext() {
   const productUrl = `${baseUrl}/dp/${item.asin}`
 
   try {
-    // Open the product page in a new tab (or reuse existing)
+    // ── Step 1: Navigate to product page ──
+    // Always do a fresh navigation to ensure clean Rufus state
     if (activeTabId) {
       try {
+        // Refresh: navigate to a blank page first, then to the product
+        // This ensures Rufus chat is fully reset between products
+        await chrome.tabs.update(activeTabId, { url: 'about:blank' })
+        await sleep(500)
         await chrome.tabs.update(activeTabId, { url: productUrl })
       } catch {
-        // Tab was closed — create new one
         const tab = await chrome.tabs.create({ url: productUrl, active: true })
         activeTabId = tab.id
       }
@@ -98,14 +103,18 @@ async function processNext() {
 
     // Wait for page to fully load
     await waitForTabLoad(activeTabId)
-    // Extra delay for dynamic content
-    await sleep(3000)
+    // Extra delay for dynamic content (Rufus widget, scripts, etc.)
+    await sleep(4000)
 
-    // Send extraction command to content script
+    item.progress = 'Extracting Q&A...'
+    broadcastState()
+
+    // ── Step 2: Send extraction command to content script ──
+    // Content script will click questions until exhausted
     const response = await chrome.tabs.sendMessage(activeTabId, {
       type: 'EXTRACT_RUFUS_QA',
       settings: {
-        questionCount: settings.questionCount,
+        maxQuestions: settings.maxQuestions,
         delayBetweenClicks: settings.delayBetweenClicks,
         selectors: settings.selectors,
       },
@@ -115,16 +124,30 @@ async function processNext() {
       item.status = 'done'
       item.questions = response.questions
       item.questionCount = response.questions.length
+      item.exhausted = response.exhausted
+      item.progress = null
 
-      // Send to platform API
+      // ── Step 3: Send to platform API ──
       if (settings.apiKey) {
+        item.progress = 'Sending to platform...'
+        broadcastState()
         try {
-          await sendToPlatform(item, settings)
+          const apiResult = await sendToPlatform(item, settings)
           item.apiSent = true
+          item.apiNewCount = apiResult.new_questions_added || 0
+          item.progress = null
         } catch (apiErr) {
           item.apiError = apiErr.message
+          item.progress = null
         }
       }
+    } else if (response && response.loginRequired) {
+      // Amazon login required — stop the entire queue
+      item.status = 'error'
+      item.error = response.error
+      isRunning = false
+      broadcastState()
+      return // Don't process more — user needs to log in
     } else {
       item.status = 'error'
       item.error = response?.error || 'Extraction failed'
@@ -134,14 +157,20 @@ async function processNext() {
     item.error = err.message
   }
 
+  item.progress = null
   broadcastState()
 
-  // Delay before next product
+  // Delay before next product — give Amazon a breather
   if (isRunning && currentIndex < queue.length - 1) {
+    const nextItem = queue[currentIndex + 1]
+    if (nextItem) {
+      nextItem.progress = `Waiting ${Math.round(settings.delayBetweenProducts / 1000)}s...`
+      broadcastState()
+    }
     await sleep(settings.delayBetweenProducts)
   }
 
-  // Process next
+  // Process next (sequential — never parallel)
   processNext()
 }
 
@@ -200,17 +229,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'ADD_TO_QUEUE': {
       const { asins, marketplace } = message.data
+      let added = 0
       for (const asin of asins) {
         const cleaned = asin.trim().toUpperCase()
         if (/^[A-Z0-9]{10}$/.test(cleaned)) {
-          // Avoid duplicates
           if (!queue.some((q) => q.asin === cleaned && q.marketplace === marketplace)) {
             queue.push({ asin: cleaned, marketplace, status: 'pending', questions: [] })
+            added++
           }
         }
       }
       broadcastState()
-      sendResponse({ success: true, queueLength: queue.length })
+      sendResponse({ success: true, added, queueLength: queue.length })
       return true
     }
 
@@ -226,6 +256,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'STOP_QUEUE':
       isRunning = false
+      // Mark the currently processing item as stopped
+      const processing = queue.find((q) => q.status === 'processing')
+      if (processing) {
+        processing.status = 'pending' // Reset to pending so it can be retried
+        processing.progress = null
+      }
       broadcastState()
       sendResponse({ success: true })
       return true
@@ -238,8 +274,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true })
       return true
 
+    case 'CLEAR_COMPLETED':
+      queue = queue.filter((q) => q.status !== 'done' && q.status !== 'error')
+      broadcastState()
+      sendResponse({ success: true })
+      return true
+
     case 'REMOVE_FROM_QUEUE': {
-      queue = queue.filter((q) => q.asin !== message.data.asin)
+      queue = queue.filter((q) => !(q.asin === message.data.asin && q.marketplace === message.data.marketplace))
+      broadcastState()
+      sendResponse({ success: true })
+      return true
+    }
+
+    case 'RETRY_FAILED': {
+      for (const item of queue) {
+        if (item.status === 'error') {
+          item.status = 'pending'
+          item.error = null
+          item.questions = []
+        }
+      }
       broadcastState()
       sendResponse({ success: true })
       return true
@@ -251,8 +306,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true
     }
 
-    case 'EXTRACTION_COMPLETE': {
-      // Content script reports back directly — handled via sendMessage response
+    case 'EXTRACTION_PROGRESS': {
+      // Content script reporting progress
+      const current = queue.find((q) => q.status === 'processing')
+      if (current && message.data) {
+        current.progress = `Q${message.data.questionsClicked}: ${message.data.lastQuestion}`
+      }
+      broadcastState()
       return true
     }
 

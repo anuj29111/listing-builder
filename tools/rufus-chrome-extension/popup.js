@@ -2,39 +2,51 @@
  * Rufus Q&A Extractor — Popup Script
  *
  * Manages the popup UI: adding ASINs, controlling the queue, displaying progress.
+ * Products run one at a time — no parallel extraction.
  */
 
 // ─── Elements ────────────────────────────────────────────────────
 const marketplace = document.getElementById('marketplace')
-const questionCount = document.getElementById('questionCount')
 const asinInput = document.getElementById('asinInput')
 const addBtn = document.getElementById('addBtn')
 const startBtn = document.getElementById('startBtn')
 const stopBtn = document.getElementById('stopBtn')
+const retryBtn = document.getElementById('retryBtn')
 const clearBtn = document.getElementById('clearBtn')
 const exportBtn = document.getElementById('exportBtn')
 const statusBar = document.getElementById('statusBar')
 const statusText = document.getElementById('statusText')
 const progressText = document.getElementById('progressText')
+const loginWarning = document.getElementById('loginWarning')
 const queueList = document.getElementById('queueList')
 const queueCount = document.getElementById('queueCount')
 const settingsBtn = document.getElementById('settingsBtn')
 
 // ─── Load saved preferences ─────────────────────────────────────
-chrome.storage.sync.get(['lastMarketplace', 'lastQuestionCount'], (result) => {
+chrome.storage.sync.get(['lastMarketplace'], (result) => {
   if (result.lastMarketplace) marketplace.value = result.lastMarketplace
-  if (result.lastQuestionCount) questionCount.value = result.lastQuestionCount
 })
 
 // ─── State Rendering ─────────────────────────────────────────────
 
 function renderQueue(state) {
-  const { queue, isRunning, currentIndex } = state
+  const { queue, isRunning } = state
   queueCount.textContent = `(${queue.length})`
 
+  const hasPending = queue.some((q) => q.status === 'pending')
+  const hasFailed = queue.some((q) => q.status === 'error')
+  const hasCompleted = queue.some((q) => q.status === 'done' || q.status === 'error')
+
   // Update controls
-  startBtn.disabled = isRunning || !queue.some((q) => q.status === 'pending')
+  startBtn.disabled = isRunning || !hasPending
   stopBtn.disabled = !isRunning
+  retryBtn.disabled = isRunning || !hasFailed
+  exportBtn.disabled = !queue.some((q) => q.status === 'done' && q.questions?.length)
+  clearBtn.disabled = isRunning || !hasCompleted
+
+  // Login warning
+  const loginNeeded = queue.some((q) => q.status === 'error' && q.error?.includes('Not logged into Amazon'))
+  loginWarning.classList.toggle('hidden', !loginNeeded)
 
   // Status bar
   if (isRunning) {
@@ -42,15 +54,20 @@ function renderQueue(state) {
     statusBar.classList.add('running')
     const done = queue.filter((q) => q.status === 'done').length
     const errors = queue.filter((q) => q.status === 'error').length
-    statusText.textContent = `Processing ASIN ${done + errors + 1} of ${queue.length}...`
-    progressText.textContent = `${done} done, ${errors} errors`
+    const total = queue.length
+    statusText.textContent = `Processing ${done + errors + 1} of ${total} (one at a time)...`
+    progressText.textContent = `${done} done, ${errors} err`
   } else if (queue.length > 0) {
     statusBar.classList.remove('hidden', 'running')
     const done = queue.filter((q) => q.status === 'done').length
     const errors = queue.filter((q) => q.status === 'error').length
     const totalQA = queue.reduce((sum, q) => sum + (q.questions?.length || 0), 0)
-    statusText.textContent = done > 0 ? `Complete: ${totalQA} Q&A pairs extracted` : 'Ready'
-    progressText.textContent = `${done} done, ${errors} errors`
+    if (done > 0) {
+      statusText.textContent = `Done: ${totalQA} unique Q&A pairs`
+    } else {
+      statusText.textContent = 'Ready'
+    }
+    progressText.textContent = `${done} done, ${errors} err`
   } else {
     statusBar.classList.add('hidden')
   }
@@ -61,41 +78,72 @@ function renderQueue(state) {
     const div = document.createElement('div')
     div.className = 'queue-item'
 
+    // ASIN
     const asinSpan = document.createElement('span')
     asinSpan.className = 'asin'
     asinSpan.textContent = item.asin
-
-    const badge = document.createElement('span')
-    badge.className = `badge badge-${item.status}`
-    badge.textContent = item.status === 'processing' ? 'running' : item.status
-
     div.appendChild(asinSpan)
 
+    // Progress text (while processing)
+    if (item.progress) {
+      const progSpan = document.createElement('span')
+      progSpan.className = 'progress-text'
+      progSpan.textContent = item.progress
+      progSpan.title = item.progress
+      div.appendChild(progSpan)
+    }
+
+    // Q&A count (when done)
     if (item.status === 'done' && item.questions?.length) {
       const qaSpan = document.createElement('span')
       qaSpan.className = 'qa-count'
       qaSpan.textContent = `${item.questions.length} Q&A`
+      if (item.exhausted) qaSpan.title = 'All questions exhausted'
       div.appendChild(qaSpan)
+
+      // API sent indicator
+      if (item.apiSent) {
+        const apiSpan = document.createElement('span')
+        apiSpan.className = 'api-badge'
+        apiSpan.textContent = item.apiNewCount > 0 ? `+${item.apiNewCount} new` : 'sent'
+        apiSpan.title = 'Sent to Listing Builder'
+        div.appendChild(apiSpan)
+      }
     }
 
+    // Error text
     if (item.status === 'error' && item.error) {
       const errSpan = document.createElement('span')
-      errSpan.className = 'qa-count'
+      errSpan.className = 'progress-text'
       errSpan.style.color = '#dc2626'
-      errSpan.textContent = item.error.substring(0, 30)
+      errSpan.textContent = item.error.substring(0, 50)
       errSpan.title = item.error
       div.appendChild(errSpan)
     }
 
+    // Status badge
+    const badge = document.createElement('span')
+    badge.className = `badge badge-${item.status}`
+    const badgeLabels = {
+      pending: 'pending',
+      processing: 'running',
+      done: item.exhausted ? 'exhausted' : 'done',
+      error: 'error',
+    }
+    badge.textContent = badgeLabels[item.status] || item.status
     div.appendChild(badge)
 
+    // Remove button (only for pending items)
     if (item.status === 'pending') {
       const removeBtn = document.createElement('button')
       removeBtn.className = 'remove-btn'
       removeBtn.textContent = '\u00d7'
       removeBtn.title = 'Remove'
       removeBtn.addEventListener('click', () => {
-        chrome.runtime.sendMessage({ type: 'REMOVE_FROM_QUEUE', data: { asin: item.asin } })
+        chrome.runtime.sendMessage({
+          type: 'REMOVE_FROM_QUEUE',
+          data: { asin: item.asin, marketplace: item.marketplace },
+        })
       })
       div.appendChild(removeBtn)
     }
@@ -127,25 +175,14 @@ addBtn.addEventListener('click', () => {
 
   if (asins.length === 0) return
 
-  // Save preferences
-  chrome.storage.sync.set({
-    lastMarketplace: marketplace.value,
-    lastQuestionCount: parseInt(questionCount.value, 10),
-  })
-
-  // Update question count in settings
-  chrome.storage.sync.get('settings', (result) => {
-    const settings = result.settings || {}
-    settings.questionCount = parseInt(questionCount.value, 10)
-    chrome.storage.sync.set({ settings })
-  })
+  // Save marketplace preference
+  chrome.storage.sync.set({ lastMarketplace: marketplace.value })
 
   chrome.runtime.sendMessage(
     { type: 'ADD_TO_QUEUE', data: { asins, marketplace: marketplace.value } },
     (response) => {
       if (response?.success) {
         asinInput.value = ''
-        // Refresh state
         chrome.runtime.sendMessage({ type: 'GET_STATE' }, renderQueue)
       }
     }
@@ -160,10 +197,12 @@ stopBtn.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'STOP_QUEUE' })
 })
 
+retryBtn.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'RETRY_FAILED' })
+})
+
 clearBtn.addEventListener('click', () => {
-  if (confirm('Clear all items from the queue?')) {
-    chrome.runtime.sendMessage({ type: 'CLEAR_QUEUE' })
-  }
+  chrome.runtime.sendMessage({ type: 'CLEAR_COMPLETED' })
 })
 
 exportBtn.addEventListener('click', () => {
@@ -173,12 +212,13 @@ exportBtn.addEventListener('click', () => {
       return
     }
 
-    // Build CSV
-    const rows = [['ASIN', 'Question', 'Answer']]
+    // Build CSV with proper escaping
+    const rows = [['ASIN', 'Marketplace', 'Question', 'Answer']]
     for (const item of response.data) {
       for (const qa of item.questions) {
         rows.push([
           item.asin,
+          item.marketplace,
           `"${(qa.question || '').replace(/"/g, '""')}"`,
           `"${(qa.answer || '').replace(/"/g, '""')}"`,
         ])
@@ -201,9 +241,9 @@ settingsBtn.addEventListener('click', () => {
   chrome.runtime.openOptionsPage()
 })
 
-// Allow Enter key in textarea to not submit
+// Ctrl+Enter in textarea to add
 asinInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey && e.ctrlKey) {
+  if (e.key === 'Enter' && e.ctrlKey) {
     e.preventDefault()
     addBtn.click()
   }
