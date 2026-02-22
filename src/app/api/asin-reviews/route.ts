@@ -55,7 +55,7 @@ export async function POST(request: Request) {
       // 1. Block if already fetching
       const { data: activeFetch } = await supabase
         .from('lb_asin_reviews')
-        .select('id, status')
+        .select('id, status, updated_at')
         .eq('asin', trimmedAsin)
         .eq('country_id', country_id)
         .eq('sort_by', sortBy)
@@ -63,12 +63,24 @@ export async function POST(request: Request) {
         .single()
 
       if (activeFetch) {
-        return NextResponse.json(
-          {
-            error: `Reviews for ${trimmedAsin} are already being fetched (status: ${activeFetch.status}). Please wait for the current fetch to complete.`,
-          },
-          { status: 409 }
-        )
+        const ageMs = Date.now() - new Date(activeFetch.updated_at).getTime()
+        const isStale = ageMs > 30 * 60 * 1000 // 30 minutes
+
+        if (isStale) {
+          // Stale fetch — mark as failed so it can be re-fetched
+          await supabase
+            .from('lb_asin_reviews')
+            .update({ status: 'failed', error_message: 'Fetch timed out (stale)', updated_at: new Date().toISOString() })
+            .eq('id', activeFetch.id)
+          // Fall through to allow re-fetch
+        } else {
+          return NextResponse.json(
+            {
+              error: `Reviews for ${trimmedAsin} are already being fetched (status: ${activeFetch.status}). Please wait for the current fetch to complete.`,
+            },
+            { status: 409 }
+          )
+        }
       }
 
       // 2. Smart refresh: check existing completed data
