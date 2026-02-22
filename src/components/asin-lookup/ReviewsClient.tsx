@@ -111,10 +111,16 @@ export function ReviewsClient({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const lastClickedIdx = useRef<number>(-1)
   const [fetchingIds, setFetchingIds] = useState<Set<string>>(new Set())
+  const fetchingIdsRef = useRef<Set<string>>(new Set())
   const pollRef = useRef<NodeJS.Timeout | null>(null)
 
   const selectedCountry = countries.find((c) => c.id === countryId)
   const fetchAllTags = useCollectionStore((s) => s.fetchAllTags)
+
+  // Keep ref in sync with state (fixes stale closure in polling)
+  useEffect(() => {
+    fetchingIdsRef.current = fetchingIds
+  }, [fetchingIds])
 
   // --- Polling for background Apify fetches ---
 
@@ -153,7 +159,7 @@ export function ReviewsClient({
 
   const clearSelection = () => setSelectedIds(new Set())
 
-  const handleFetch = async () => {
+  const handleFetch = async (forceRefetch = false) => {
     const trimmed = asin.trim().toUpperCase()
     if (!trimmed) {
       toast.error('Enter an ASIN')
@@ -165,7 +171,9 @@ export function ReviewsClient({
     }
 
     setLoading(true)
-    setResults(null)
+    if (forceRefetch) {
+      setResults(null)
+    }
     setRatingFilter(null)
 
     try {
@@ -178,12 +186,27 @@ export function ReviewsClient({
           pages,
           sort_by: sortBy,
           provider,
+          force: forceRefetch,
         }),
       })
       const json = await res.json()
 
       if (!res.ok) {
         throw new Error(json.error || 'Failed to fetch reviews')
+      }
+
+      // Apify: existing completed reviews found — load them
+      if (json.status === 'exists' && json.id) {
+        const fetchedDate = json.updated_at
+          ? new Date(json.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          : 'unknown date'
+        toast.success(
+          `Reviews already fetched on ${fetchedDate} (${json.total_reviews || 0} reviews, ${json.overall_rating || '?'}★). Loading...`,
+          { duration: 4000 }
+        )
+        loadFullResults(json.id)
+        setLoading(false)
+        return
       }
 
       // Apify returns immediately with status='pending' (background mode)
@@ -358,7 +381,13 @@ export function ReviewsClient({
     if (pollRef.current) return
     pollRef.current = setInterval(async () => {
       let changed = false
-      const stillFetching = new Set(fetchingIds)
+      // Use ref to avoid stale closure — fetchingIds state may be stale inside setInterval
+      const stillFetching = new Set(fetchingIdsRef.current)
+
+      if (stillFetching.size === 0) {
+        stopPolling()
+        return
+      }
 
       for (const id of Array.from(stillFetching)) {
         try {
@@ -395,7 +424,7 @@ export function ReviewsClient({
         stopPolling()
       }
     }, 3000)
-  }, [fetchingIds, stopPolling, refreshHistory, loadFullResults])
+  }, [stopPolling, refreshHistory, loadFullResults])
 
   // Keep the ref in sync
   startPollingRef.current = startPolling
@@ -552,7 +581,7 @@ export function ReviewsClient({
             </Select>
           </div>
           <Button
-            onClick={handleFetch}
+            onClick={() => handleFetch()}
             disabled={loading || !asin.trim()}
             className="gap-2"
           >
@@ -600,6 +629,19 @@ export function ReviewsClient({
                       Export CSV ({results.reviews.length})
                     </Button>
                   )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setAsin(results.asin)
+                      handleFetch(true)
+                    }}
+                    disabled={loading}
+                    className="gap-1 ml-1"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+                    Re-fetch
+                  </Button>
                 </h2>
                 <p className="text-xs text-muted-foreground">
                   {results.reviews_fetched} reviews fetched
@@ -1046,17 +1088,15 @@ function ReviewCard({
           {/* Content */}
           {review.content && (
             <div>
-              <p
-                className={`text-sm leading-relaxed ${
-                  contentPreview ? 'line-clamp-3' : ''
-                }`}
-              >
-                {review.content}
+              <p className="text-sm leading-relaxed">
+                {contentPreview
+                  ? review.content.slice(0, 300) + '...'
+                  : review.content}
               </p>
               {review.content.length > 300 && (
                 <button
                   onClick={() => setExpanded(!expanded)}
-                  className="text-xs text-primary mt-1"
+                  className="text-xs text-primary mt-1 hover:underline"
                 >
                   {expanded ? 'Show less' : 'Show more'}
                 </button>

@@ -8,34 +8,34 @@ const ACTOR_ID = 'delicious_zebu~amazon-reviews-scraper-with-advanced-filters'
 
 // --- Output types from the actor ---
 
+// Field names match the ACTUAL actor output (verified via dataset API)
 export interface ApifyReviewItem {
   PageUrl: string
   ProductLink: string
   ASIN: string
   Brand: string
   ProductTitle: string
-  ParentId: string
+  ReviewId: string          // Actor uses ReviewId, NOT ParentId
   ReviewDate: string
   Images: string[]
-  Score: number
+  ReviewScore: string       // Actor returns STRING like "3.0", NOT number
+  RatingTypeTotalReviews?: string  // e.g. "174 matching customer reviews"
   Reviewer: string
-  ReviewerUrl?: string
+  ReviewerProfileUrl?: string
+  ReviewerId?: string
+  ReviewUrl?: string
   ReviewTitle: string
   ReviewContent: string
-  Verified: string
-  Variant: string
+  Verified: boolean | string  // Actor returns boolean True/False
+  Variant: string[] | string  // Actor returns ARRAY like ["Size: Bold Tip - 6mm"]
   VariantASIN: string
-  HelpfulCounts: number
-  TotalRating?: number
-  TotalReviewCount?: number
-  RatingDistribution?: Record<string, string>
+  HelpfulCounts: string     // Actor returns STRING like "1 person found this helpful"
   CustomersSay?: string
   ReviewAspects?: Array<{
-    aspect: string
-    positive: number
-    negative: number
-    mixed?: number
-    total?: number
+    aspect_name: string     // Actor uses "aspect_name", NOT "aspect"
+    positiv: string         // Actor uses "positiv" (typo), returns STRING
+    negativ: string         // Actor uses "negativ" (typo), returns STRING
+    'aspect-summary'?: string
   }>
 }
 
@@ -278,34 +278,47 @@ export function normalizeApifyReview(review: ApifyReviewItem): {
   product_attributes: string | null
   images: string[]
 } {
-  // Try to extract Amazon review ID from PageUrl
-  // e.g., https://www.amazon.com/gp/customer-reviews/R3ABCXYZ123/...
-  let reviewId = review.ParentId || ''
+  // Actor uses ReviewId directly (e.g., "R3SQRYI1MLDO6G")
+  let reviewId = review.ReviewId || ''
   if (!reviewId && review.PageUrl) {
     const match = review.PageUrl.match(/customer-reviews\/([A-Z0-9]+)/i)
     if (match) reviewId = match[1]
   }
   if (!reviewId) {
-    // Generate a deterministic ID from review content
     reviewId = `apify-${hashCode(`${review.Reviewer}-${review.ReviewTitle}-${review.ReviewDate}`)}`
   }
+
+  // ReviewScore is a STRING like "3.0" or "5.0" — parse it
+  const parsedScore = parseFloat(String(review.ReviewScore))
+  const rating = parsedScore >= 1 && parsedScore <= 5
+    ? Math.round(parsedScore)
+    : parseRatingFromTitle(review.ReviewTitle)
+
+  // HelpfulCounts is a STRING like "1 person found this helpful" — parseInt extracts leading number
+  const helpfulCount = parseInt(String(review.HelpfulCounts), 10) || 0
+
+  // Variant is an ARRAY like ["Size: Bold Tip - 6mm"] — join into string
+  const variant = Array.isArray(review.Variant)
+    ? review.Variant.join(', ')
+    : (review.Variant || null)
+
+  // Verified is boolean True/False or string "True"/"Verified Purchase"
+  const isVerified =
+    review.Verified === true ||
+    String(review.Verified).toLowerCase() === 'true' ||
+    review.Verified === 'Verified Purchase' ||
+    review.Verified === 'Yes'
 
   return {
     id: reviewId,
     title: review.ReviewTitle || '',
     author: review.Reviewer || '',
-    rating:
-      review.Score >= 1 && review.Score <= 5
-        ? review.Score
-        : parseRatingFromTitle(review.ReviewTitle),
+    rating,
     content: review.ReviewContent || '',
     timestamp: review.ReviewDate || '',
-    is_verified:
-      review.Verified === 'Verified Purchase' ||
-      review.Verified === 'true' ||
-      review.Verified === 'Yes',
-    helpful_count: review.HelpfulCounts || 0,
-    product_attributes: review.Variant || null,
+    is_verified: isVerified,
+    helpful_count: helpfulCount,
+    product_attributes: variant,
     images: Array.isArray(review.Images) ? Array.from(new Set(review.Images)) : [],
   }
 }
@@ -377,25 +390,45 @@ export async function backgroundFetchReviews(
       return true
     })
 
-    // Extract product-level data from first review item
-    const firstItem = result.data.reviews[0]
-    const overallRating = firstItem?.TotalRating ?? null
-    const totalReviewCount = firstItem?.TotalReviewCount ?? null
-    // Convert rating distribution from {"5 star": "70%", "4 star": "20%", ...} to array format
+    // Calculate overall rating + distribution from actual review data
+    // (Actor doesn't provide these as separate fields)
+    const ratingsWithValues = uniqueReviews.filter((r) => r.rating >= 1 && r.rating <= 5)
+    const overallRating = ratingsWithValues.length > 0
+      ? Math.round((ratingsWithValues.reduce((sum, r) => sum + r.rating, 0) / ratingsWithValues.length) * 10) / 10
+      : null
+
+    // Calculate rating distribution percentages
     let ratingDistribution: Array<{ rating: number; percentage: string }> | null = null
-    if (firstItem?.RatingDistribution) {
-      ratingDistribution = Object.entries(firstItem.RatingDistribution)
-        .map(([key, value]) => {
-          const rating = parseInt(key) || 0
-          return { rating, percentage: String(value).replace('%', '') }
-        })
-        .filter((d) => d.rating >= 1 && d.rating <= 5)
-        .sort((a, b) => b.rating - a.rating)
+    if (ratingsWithValues.length > 0) {
+      const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+      for (const r of ratingsWithValues) counts[r.rating] = (counts[r.rating] || 0) + 1
+      ratingDistribution = [5, 4, 3, 2, 1].map((star) => ({
+        rating: star,
+        percentage: String(Math.round(((counts[star] || 0) / ratingsWithValues.length) * 100)),
+      }))
     }
+
+    // Parse total review count from RatingTypeTotalReviews string
+    // e.g., "174 matching customer reviews" → 174
+    const firstItem = result.data.reviews[0]
+    const totalReviewCountStr = firstItem?.RatingTypeTotalReviews || ''
+    const parsedTotalCount = parseInt(totalReviewCountStr, 10) || null
+
+    // Normalize review aspects field names
+    // Actor returns: { aspect_name, positiv, negativ, "aspect-summary" }
+    // We normalize to: { aspect, positive, negative, summary }
+    const normalizedAspects = result.data.reviewAspects
+      ? result.data.reviewAspects.map((a) => ({
+          aspect: String(a.aspect_name || a.aspect || '').replace(/\(\d+\)\s*$/, '').trim(),
+          positive: parseInt(String(a.positiv ?? a.positive ?? 0), 10) || 0,
+          negative: parseInt(String(a.negativ ?? a.negative ?? 0), 10) || 0,
+          summary: String(a['aspect-summary'] || a.summary || ''),
+        }))
+      : null
 
     await updateReviewRecord(recordId, {
       status: 'completed',
-      total_reviews: totalReviewCount ?? uniqueReviews.length,
+      total_reviews: parsedTotalCount ?? uniqueReviews.length,
       overall_rating: overallRating,
       rating_stars_distribution: ratingDistribution,
       total_pages_fetched: Math.ceil(uniqueReviews.length / 10) || 1,
@@ -407,7 +440,7 @@ export async function backgroundFetchReviews(
         computeUnits: result.data.computeUnits,
         durationMs: result.data.durationMs,
         customersSay: result.data.customersSay,
-        reviewAspects: result.data.reviewAspects,
+        reviewAspects: normalizedAspects,
       },
       error_message: null,
     })

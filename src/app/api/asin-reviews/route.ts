@@ -13,12 +13,13 @@ export async function POST(request: Request) {
     const supabase = createClient()
     const body = await request.json()
 
-    const { asin, country_id, pages, sort_by, provider } = body as {
+    const { asin, country_id, pages, sort_by, provider, force } = body as {
       asin: string
       country_id: string
       pages?: number
       sort_by?: string
       provider?: 'oxylabs' | 'apify'
+      force?: boolean
     }
 
     if (!asin?.trim() || !country_id) {
@@ -49,24 +50,49 @@ export async function POST(request: Request) {
 
     const sortBy = sort_by || 'recent'
 
-    // Check if there's already an active fetch for this ASIN+country
+    // Apify: check for active/existing fetches before starting new one
     if (provider === 'apify') {
-      const { data: existing } = await supabase
+      // 1. Block if already fetching
+      const { data: activeFetch } = await supabase
         .from('lb_asin_reviews')
         .select('id, status')
         .eq('asin', trimmedAsin)
         .eq('country_id', country_id)
-        .eq('sort_by', sortBy || 'recent')
+        .eq('sort_by', sortBy)
         .in('status', ['pending', 'fetching'])
         .single()
 
-      if (existing) {
+      if (activeFetch) {
         return NextResponse.json(
           {
-            error: `Reviews for ${trimmedAsin} are already being fetched (status: ${existing.status}). Please wait for the current fetch to complete.`,
+            error: `Reviews for ${trimmedAsin} are already being fetched (status: ${activeFetch.status}). Please wait for the current fetch to complete.`,
           },
           { status: 409 }
         )
+      }
+
+      // 2. If not forcing re-fetch, return existing completed data
+      if (!force) {
+        const { data: existing } = await supabase
+          .from('lb_asin_reviews')
+          .select('id, asin, total_reviews, overall_rating, status, updated_at')
+          .eq('asin', trimmedAsin)
+          .eq('country_id', country_id)
+          .eq('sort_by', sortBy)
+          .eq('status', 'completed')
+          .single()
+
+        if (existing) {
+          return NextResponse.json({
+            id: existing.id,
+            asin: existing.asin,
+            marketplace: country.amazon_domain,
+            status: 'exists',
+            total_reviews: existing.total_reviews,
+            overall_rating: existing.overall_rating,
+            updated_at: existing.updated_at,
+          })
+        }
       }
     }
 
