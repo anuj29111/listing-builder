@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
 import { fetchReviews, lookupAsin } from '@/lib/oxylabs'
-import { fetchReviewsViaApify, normalizeApifyReview } from '@/lib/apify'
+import { backgroundFetchReviews } from '@/lib/apify'
 import type { OxylabsReviewItem } from '@/lib/oxylabs'
 
 type ReviewSource = 'amazon_reviews' | 'amazon_product' | 'apify'
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
   }
 }
 
-// --- Apify provider ---
+// --- Apify provider (background, fire-and-forget) ---
 
 async function handleApifyFetch(
   asin: string,
@@ -78,32 +78,7 @@ async function handleApifyFetch(
   const fetchAll = pages === 0
   const maxReviews = fetchAll ? 0 : (pages || 10) * 10
 
-  const result = await fetchReviewsViaApify(
-    asin,
-    country.amazon_domain,
-    maxReviews,
-    sortBy
-  )
-
-  if (!result.success || !result.data) {
-    return NextResponse.json(
-      { error: result.error || 'Failed to fetch reviews via Apify' },
-      { status: 502 }
-    )
-  }
-
-  // Normalize Apify reviews to standard format
-  const normalizedReviews = result.data.reviews.map(normalizeApifyReview)
-
-  // Deduplicate by id
-  const seen = new Set<string>()
-  const uniqueReviews = normalizedReviews.filter((r) => {
-    if (!r.id || seen.has(r.id)) return false
-    seen.add(r.id)
-    return true
-  })
-
-  // Upsert into lb_asin_reviews
+  // 1. Upsert placeholder record with status='pending'
   const { data: saved, error: saveErr } = await supabase
     .from('lb_asin_reviews')
     .upsert(
@@ -111,22 +86,16 @@ async function handleApifyFetch(
         asin,
         country_id: country.id,
         marketplace_domain: country.amazon_domain,
-        total_reviews: uniqueReviews.length,
+        total_reviews: null,
         overall_rating: null,
         rating_stars_distribution: null,
-        total_pages_fetched: Math.ceil(uniqueReviews.length / 10) || 1,
-        reviews: uniqueReviews,
-        raw_response: {
-          provider: 'apify',
-          runId: result.data.runId,
-          datasetId: result.data.datasetId,
-          computeUnits: result.data.computeUnits,
-          durationMs: result.data.durationMs,
-          customersSay: result.data.customersSay,
-          reviewAspects: result.data.reviewAspects,
-        },
+        total_pages_fetched: 0,
+        reviews: [],
+        raw_response: { provider: 'apify' },
         sort_by: sortBy,
         fetched_by: userId,
+        status: 'pending',
+        error_message: null,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'asin,country_id,sort_by' }
@@ -134,31 +103,30 @@ async function handleApifyFetch(
     .select('id')
     .single()
 
-  if (saveErr) {
-    console.error('Failed to save Apify reviews:', saveErr)
+  if (saveErr || !saved) {
+    return NextResponse.json(
+      { error: saveErr?.message || 'Failed to create review record' },
+      { status: 500 }
+    )
   }
 
+  // 2. Fire and forget — NO await
+  backgroundFetchReviews(
+    saved.id,
+    asin,
+    country.amazon_domain,
+    maxReviews,
+    sortBy
+  ).catch((err) =>
+    console.error(`[Reviews ${saved.id}] backgroundFetchReviews error:`, err)
+  )
+
+  // 3. Return immediately
   return NextResponse.json({
-    id: saved?.id,
+    id: saved.id,
     asin,
     marketplace: country.amazon_domain,
-    total_reviews: uniqueReviews.length,
-    overall_rating: null,
-    rating_stars_distribution: null,
-    total_pages_available: 0,
-    reviews_fetched: uniqueReviews.length,
-    reviews: uniqueReviews,
-    sort_by: sortBy,
-    source: 'apify' as ReviewSource,
-    fallback_reason: null,
-    // Apify-specific extras
-    apify: {
-      customersSay: result.data.customersSay,
-      reviewAspects: result.data.reviewAspects,
-      computeUnits: result.data.computeUnits,
-      durationMs: result.data.durationMs,
-      runId: result.data.runId,
-    },
+    status: 'pending',
   })
 }
 
@@ -331,7 +299,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from('lb_asin_reviews')
       .select(
-        'id, asin, country_id, marketplace_domain, total_reviews, overall_rating, total_pages_fetched, sort_by, tags, notes, created_at, updated_at'
+        'id, asin, country_id, marketplace_domain, total_reviews, overall_rating, total_pages_fetched, sort_by, status, error_message, tags, notes, created_at, updated_at'
       )
       .order('updated_at', { ascending: false })
       .limit(50)

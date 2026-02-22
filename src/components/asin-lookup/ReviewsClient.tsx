@@ -1,9 +1,13 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+} from '@/components/ui/dialog'
 import {
   Select,
   SelectContent,
@@ -19,11 +23,15 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle,
   ThumbsUp,
   MessageSquare as MessageSquareIcon,
   ImageIcon,
   Sparkles,
+  Download,
+  X,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCountry, LbAsinReview } from '@/types'
@@ -91,7 +99,7 @@ export function ReviewsClient({
   )
   const [pages, setPages] = useState(10)
   const [sortBy, setSortBy] = useState('recent')
-  const [provider, setProvider] = useState<'oxylabs' | 'apify'>('oxylabs')
+  const [provider, setProvider] = useState<'oxylabs' | 'apify'>('apify')
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState<ReviewsData | null>(null)
   const [reviews, setReviews] = useState<Partial<LbAsinReview>[]>(initialReviews)
@@ -102,9 +110,22 @@ export function ReviewsClient({
   const [ratingFilter, setRatingFilter] = useState<number | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const lastClickedIdx = useRef<number>(-1)
+  const [fetchingIds, setFetchingIds] = useState<Set<string>>(new Set())
+  const pollRef = useRef<NodeJS.Timeout | null>(null)
 
   const selectedCountry = countries.find((c) => c.id === countryId)
   const fetchAllTags = useCollectionStore((s) => s.fetchAllTags)
+
+  // --- Polling for background Apify fetches ---
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }, [])
+
+  useEffect(() => () => stopPolling(), [stopPolling])
 
   const toggleSelect = (id: string, idx: number, shiftKey: boolean) => {
     setSelectedIds((prev) => {
@@ -165,14 +186,26 @@ export function ReviewsClient({
         throw new Error(json.error || 'Failed to fetch reviews')
       }
 
-      setResults(json as ReviewsData)
+      // Apify returns immediately with status='pending' (background mode)
+      if (json.status === 'pending' && json.id) {
+        setFetchingIds((prev) => {
+          const next = new Set(prev)
+          next.add(json.id)
+          return next
+        })
+        startPollingRef.current()
+        toast.success('Review fetch started in background — you can navigate away')
+        refreshHistory()
+        setLoading(false)
+        return
+      }
 
-      const providerLabel = provider === 'apify' ? ' via Apify' : ''
+      // Oxylabs returns full data synchronously
+      setResults(json as ReviewsData)
       toast.success(
-        `Fetched ${json.reviews_fetched} reviews${providerLabel}` +
+        `Fetched ${json.reviews_fetched} reviews` +
           (json.total_reviews ? ` out of ${json.total_reviews.toLocaleString()} total` : '')
       )
-
       refreshHistory()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Something went wrong')
@@ -180,6 +213,47 @@ export function ReviewsClient({
       setLoading(false)
     }
   }
+
+  // Placeholder — actual startPolling defined after refreshHistory
+  const startPollingRef = useRef<() => void>(() => {})
+
+  // --- Export reviews as CSV ---
+
+  const handleExportReviews = useCallback(() => {
+    if (!results?.reviews?.length) return
+
+    const escape = (val: string) =>
+      `"${(val || '').replace(/"/g, '""')}"`
+
+    const rows = [
+      'ASIN,Rating,Title,Content,Author,Verified,Helpful Count,Date,Variant,Images',
+    ]
+
+    for (const rev of results.reviews) {
+      rows.push(
+        [
+          results.asin,
+          rev.rating || 0,
+          escape(rev.title || ''),
+          escape(rev.content || ''),
+          escape(rev.author || ''),
+          rev.is_verified ? 'Yes' : 'No',
+          rev.helpful_count || 0,
+          escape(rev.timestamp || ''),
+          escape(rev.product_attributes || ''),
+          rev.images?.length || 0,
+        ].join(',')
+      )
+    }
+
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `reviews-${results.asin}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [results])
 
   const refreshHistory = useCallback(async () => {
     try {
@@ -195,6 +269,73 @@ export function ReviewsClient({
       // silent
     }
   }, [historySearch])
+
+  // --- Polling for background Apify fetches (defined after refreshHistory) ---
+
+  const startPolling = useCallback(() => {
+    if (pollRef.current) return
+    pollRef.current = setInterval(async () => {
+      let changed = false
+      const stillFetching = new Set(fetchingIds)
+
+      for (const id of Array.from(stillFetching)) {
+        try {
+          const res = await fetch(`/api/asin-reviews/${id}`)
+          if (!res.ok) continue
+          const { data } = await res.json()
+
+          if (data.status === 'completed') {
+            stillFetching.delete(id)
+            changed = true
+            toast.success(
+              `Reviews fetched for ${data.asin} (${data.reviews?.length || 0} reviews)`
+            )
+          } else if (data.status === 'failed') {
+            stillFetching.delete(id)
+            changed = true
+            toast.error(
+              `Review fetch failed for ${data.asin}: ${data.error_message || 'Unknown error'}`
+            )
+          }
+        } catch {
+          // network error, keep polling
+        }
+      }
+
+      if (changed) {
+        setFetchingIds(new Set(stillFetching))
+        refreshHistory()
+      }
+
+      if (stillFetching.size === 0) {
+        stopPolling()
+      }
+    }, 3000)
+  }, [fetchingIds, stopPolling, refreshHistory])
+
+  // Keep the ref in sync
+  startPollingRef.current = startPolling
+
+  // Auto-resume polling on mount for in-progress fetches
+  useEffect(() => {
+    const inProgress = initialReviews.filter(
+      (r) => r.status === 'fetching' || r.status === 'pending'
+    )
+    if (inProgress.length > 0) {
+      const ids = new Set(
+        inProgress.map((r) => r.id).filter(Boolean) as string[]
+      )
+      setFetchingIds(ids)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Start/restart polling when fetchingIds changes
+  useEffect(() => {
+    if (fetchingIds.size > 0 && !pollRef.current) {
+      startPolling()
+    }
+  }, [fetchingIds, startPolling])
 
   const handleUpdateTagsNotes = async (id: string, updates: { tags?: string[]; notes?: string }) => {
     try {
@@ -363,6 +504,17 @@ export function ReviewsClient({
                       <Sparkles className="h-3 w-3" />
                       Apify
                     </Badge>
+                  )}
+                  {results.reviews.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExportReviews}
+                      className="gap-1 ml-2"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Export CSV ({results.reviews.length})
+                    </Button>
                   )}
                 </h2>
                 <p className="text-xs text-muted-foreground">
@@ -614,6 +766,22 @@ export function ReviewsClient({
                         >
                           {r.sort_by}
                         </Badge>
+                        {r.status === 'fetching' && (
+                          <Badge variant="secondary" className="text-[10px] px-1 py-0 gap-0.5 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                            Fetching...
+                          </Badge>
+                        )}
+                        {r.status === 'pending' && (
+                          <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                            Pending
+                          </Badge>
+                        )}
+                        {r.status === 'failed' && (
+                          <Badge variant="destructive" className="text-[10px] px-1 py-0">
+                            Failed
+                          </Badge>
+                        )}
                         {(r.tags as string[] | undefined)?.map((tag) => (
                           <TagBadge key={tag} tag={tag} compact />
                         ))}
@@ -682,6 +850,9 @@ function ReviewCard({
 }) {
   const [expanded, setExpanded] = useState(false)
   const contentPreview = review.content?.length > 300 && !expanded
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+  const [lightboxIndex, setLightboxIndex] = useState(0)
+  const allImages = review.images || []
 
   return (
     <div
@@ -770,27 +941,85 @@ function ReviewCard({
           )}
 
           {/* Review images */}
-          {review.images && review.images.length > 0 && !compact && (
+          {allImages.length > 0 && !compact && (
             <div className="flex gap-2 mt-2 flex-wrap">
-              {review.images.map((img, i) => (
-                <a
+              {allImages.map((img, i) => (
+                <button
                   key={i}
-                  href={img}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-16 h-16 rounded overflow-hidden bg-muted flex-shrink-0 hover:opacity-80"
+                  onClick={() => {
+                    setLightboxImage(img)
+                    setLightboxIndex(i)
+                  }}
+                  className="w-16 h-16 rounded overflow-hidden bg-muted flex-shrink-0 hover:opacity-80 hover:ring-2 hover:ring-primary/50 transition-all"
                 >
                   <img
                     src={img}
                     alt=""
                     className="w-full h-full object-cover"
                   />
-                </a>
+                </button>
               ))}
             </div>
           )}
         </div>
       </div>
+
+      {/* Image Lightbox */}
+      <Dialog open={!!lightboxImage} onOpenChange={() => setLightboxImage(null)}>
+        <DialogContent className="max-w-3xl p-0 bg-black/95 border-none [&>button]:hidden">
+          <div className="relative flex items-center justify-center min-h-[400px]">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute top-2 right-2 text-white hover:bg-white/20 z-10"
+              onClick={() => setLightboxImage(null)}
+            >
+              <X className="h-5 w-5" />
+            </Button>
+            {allImages.length > 1 && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute left-2 top-1/2 -translate-y-1/2 text-white hover:bg-white/20"
+                  onClick={() => {
+                    const prev =
+                      (lightboxIndex - 1 + allImages.length) % allImages.length
+                    setLightboxIndex(prev)
+                    setLightboxImage(allImages[prev])
+                  }}
+                >
+                  <ChevronLeft className="h-6 w-6" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-white hover:bg-white/20"
+                  onClick={() => {
+                    const next = (lightboxIndex + 1) % allImages.length
+                    setLightboxIndex(next)
+                    setLightboxImage(allImages[next])
+                  }}
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </Button>
+              </>
+            )}
+            {lightboxImage && (
+              <img
+                src={lightboxImage}
+                alt="Review image"
+                className="max-h-[80vh] max-w-full object-contain p-8"
+              />
+            )}
+            {allImages.length > 1 && (
+              <span className="absolute bottom-3 left-1/2 -translate-x-1/2 text-white/70 text-xs">
+                {lightboxIndex + 1} / {allImages.length}
+              </span>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

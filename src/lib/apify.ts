@@ -187,9 +187,10 @@ export async function fetchReviewsViaApify(
       filterByRating,
     }
 
-    // Only set maxReviews if not fetching all
+    // Only set max_reviews if not fetching all
+    // NOTE: Actor uses snake_case `max_reviews`, NOT camelCase `maxReviews`
     if (maxReviews > 0) {
-      input.maxReviews = maxReviews
+      input.max_reviews = maxReviews
     }
 
     let run = await startActorRun(token, input)
@@ -268,7 +269,10 @@ export function normalizeApifyReview(review: ApifyReviewItem): {
     id: reviewId,
     title: review.ReviewTitle || '',
     author: review.Reviewer || '',
-    rating: review.Score || 0,
+    rating:
+      review.Score >= 1 && review.Score <= 5
+        ? review.Score
+        : parseRatingFromTitle(review.ReviewTitle),
     content: review.ReviewContent || '',
     timestamp: review.ReviewDate || '',
     is_verified:
@@ -277,8 +281,16 @@ export function normalizeApifyReview(review: ApifyReviewItem): {
       review.Verified === 'Yes',
     helpful_count: review.HelpfulCounts || 0,
     product_attributes: review.Variant || null,
-    images: Array.isArray(review.Images) ? review.Images : [],
+    images: Array.isArray(review.Images) ? Array.from(new Set(review.Images)) : [],
   }
+}
+
+// Parse star rating from review title prefix like "5.0 out of 5 stars"
+function parseRatingFromTitle(title: string): number {
+  if (!title) return 0
+  const match = title.match(/^(\d+(?:\.\d+)?)\s+out\s+of\s+\d+\s+stars?/i)
+  if (match) return Math.round(parseFloat(match[1]))
+  return 0
 }
 
 // Simple hash for generating deterministic IDs
@@ -290,4 +302,82 @@ function hashCode(str: string): string {
     hash |= 0
   }
   return Math.abs(hash).toString(36)
+}
+
+// --- Background fetch for async Apify jobs ---
+
+async function updateReviewRecord(
+  id: string,
+  updates: Record<string, unknown>
+) {
+  const adminClient = createAdminClient()
+  const { error } = await adminClient
+    .from('lb_asin_reviews')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) console.error(`[Reviews ${id}] Failed to update:`, error)
+}
+
+export async function backgroundFetchReviews(
+  recordId: string,
+  asin: string,
+  amazonDomain: string,
+  maxReviews: number,
+  sortBy: string
+) {
+  try {
+    await updateReviewRecord(recordId, { status: 'fetching' })
+
+    const result = await fetchReviewsViaApify(
+      asin,
+      amazonDomain,
+      maxReviews,
+      sortBy
+    )
+
+    if (!result.success || !result.data) {
+      await updateReviewRecord(recordId, {
+        status: 'failed',
+        error_message: result.error || 'Failed to fetch reviews via Apify',
+      })
+      return
+    }
+
+    // Normalize and deduplicate
+    const normalizedReviews = result.data.reviews.map(normalizeApifyReview)
+    const seen = new Set<string>()
+    const uniqueReviews = normalizedReviews.filter((r) => {
+      if (!r.id || seen.has(r.id)) return false
+      seen.add(r.id)
+      return true
+    })
+
+    await updateReviewRecord(recordId, {
+      status: 'completed',
+      total_reviews: uniqueReviews.length,
+      total_pages_fetched: Math.ceil(uniqueReviews.length / 10) || 1,
+      reviews: uniqueReviews,
+      raw_response: {
+        provider: 'apify',
+        runId: result.data.runId,
+        datasetId: result.data.datasetId,
+        computeUnits: result.data.computeUnits,
+        durationMs: result.data.durationMs,
+        customersSay: result.data.customersSay,
+        reviewAspects: result.data.reviewAspects,
+      },
+      error_message: null,
+    })
+
+    console.log(
+      `[Reviews ${recordId}] Background fetch complete: ${uniqueReviews.length} reviews for ${asin}`
+    )
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[Reviews ${recordId}] Background fetch failed:`, msg)
+    await updateReviewRecord(recordId, {
+      status: 'failed',
+      error_message: msg,
+    })
+  }
 }

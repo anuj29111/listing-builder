@@ -434,6 +434,8 @@ export interface LbAsinReview {
   }>
   raw_response: Record<string, unknown> | null
   sort_by: string
+  status: 'pending' | 'fetching' | 'completed' | 'failed'
+  error_message: string | null
   fetched_by: string | null
   tags: string[]
   notes: string | null
