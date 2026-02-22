@@ -438,6 +438,7 @@ export async function backgroundFetchReviews(
       reviews: uniqueReviews,
       raw_response: {
         provider: 'apify',
+        maxReviewsRequested: maxReviews || 'all',
         runId: result.data.runId,
         datasetId: result.data.datasetId,
         computeUnits: result.data.computeUnits,

@@ -93,6 +93,7 @@ interface ReviewsData {
   source?: 'amazon_reviews' | 'amazon_product' | 'apify'
   fallback_reason?: string | null
   apify?: ApifyExtras
+  maxReviewsRequested?: number | string | null
 }
 
 export function ReviewsClient({
@@ -321,6 +322,7 @@ export function ReviewsClient({
                 runId: (raw?.runId as string) || '',
               }
             : undefined,
+          maxReviewsRequested: raw?.maxReviewsRequested as number | string | null ?? null,
         }
         setResults(reviewsData)
         setRatingFilter(null)
@@ -504,6 +506,7 @@ export function ReviewsClient({
       const json = await res.json()
       if (res.ok && json.data) {
         const d = json.data as LbAsinReview
+        const rawExp = d.raw_response as Record<string, unknown> | null
         setExpandedReviewData({
           asin: d.asin,
           marketplace: d.marketplace_domain,
@@ -514,6 +517,17 @@ export function ReviewsClient({
           reviews_fetched: d.reviews?.length || 0,
           reviews: (d.reviews || []) as ReviewItem[],
           sort_by: d.sort_by,
+          source: rawExp?.provider === 'apify' ? 'apify' : undefined,
+          apify: rawExp?.provider === 'apify'
+            ? {
+                customersSay: (rawExp?.customersSay as string) || null,
+                reviewAspects: (rawExp?.reviewAspects as ApifyExtras['reviewAspects']) || null,
+                computeUnits: (rawExp?.computeUnits as number) || 0,
+                durationMs: (rawExp?.durationMs as number) || 0,
+                runId: (rawExp?.runId as string) || '',
+              }
+            : undefined,
+          maxReviewsRequested: rawExp?.maxReviewsRequested as number | string | null ?? null,
         })
       }
     } catch {
@@ -741,6 +755,11 @@ export function ReviewsClient({
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {results.reviews_fetched} reviews fetched on {results.marketplace}
+                  {results.maxReviewsRequested != null && (
+                    <span className="ml-1">
+                      (requested: {results.maxReviewsRequested === 'all' || results.maxReviewsRequested === 0 ? 'all' : results.maxReviewsRequested})
+                    </span>
+                  )}
                   {results.source === 'amazon_product' && (
                     <span className="ml-1 text-amber-600 dark:text-amber-400">
                       (top reviews only — enable amazon_reviews on Oxylabs for full pagination)
@@ -1089,9 +1108,16 @@ export function ReviewsClient({
                   {isExpanded && expandedReviewData && (
                     <div className="border-t bg-muted/20 p-4 space-y-3">
                       <div className="flex items-center justify-between">
-                        <p className="text-xs text-muted-foreground">
-                          {expandedReviewData.reviews_fetched} reviews loaded
-                        </p>
+                        <div className="text-xs text-muted-foreground">
+                          <p>{expandedReviewData.reviews_fetched} reviews loaded
+                            {expandedReviewData.maxReviewsRequested != null && (
+                              <span className="ml-1">(requested: {expandedReviewData.maxReviewsRequested === 'all' || expandedReviewData.maxReviewsRequested === 0 ? 'all' : expandedReviewData.maxReviewsRequested})</span>
+                            )}
+                          </p>
+                          {r.status === 'failed' && r.error_message && (
+                            <p className="text-destructive mt-0.5">Error: {r.error_message as string}</p>
+                          )}
+                        </div>
                         <div className="flex gap-2">
                           {expandedReviewData.reviews.length > 0 && (
                             <Button

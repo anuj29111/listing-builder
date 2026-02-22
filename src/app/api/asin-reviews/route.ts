@@ -163,7 +163,7 @@ async function handleApifyFetch(
         rating_stars_distribution: null,
         total_pages_fetched: 0,
         reviews: [],
-        raw_response: { provider: 'apify' },
+        raw_response: { provider: 'apify', maxReviewsRequested: maxReviews || 'all' },
         sort_by: sortBy,
         fetched_by: userId,
         status: 'pending',
