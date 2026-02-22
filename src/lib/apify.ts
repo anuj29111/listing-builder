@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/server'
 
-const APIFY_MAX_WAIT_SECS = 1200 // 20 minutes total max wait
+const APIFY_MAX_WAIT_SECS = 3600 // 60 minutes total max wait (large fetches can take 30+ min)
 const APIFY_POLL_WAIT_SECS = 60 // Long-poll up to 60s per poll request
 
 // Actor: delicious_zebu/amazon-reviews-scraper-with-advanced-filters
