@@ -212,11 +212,10 @@ export async function fetchReviewsViaApify(
       get_customers_say: true,
     }
 
-    // Only set max_reviews if not fetching all
     // NOTE: Actor uses snake_case `max_reviews`, NOT camelCase `maxReviews`
-    if (maxReviews > 0) {
-      input.max_reviews = maxReviews
-    }
+    // Always set max_reviews: 0 = no limit (fetch all), positive number = limit
+    // If omitted, actor uses its own small default (~10-20 reviews)
+    input.max_reviews = maxReviews
 
     let run = await startActorRun(token, input)
 
