@@ -410,9 +410,12 @@ export async function backgroundFetchReviews(
 
     // Parse total review count from RatingTypeTotalReviews string
     // e.g., "174 matching customer reviews" → 174
+    // Note: Sometimes contains rating text like "5.0 out of 5 stars" → parseInt returns 5 (wrong!)
+    // Fix: parsed value must be >= actual review count, otherwise discard
     const firstItem = result.data.reviews[0]
     const totalReviewCountStr = firstItem?.RatingTypeTotalReviews || ''
-    const parsedTotalCount = parseInt(totalReviewCountStr, 10) || null
+    const rawParsed = parseInt(totalReviewCountStr, 10) || null
+    const parsedTotalCount = (rawParsed && rawParsed >= uniqueReviews.length) ? rawParsed : null
 
     // Normalize review aspects field names
     // Actor returns: { aspect_name, positiv, negativ, "aspect-summary" }

@@ -71,11 +71,11 @@ export async function POST(request: Request) {
         )
       }
 
-      // 2. If not forcing re-fetch, return existing completed data
+      // 2. Smart refresh: check existing completed data
       if (!force) {
         const { data: existing } = await supabase
           .from('lb_asin_reviews')
-          .select('id, asin, total_reviews, overall_rating, status, updated_at')
+          .select('id, asin, total_reviews, overall_rating, status, updated_at, reviews')
           .eq('asin', trimmedAsin)
           .eq('country_id', country_id)
           .eq('sort_by', sortBy)
@@ -83,15 +83,28 @@ export async function POST(request: Request) {
           .single()
 
         if (existing) {
-          return NextResponse.json({
-            id: existing.id,
-            asin: existing.asin,
-            marketplace: country.amazon_domain,
-            status: 'exists',
-            total_reviews: existing.total_reviews,
-            overall_rating: existing.overall_rating,
-            updated_at: existing.updated_at,
-          })
+          const ageMs = Date.now() - new Date(existing.updated_at).getTime()
+          const isOlderThan3Months = ageMs > 90 * 24 * 60 * 60 * 1000
+          const fetchAll = pages === 0
+          const requestedCount = fetchAll ? Infinity : (pages || 10) * 10
+          const existingCount = Array.isArray(existing.reviews) ? existing.reviews.length : (existing.total_reviews || 0)
+          const wantsMore = requestedCount > existingCount
+
+          // Auto-refresh if data is stale (>3 months) or user wants more reviews
+          if (!isOlderThan3Months && !wantsMore) {
+            // Data is fresh and sufficient — return exists for confirmation dialog
+            return NextResponse.json({
+              id: existing.id,
+              asin: existing.asin,
+              marketplace: country.amazon_domain,
+              status: 'exists',
+              total_reviews: existing.total_reviews,
+              overall_rating: existing.overall_rating,
+              updated_at: existing.updated_at,
+              reviews_count: existingCount,
+            })
+          }
+          // Otherwise fall through to handleApifyFetch (auto-refresh)
         }
       }
     }

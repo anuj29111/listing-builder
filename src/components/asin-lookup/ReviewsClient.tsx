@@ -7,6 +7,10 @@ import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
   DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
 } from '@/components/ui/dialog'
 import {
   Select,
@@ -32,6 +36,8 @@ import {
   Sparkles,
   Download,
   X,
+  Eye,
+  Minus,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbCountry, LbAsinReview } from '@/types'
@@ -113,6 +119,12 @@ export function ReviewsClient({
   const [fetchingIds, setFetchingIds] = useState<Set<string>>(new Set())
   const fetchingIdsRef = useRef<Set<string>>(new Set())
   const pollRef = useRef<NodeJS.Timeout | null>(null)
+  const [existingReviewInfo, setExistingReviewInfo] = useState<{
+    id: string; asin: string; total_reviews: number | null; overall_rating: number | null
+    updated_at: string; reviews_count: number
+  } | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [resultsCollapsed, setResultsCollapsed] = useState(false)
 
   const selectedCountry = countries.find((c) => c.id === countryId)
   const fetchAllTags = useCollectionStore((s) => s.fetchAllTags)
@@ -195,16 +207,16 @@ export function ReviewsClient({
         throw new Error(json.error || 'Failed to fetch reviews')
       }
 
-      // Apify: existing completed reviews found — load them
+      // Apify: existing completed reviews found — show confirmation dialog
       if (json.status === 'exists' && json.id) {
-        const fetchedDate = json.updated_at
-          ? new Date(json.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-          : 'unknown date'
-        toast.success(
-          `Reviews already fetched on ${fetchedDate} (${json.total_reviews || 0} reviews, ${json.overall_rating || '?'}★). Loading...`,
-          { duration: 4000 }
-        )
-        loadFullResults(json.id)
+        setExistingReviewInfo({
+          id: json.id,
+          asin: json.asin,
+          total_reviews: json.total_reviews,
+          overall_rating: json.overall_rating,
+          updated_at: json.updated_at,
+          reviews_count: json.reviews_count || json.total_reviews || 0,
+        })
         setLoading(false)
         return
       }
@@ -249,7 +261,7 @@ export function ReviewsClient({
       `"${(val || '').replace(/"/g, '""')}"`
 
     const rows = [
-      'ASIN,Rating,Title,Content,Author,Verified,Helpful Count,Date,Variant,Images',
+      'ASIN,Rating,Title,Content,Author,Verified,Helpful Count,Date,Variant,Image Count,Image URLs',
     ]
 
     for (const rev of results.reviews) {
@@ -265,6 +277,7 @@ export function ReviewsClient({
           escape(rev.timestamp || ''),
           escape(rev.product_attributes || ''),
           rev.images?.length || 0,
+          escape(rev.images?.join(' | ') || ''),
         ].join(',')
       )
     }
@@ -329,7 +342,7 @@ export function ReviewsClient({
         `"${(val || '').replace(/"/g, '""')}"`
 
       const rows = [
-        'ASIN,Rating,Title,Content,Author,Verified,Helpful Count,Date,Variant,Images',
+        'ASIN,Rating,Title,Content,Author,Verified,Helpful Count,Date,Variant,Image Count,Image URLs',
       ]
 
       for (const rev of data.reviews) {
@@ -345,6 +358,7 @@ export function ReviewsClient({
             escape(rev.timestamp || ''),
             escape(rev.product_attributes || ''),
             rev.images?.length || 0,
+            escape(rev.images?.join(' | ') || ''),
           ].join(',')
         )
       }
@@ -501,6 +515,8 @@ export function ReviewsClient({
     }
   }
 
+  const REVIEWS_PER_PAGE = 25
+
   const getFilteredReviews = (data: ReviewsData | null): ReviewItem[] => {
     if (!data) return []
     if (ratingFilter === null) return data.reviews
@@ -508,6 +524,15 @@ export function ReviewsClient({
   }
 
   const displayedReviews = getFilteredReviews(results)
+  const totalPages = Math.ceil(displayedReviews.length / REVIEWS_PER_PAGE)
+  const paginatedReviews = displayedReviews.slice(
+    (currentPage - 1) * REVIEWS_PER_PAGE,
+    currentPage * REVIEWS_PER_PAGE
+  )
+
+  // Reset page when results or filter changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setCurrentPage(1) }, [results, ratingFilter])
 
   return (
     <div className="space-y-6">
@@ -603,15 +628,71 @@ export function ReviewsClient({
         )}
       </div>
 
+      {/* Existing Reviews Confirmation Dialog */}
+      <Dialog open={!!existingReviewInfo} onOpenChange={() => setExistingReviewInfo(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reviews Already Exist</DialogTitle>
+            <DialogDescription>
+              Reviews for <span className="font-mono font-semibold">{existingReviewInfo?.asin}</span> have already been fetched.
+            </DialogDescription>
+          </DialogHeader>
+          {existingReviewInfo && (
+            <div className="space-y-2 py-2">
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="text-muted-foreground">Fetched on</div>
+                <div className="font-medium">
+                  {new Date(existingReviewInfo.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </div>
+                <div className="text-muted-foreground">Reviews</div>
+                <div className="font-medium">{existingReviewInfo.reviews_count.toLocaleString()}</div>
+                {existingReviewInfo.overall_rating != null && (
+                  <>
+                    <div className="text-muted-foreground">Rating</div>
+                    <div className="font-medium flex items-center gap-1">
+                      <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
+                      {existingReviewInfo.overall_rating}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter className="flex gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              className="flex-1 gap-1.5"
+              onClick={() => {
+                if (existingReviewInfo) loadFullResults(existingReviewInfo.id)
+                setExistingReviewInfo(null)
+              }}
+            >
+              <Eye className="h-4 w-4" />
+              View Existing
+            </Button>
+            <Button
+              className="flex-1 gap-1.5"
+              onClick={() => {
+                setExistingReviewInfo(null)
+                handleFetch(true)
+              }}
+            >
+              <RefreshCw className="h-4 w-4" />
+              Re-fetch Reviews
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Results */}
       {results && (
         <div>
           {/* Summary header */}
           <div className="rounded-lg border bg-card p-4 mb-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  Reviews for {results.asin}
+            <div className="flex items-center justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-lg font-semibold">Reviews for {results.asin}</h2>
                   {results.source === 'apify' && (
                     <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5 gap-1 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
                       <Sparkles className="h-3 w-3" />
@@ -623,7 +704,7 @@ export function ReviewsClient({
                       variant="outline"
                       size="sm"
                       onClick={handleExportReviews}
-                      className="gap-1 ml-2"
+                      className="gap-1"
                     >
                       <Download className="h-3.5 w-3.5" />
                       Export CSV ({results.reviews.length})
@@ -637,18 +718,14 @@ export function ReviewsClient({
                       handleFetch(true)
                     }}
                     disabled={loading}
-                    className="gap-1 ml-1"
+                    className="gap-1"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
                     Re-fetch
                   </Button>
-                </h2>
-                <p className="text-xs text-muted-foreground">
-                  {results.reviews_fetched} reviews fetched
-                  {results.total_reviews
-                    ? ` of ${results.total_reviews.toLocaleString()} total`
-                    : ''}{' '}
-                  on {results.marketplace}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {results.reviews_fetched} reviews fetched on {results.marketplace}
                   {results.source === 'amazon_product' && (
                     <span className="ml-1 text-amber-600 dark:text-amber-400">
                       (top reviews only — enable amazon_reviews on Oxylabs for full pagination)
@@ -656,140 +733,193 @@ export function ReviewsClient({
                   )}
                 </p>
               </div>
-              {results.overall_rating != null && (
-                <div className="text-right">
-                  <div className="flex items-center gap-1 text-2xl font-bold">
-                    <Star className="h-6 w-6 fill-yellow-400 text-yellow-400" />
-                    {results.overall_rating}
+              <div className="flex items-center gap-3 flex-shrink-0">
+                {results.overall_rating != null && (
+                  <div className="text-right">
+                    <div className="flex items-center gap-1 text-2xl font-bold">
+                      <Star className="h-6 w-6 fill-yellow-400 text-yellow-400" />
+                      {results.overall_rating}
+                    </div>
+                    <p className="text-xs text-muted-foreground">overall rating</p>
                   </div>
-                  <p className="text-xs text-muted-foreground">overall rating</p>
-                </div>
-              )}
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setResultsCollapsed(!resultsCollapsed)}
+                  className="h-8 w-8"
+                  title={resultsCollapsed ? 'Expand results' : 'Collapse results'}
+                >
+                  {resultsCollapsed ? <ChevronDown className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
+                </Button>
+              </div>
             </div>
 
-            {/* Apify AI Summary */}
-            {results.apify?.customersSay && (
-              <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 p-3 mb-3">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Sparkles className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                  <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
-                    Customers Say (AI Summary)
-                  </span>
-                </div>
-                <p className="text-sm text-foreground leading-relaxed">
-                  {results.apify.customersSay}
-                </p>
-              </div>
-            )}
+            {!resultsCollapsed && (
+              <>
+                {/* Apify AI Summary */}
+                {results.apify?.customersSay && (
+                  <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 p-3 mt-3">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Sparkles className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                      <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                        Customers Say (AI Summary)
+                      </span>
+                    </div>
+                    <p className="text-sm text-foreground leading-relaxed">
+                      {results.apify.customersSay}
+                    </p>
+                  </div>
+                )}
 
-            {/* Apify Review Aspects */}
-            {results.apify?.reviewAspects && results.apify.reviewAspects.length > 0 && (
-              <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 p-3 mb-3">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <Sparkles className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                  <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
-                    Review Aspects (AI Analysis)
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {results.apify.reviewAspects.map((aspect, i) => (
-                    <div
-                      key={i}
-                      className="inline-flex items-center gap-1.5 text-xs rounded-md border bg-card px-2 py-1"
-                    >
-                      <span className="font-medium">{aspect.aspect}</span>
-                      {aspect.positive > 0 && (
-                        <span className="text-green-600 dark:text-green-400">
-                          +{aspect.positive}
-                        </span>
-                      )}
-                      {aspect.negative > 0 && (
-                        <span className="text-red-600 dark:text-red-400">
-                          -{aspect.negative}
-                        </span>
-                      )}
-                      {aspect.mixed != null && aspect.mixed > 0 && (
-                        <span className="text-amber-600 dark:text-amber-400">
-                          ~{aspect.mixed}
-                        </span>
+                {/* Apify Review Aspects */}
+                {results.apify?.reviewAspects && results.apify.reviewAspects.length > 0 && (
+                  <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 p-3 mt-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Sparkles className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                      <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                        Review Aspects (AI Analysis)
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {results.apify.reviewAspects.map((aspect, i) => (
+                        <div
+                          key={i}
+                          className="inline-flex items-center gap-1.5 text-xs rounded-md border bg-card px-2 py-1"
+                        >
+                          <span className="font-medium">{aspect.aspect}</span>
+                          {aspect.positive > 0 && (
+                            <span className="text-green-600 dark:text-green-400">
+                              +{aspect.positive}
+                            </span>
+                          )}
+                          {aspect.negative > 0 && (
+                            <span className="text-red-600 dark:text-red-400">
+                              -{aspect.negative}
+                            </span>
+                          )}
+                          {aspect.mixed != null && aspect.mixed > 0 && (
+                            <span className="text-amber-600 dark:text-amber-400">
+                              ~{aspect.mixed}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Apify run stats */}
+                {results.apify && (
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    Apify run: {(results.apify.computeUnits || 0).toFixed(4)} CU, {Math.round((results.apify.durationMs || 0) / 1000)}s
+                  </p>
+                )}
+
+                {/* Rating distribution bar */}
+                {results.rating_stars_distribution &&
+                  results.rating_stars_distribution.length > 0 && (
+                    <div className="space-y-1.5 mt-3">
+                      {[5, 4, 3, 2, 1].map((star) => {
+                        const dist = results.rating_stars_distribution?.find(
+                          (d) => d.rating === star
+                        )
+                        const pct = parseInt(dist?.percentage || '0', 10)
+                        const isActive = ratingFilter === star
+                        return (
+                          <button
+                            key={star}
+                            onClick={() =>
+                              setRatingFilter(isActive ? null : star)
+                            }
+                            className={`flex items-center gap-2 w-full text-left rounded px-1.5 py-0.5 transition-colors ${
+                              isActive
+                                ? 'bg-primary/10 ring-1 ring-primary/30'
+                                : 'hover:bg-muted/50'
+                            }`}
+                          >
+                            <span className="text-xs w-10 text-muted-foreground">
+                              {star} star
+                            </span>
+                            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-yellow-400 rounded-full transition-all"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className="text-xs w-8 text-right text-muted-foreground">
+                              {pct}%
+                            </span>
+                          </button>
+                        )
+                      })}
+                      {ratingFilter !== null && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Showing {displayedReviews.length} reviews with {ratingFilter} star
+                          {ratingFilter !== 1 ? 's' : ''}.{' '}
+                          <button
+                            onClick={() => setRatingFilter(null)}
+                            className="text-primary underline"
+                          >
+                            Clear filter
+                          </button>
+                        </p>
                       )}
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Apify run stats */}
-            {results.apify && (
-              <p className="text-[10px] text-muted-foreground">
-                Apify run: {(results.apify.computeUnits || 0).toFixed(4)} CU, {Math.round((results.apify.durationMs || 0) / 1000)}s
-              </p>
-            )}
-
-            {/* Rating distribution bar */}
-            {results.rating_stars_distribution &&
-              results.rating_stars_distribution.length > 0 && (
-                <div className="space-y-1.5">
-                  {[5, 4, 3, 2, 1].map((star) => {
-                    const dist = results.rating_stars_distribution?.find(
-                      (d) => d.rating === star
-                    )
-                    const pct = parseInt(dist?.percentage || '0', 10)
-                    const isActive = ratingFilter === star
-                    return (
-                      <button
-                        key={star}
-                        onClick={() =>
-                          setRatingFilter(isActive ? null : star)
-                        }
-                        className={`flex items-center gap-2 w-full text-left rounded px-1.5 py-0.5 transition-colors ${
-                          isActive
-                            ? 'bg-primary/10 ring-1 ring-primary/30'
-                            : 'hover:bg-muted/50'
-                        }`}
-                      >
-                        <span className="text-xs w-10 text-muted-foreground">
-                          {star} star
-                        </span>
-                        <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-yellow-400 rounded-full transition-all"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        <span className="text-xs w-8 text-right text-muted-foreground">
-                          {pct}%
-                        </span>
-                      </button>
-                    )
-                  })}
-                  {ratingFilter !== null && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Showing {displayedReviews.length} reviews with {ratingFilter} star
-                      {ratingFilter !== 1 ? 's' : ''}.{' '}
-                      <button
-                        onClick={() => setRatingFilter(null)}
-                        className="text-primary underline"
-                      >
-                        Clear filter
-                      </button>
-                    </p>
                   )}
-                </div>
-              )}
+              </>
+            )}
           </div>
 
-          {/* Reviews list */}
-          {displayedReviews.length === 0 ? (
-            <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
-              No reviews found{ratingFilter !== null ? ' for this rating' : ''}.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {displayedReviews.map((review, i) => (
-                <ReviewCard key={review.id || i} review={review} />
-              ))}
-            </div>
+          {/* Reviews list — hidden when collapsed */}
+          {!resultsCollapsed && (
+            <>
+              {paginatedReviews.length === 0 ? (
+                <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
+                  No reviews found{ratingFilter !== null ? ' for this rating' : ''}.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {paginatedReviews.map((review, i) => (
+                    <ReviewCard key={review.id || i} review={review} />
+                  ))}
+                </div>
+              )}
+
+              {/* Pagination controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 px-1">
+                  <p className="text-xs text-muted-foreground">
+                    Showing {((currentPage - 1) * REVIEWS_PER_PAGE) + 1}–{Math.min(currentPage * REVIEWS_PER_PAGE, displayedReviews.length)} of {displayedReviews.length} reviews
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={currentPage <= 1}
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      className="h-8 gap-1"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                      Previous
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      className="h-8 gap-1"
+                    >
+                      Next
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
