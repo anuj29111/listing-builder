@@ -1,0 +1,62 @@
+{
+  "manifest_version": 3,
+  "name": "Rufus Q&A Extractor",
+  "version": "1.0.0",
+  "description": "Automates Rufus Q&A extraction from Amazon product pages and sends data to Listing Builder",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.amazon.com/*",
+    "https://www.amazon.co.uk/*",
+    "https://www.amazon.de/*",
+    "https://www.amazon.fr/*",
+    "https://www.amazon.ca/*",
+    "https://www.amazon.it/*",
+    "https://www.amazon.es/*",
+    "https://www.amazon.com.mx/*",
+    "https://www.amazon.com.au/*",
+    "https://www.amazon.ae/*",
+    "https://listing-builder-production.up.railway.app/*",
+    "http://localhost:3000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Rufus Q&A Extractor"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.amazon.com/dp/*",
+        "https://www.amazon.com/*/dp/*",
+        "https://www.amazon.co.uk/dp/*",
+        "https://www.amazon.co.uk/*/dp/*",
+        "https://www.amazon.de/dp/*",
+        "https://www.amazon.de/*/dp/*",
+        "https://www.amazon.fr/dp/*",
+        "https://www.amazon.fr/*/dp/*",
+        "https://www.amazon.ca/dp/*",
+        "https://www.amazon.ca/*/dp/*",
+        "https://www.amazon.it/dp/*",
+        "https://www.amazon.it/*/dp/*",
+        "https://www.amazon.es/dp/*",
+        "https://www.amazon.es/*/dp/*",
+        "https://www.amazon.com.mx/dp/*",
+        "https://www.amazon.com.mx/*/dp/*",
+        "https://www.amazon.com.au/dp/*",
+        "https://www.amazon.com.au/*/dp/*",
+        "https://www.amazon.ae/dp/*",
+        "https://www.amazon.ae/*/dp/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rufus Q&A Extractor</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Rufus Q&A Extractor</h1>
+      <button id="settingsBtn" class="icon-btn" title="Settings">&#9881;</button>
+    </header>
+
+    <!-- Input Section -->
+    <section class="input-section">
+      <div class="field">
+        <label for="marketplace">Marketplace</label>
+        <select id="marketplace">
+          <option value="amazon.com">US (amazon.com)</option>
+          <option value="amazon.co.uk">UK (amazon.co.uk)</option>
+          <option value="amazon.de">DE (amazon.de)</option>
+          <option value="amazon.fr">FR (amazon.fr)</option>
+          <option value="amazon.ca">CA (amazon.ca)</option>
+          <option value="amazon.it">IT (amazon.it)</option>
+          <option value="amazon.es">ES (amazon.es)</option>
+          <option value="amazon.com.mx">MX (amazon.com.mx)</option>
+          <option value="amazon.com.au">AU (amazon.com.au)</option>
+          <option value="amazon.ae">AE (amazon.ae)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="questionCount">Questions per product</label>
+        <input type="number" id="questionCount" value="20" min="1" max="100">
+      </div>
+
+      <div class="field">
+        <label for="asinInput">ASINs (one per line)</label>
+        <textarea id="asinInput" placeholder="B0XXXXXXXXX&#10;B0YYYYYYYYY&#10;B0ZZZZZZZZZ" rows="5"></textarea>
+      </div>
+
+      <button id="addBtn" class="btn btn-primary">Add to Queue</button>
+    </section>
+
+    <!-- Controls -->
+    <section class="controls">
+      <button id="startBtn" class="btn btn-success" disabled>Start</button>
+      <button id="stopBtn" class="btn btn-danger" disabled>Stop</button>
+      <button id="clearBtn" class="btn btn-secondary">Clear</button>
+      <button id="exportBtn" class="btn btn-secondary">Export CSV</button>
+    </section>
+
+    <!-- Status -->
+    <div id="statusBar" class="status-bar hidden">
+      <span id="statusText">Ready</span>
+      <span id="progressText">0/0</span>
+    </div>
+
+    <!-- Queue -->
+    <section class="queue-section">
+      <h2>Queue <span id="queueCount">(0)</span></h2>
+      <div id="queueList" class="queue-list"></div>
+    </section>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
