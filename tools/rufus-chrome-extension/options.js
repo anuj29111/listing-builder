@@ -8,7 +8,7 @@
 const DEFAULTS = {
   apiUrl: 'http://localhost:3000',
   apiKey: '',
-  maxQuestions: 200,
+  maxQuestions: 50,
   delayBetweenClicks: 3000,
   delayBetweenProducts: 5000,
   selectors: {

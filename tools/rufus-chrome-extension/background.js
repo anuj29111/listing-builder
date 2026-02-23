@@ -23,7 +23,7 @@ let activeTabId = null
 const DEFAULT_SETTINGS = {
   apiUrl: 'http://localhost:3000',
   apiKey: '',
-  maxQuestions: 200, // Safety cap per product
+  maxQuestions: 50, // Max questions per product (user-configurable in Settings)
   delayBetweenClicks: 3000,
   delayBetweenProducts: 5000,
   selectors: {

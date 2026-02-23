@@ -53,9 +53,9 @@
 
   <h2>Extraction Settings</h2>
   <div class="field">
-    <label for="maxQuestions">Safety cap (max questions per product)</label>
-    <input type="number" id="maxQuestions" value="200" min="10" max="500">
-    <div class="hint">Extraction runs until Rufus stops producing new questions. This is only a safety cap to prevent infinite loops.</div>
+    <label for="maxQuestions">Max questions per product</label>
+    <input type="number" id="maxQuestions" value="50" min="5" max="500" step="5">
+    <div class="hint">Stops after this many questions (or when Rufus runs out / goes off-topic). Default: 50</div>
   </div>
   <div class="field">
     <label for="delayClicks">Delay between question clicks (ms)</label>
