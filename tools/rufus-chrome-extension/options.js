@@ -1,5 +1,8 @@
 /**
  * Rufus Q&A Extractor — Options Script
+ *
+ * Settings (non-sensitive) stored in chrome.storage.sync.
+ * API key stored in chrome.storage.local (not synced to Google servers).
  */
 
 const DEFAULTS = {
@@ -39,9 +42,9 @@ const fields = {
   selLoading: document.getElementById('selLoading'),
 }
 
-function populateFields(settings) {
+function populateFields(settings, apiKey) {
   fields.apiUrl.value = settings.apiUrl || DEFAULTS.apiUrl
-  fields.apiKey.value = settings.apiKey || ''
+  fields.apiKey.value = apiKey || settings.apiKey || ''
   fields.maxQuestions.value = settings.maxQuestions || DEFAULTS.maxQuestions
   fields.delayClicks.value = settings.delayBetweenClicks || DEFAULTS.delayBetweenClicks
   fields.delayProducts.value = settings.delayBetweenProducts || DEFAULTS.delayBetweenProducts
@@ -57,40 +60,49 @@ function populateFields(settings) {
 
 function readFields() {
   return {
-    apiUrl: fields.apiUrl.value.trim().replace(/\/$/, ''),
-    apiKey: fields.apiKey.value.trim(),
-    maxQuestions: parseInt(fields.maxQuestions.value, 10) || DEFAULTS.maxQuestions,
-    delayBetweenClicks: parseInt(fields.delayClicks.value, 10) || DEFAULTS.delayBetweenClicks,
-    delayBetweenProducts: parseInt(fields.delayProducts.value, 10) || DEFAULTS.delayBetweenProducts,
-    selectors: {
-      rufusButton: fields.selRufusBtn.value.trim() || DEFAULTS.selectors.rufusButton,
-      questionChip: fields.selQuestionChip.value.trim() || DEFAULTS.selectors.questionChip,
-      chatContainer: fields.selChatContainer.value.trim() || DEFAULTS.selectors.chatContainer,
-      questionBubble: fields.selQuestionBubble.value.trim() || DEFAULTS.selectors.questionBubble,
-      answerBubble: fields.selAnswerBubble.value.trim() || DEFAULTS.selectors.answerBubble,
-      loadingIndicator: fields.selLoading.value.trim() || DEFAULTS.selectors.loadingIndicator,
+    settings: {
+      apiUrl: fields.apiUrl.value.trim().replace(/\/$/, ''),
+      maxQuestions: parseInt(fields.maxQuestions.value, 10) || DEFAULTS.maxQuestions,
+      delayBetweenClicks: parseInt(fields.delayClicks.value, 10) || DEFAULTS.delayBetweenClicks,
+      delayBetweenProducts: parseInt(fields.delayProducts.value, 10) || DEFAULTS.delayBetweenProducts,
+      selectors: {
+        rufusButton: fields.selRufusBtn.value.trim() || DEFAULTS.selectors.rufusButton,
+        questionChip: fields.selQuestionChip.value.trim() || DEFAULTS.selectors.questionChip,
+        chatContainer: fields.selChatContainer.value.trim() || DEFAULTS.selectors.chatContainer,
+        questionBubble: fields.selQuestionBubble.value.trim() || DEFAULTS.selectors.questionBubble,
+        answerBubble: fields.selAnswerBubble.value.trim() || DEFAULTS.selectors.answerBubble,
+        loadingIndicator: fields.selLoading.value.trim() || DEFAULTS.selectors.loadingIndicator,
+      },
     },
+    apiKey: fields.apiKey.value.trim(),
   }
 }
 
 // ─── Load ────────────────────────────────────────────────────────
-chrome.storage.sync.get('settings', (result) => {
-  populateFields(result.settings || DEFAULTS)
+// Load settings from sync and API key from local
+Promise.all([
+  new Promise((resolve) => chrome.storage.sync.get('settings', resolve)),
+  new Promise((resolve) => chrome.storage.local.get('apiKey', resolve)),
+]).then(([syncResult, localResult]) => {
+  populateFields(syncResult.settings || DEFAULTS, localResult.apiKey || '')
 })
 
 // ─── Save ────────────────────────────────────────────────────────
 document.getElementById('saveBtn').addEventListener('click', () => {
-  const settings = readFields()
+  const { settings, apiKey } = readFields()
+  // Settings (non-sensitive) in sync, API key in local only
   chrome.storage.sync.set({ settings }, () => {
-    const msg = document.getElementById('savedMsg')
-    msg.style.display = 'inline'
-    setTimeout(() => (msg.style.display = 'none'), 2000)
+    chrome.storage.local.set({ apiKey }, () => {
+      const msg = document.getElementById('savedMsg')
+      msg.style.display = 'inline'
+      setTimeout(() => (msg.style.display = 'none'), 2000)
+    })
   })
 })
 
 // ─── Reset ───────────────────────────────────────────────────────
 document.getElementById('resetBtn').addEventListener('click', () => {
   if (confirm('Reset all settings to defaults?')) {
-    populateFields(DEFAULTS)
+    populateFields(DEFAULTS, '')
   }
 })

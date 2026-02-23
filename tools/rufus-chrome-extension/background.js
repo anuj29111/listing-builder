@@ -9,6 +9,8 @@
  * - Full page refresh between products to reset Rufus chat state
  * - Runs until Rufus stops producing new questions (no fixed count)
  * - De-duplication happens both client-side (content.js) and server-side (API)
+ * - State persisted to chrome.storage.local to survive service worker restarts (MV3)
+ * - Uses chrome.alarms for between-product delays (survives worker termination)
  */
 
 // ─── State ───────────────────────────────────────────────────────
@@ -34,10 +36,63 @@ const DEFAULT_SETTINGS = {
   },
 }
 
+const EXTRACTION_TIMEOUT_MS = 600000 // 10 minutes per product
+const ALARM_NAME = 'rufus-next-product'
+
 async function getSettings() {
-  const result = await chrome.storage.sync.get('settings')
-  return { ...DEFAULT_SETTINGS, ...result.settings }
+  // Settings (non-sensitive) from sync, API key from local
+  const [syncResult, localResult] = await Promise.all([
+    chrome.storage.sync.get('settings'),
+    chrome.storage.local.get('apiKey'),
+  ])
+  return {
+    ...DEFAULT_SETTINGS,
+    ...syncResult.settings,
+    apiKey: localResult.apiKey || syncResult.settings?.apiKey || '',
+  }
 }
+
+// ─── State Persistence (MV3 service workers are ephemeral) ───────
+
+async function persistState() {
+  await chrome.storage.local.set({
+    _rufusState: { queue, isRunning, currentIndex, activeTabId },
+  })
+}
+
+async function restoreState() {
+  const result = await chrome.storage.local.get('_rufusState')
+  if (result._rufusState) {
+    const s = result._rufusState
+    queue = s.queue || []
+    isRunning = s.isRunning || false
+    currentIndex = s.currentIndex ?? -1
+    activeTabId = s.activeTabId || null
+
+    // If we were running when the worker died, resume processing
+    if (isRunning) {
+      // The item that was processing may have been interrupted
+      const processing = queue.find((q) => q.status === 'processing')
+      if (processing) {
+        processing.status = 'pending'
+        processing.progress = null
+      }
+      // Find the next pending item and resume
+      const nextPending = queue.findIndex((q) => q.status === 'pending')
+      if (nextPending >= 0) {
+        currentIndex = nextPending - 1
+        processNext()
+      } else {
+        isRunning = false
+        currentIndex = -1
+        await persistState()
+      }
+    }
+  }
+}
+
+// Restore state on service worker startup
+restoreState()
 
 // ─── Marketplace → Amazon URL mapping ────────────────────────────
 const MARKETPLACE_URLS = {
@@ -62,6 +117,23 @@ function broadcastState() {
   })
 }
 
+/**
+ * Ping the content script to verify it's loaded and responsive.
+ * Retries up to `retries` times with `interval` ms between attempts.
+ */
+async function pingContentScript(tabId, retries = 5, interval = 1000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, { type: 'PING' })
+      if (response?.alive) return true
+    } catch {
+      // Content script not ready yet
+    }
+    if (i < retries - 1) await sleep(interval)
+  }
+  return false
+}
+
 async function processNext() {
   if (!isRunning) return
 
@@ -70,6 +142,7 @@ async function processNext() {
     isRunning = false
     currentIndex = -1
     broadcastState()
+    await persistState()
     return
   }
 
@@ -77,6 +150,7 @@ async function processNext() {
   item.status = 'processing'
   item.progress = 'Loading page...'
   broadcastState()
+  await persistState()
 
   const settings = await getSettings()
   const baseUrl = MARKETPLACE_URLS[item.marketplace] || 'https://www.amazon.com'
@@ -104,21 +178,35 @@ async function processNext() {
     // Wait for page to fully load
     await waitForTabLoad(activeTabId)
     // Extra delay for dynamic content (Rufus widget, scripts, etc.)
-    await sleep(4000)
+    await sleep(2000)
+
+    // Ping content script to confirm it's loaded before extracting
+    const alive = await pingContentScript(activeTabId)
+    if (!alive) {
+      throw new Error('Content script did not respond after page load. Try reloading the extension.')
+    }
 
     item.progress = 'Extracting Q&A...'
     broadcastState()
+    await persistState()
 
     // ── Step 2: Send extraction command to content script ──
     // Content script will click questions until exhausted
-    const response = await chrome.tabs.sendMessage(activeTabId, {
-      type: 'EXTRACT_RUFUS_QA',
-      settings: {
-        maxQuestions: settings.maxQuestions,
-        delayBetweenClicks: settings.delayBetweenClicks,
-        selectors: settings.selectors,
-      },
-    })
+    // Wrap in timeout to prevent hanging forever
+    const response = await Promise.race([
+      chrome.tabs.sendMessage(activeTabId, {
+        type: 'EXTRACT_RUFUS_QA',
+        settings: {
+          maxQuestions: settings.maxQuestions,
+          delayBetweenClicks: settings.delayBetweenClicks,
+          selectors: settings.selectors,
+        },
+      }),
+      sleep(EXTRACTION_TIMEOUT_MS).then(() => ({
+        success: false,
+        error: `Extraction timed out after ${EXTRACTION_TIMEOUT_MS / 60000} minutes`,
+      })),
+    ])
 
     if (response && response.success) {
       item.status = 'done'
@@ -147,6 +235,7 @@ async function processNext() {
       item.error = response.error
       isRunning = false
       broadcastState()
+      await persistState()
       return // Don't process more — user needs to log in
     } else {
       item.status = 'error'
@@ -159,20 +248,38 @@ async function processNext() {
 
   item.progress = null
   broadcastState()
+  await persistState()
 
-  // Delay before next product — give Amazon a breather
+  // Delay before next product using chrome.alarms (survives worker termination)
   if (isRunning && currentIndex < queue.length - 1) {
     const nextItem = queue[currentIndex + 1]
     if (nextItem) {
       nextItem.progress = `Waiting ${Math.round(settings.delayBetweenProducts / 1000)}s...`
       broadcastState()
+      await persistState()
     }
-    await sleep(settings.delayBetweenProducts)
+    // Use chrome.alarms for the delay — survives service worker kill
+    const delayMinutes = Math.max(settings.delayBetweenProducts / 60000, 0.1)
+    chrome.alarms.create(ALARM_NAME, { delayInMinutes: delayMinutes })
+    // Don't call processNext() directly — alarm handler will do it
+    return
   }
 
-  // Process next (sequential — never parallel)
-  processNext()
+  // No more items or stopped — finalize
+  if (!isRunning || currentIndex >= queue.length - 1) {
+    isRunning = false
+    currentIndex = -1
+    broadcastState()
+    await persistState()
+  }
 }
+
+// Resume processing when the between-product alarm fires
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ALARM_NAME && isRunning) {
+    processNext()
+  }
+})
 
 async function sendToPlatform(item, settings) {
   const response = await fetch(`${settings.apiUrl}/api/rufus-qna`, {
@@ -240,6 +347,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
       broadcastState()
+      persistState()
       sendResponse({ success: true, added, queueLength: queue.length })
       return true
     }
@@ -249,6 +357,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         isRunning = true
         currentIndex = queue.findIndex((q) => q.status === 'pending') - 1
         broadcastState()
+        persistState()
         processNext()
       }
       sendResponse({ success: true })
@@ -256,13 +365,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'STOP_QUEUE':
       isRunning = false
+      // Cancel any pending between-product alarm
+      chrome.alarms.clear(ALARM_NAME)
       // Mark the currently processing item as stopped
-      const processing = queue.find((q) => q.status === 'processing')
-      if (processing) {
-        processing.status = 'pending' // Reset to pending so it can be retried
-        processing.progress = null
+      {
+        const processing = queue.find((q) => q.status === 'processing')
+        if (processing) {
+          processing.status = 'pending' // Reset to pending so it can be retried
+          processing.progress = null
+        }
+      }
+      // Send abort to content script so it stops clicking
+      if (activeTabId) {
+        chrome.tabs.sendMessage(activeTabId, { type: 'ABORT_EXTRACTION' }).catch(() => {})
       }
       broadcastState()
+      persistState()
       sendResponse({ success: true })
       return true
 
@@ -270,19 +388,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       queue = []
       isRunning = false
       currentIndex = -1
+      chrome.alarms.clear(ALARM_NAME)
       broadcastState()
+      persistState()
       sendResponse({ success: true })
       return true
 
     case 'CLEAR_COMPLETED':
       queue = queue.filter((q) => q.status !== 'done' && q.status !== 'error')
       broadcastState()
+      persistState()
       sendResponse({ success: true })
       return true
 
     case 'REMOVE_FROM_QUEUE': {
       queue = queue.filter((q) => !(q.asin === message.data.asin && q.marketplace === message.data.marketplace))
       broadcastState()
+      persistState()
       sendResponse({ success: true })
       return true
     }
@@ -296,6 +418,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
       broadcastState()
+      persistState()
       sendResponse({ success: true })
       return true
     }
@@ -325,5 +448,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId === activeTabId) {
     activeTabId = null
+    persistState()
   }
 })

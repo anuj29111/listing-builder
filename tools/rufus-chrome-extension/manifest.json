@@ -5,6 +5,7 @@
   "description": "Automates Rufus Q&A extraction from Amazon product pages and sends data to Listing Builder",
   "permissions": [
     "storage",
+    "alarms",
     "activeTab",
     "scripting",
     "tabs"

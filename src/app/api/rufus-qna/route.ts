@@ -133,7 +133,7 @@ export async function POST(request: Request) {
     // Fetch existing record (may have Oxylabs Q&A, previous Rufus Q&A, or both)
     const { data: existing } = await adminClient
       .from('lb_asin_questions')
-      .select('id, questions')
+      .select('id, questions, raw_response')
       .eq('asin', cleanedAsin)
       .eq('country_id', country.id)
       .single()
@@ -152,9 +152,14 @@ export async function POST(request: Request) {
       )
 
       // Only add pairs that don't exist yet (exact Q+A match)
-      const newPairs = incomingQuestions.filter(
-        (q) => !existingKeys.has(dedupKey(q.question, q.answer))
-      )
+      // Also dedup within the incoming batch itself
+      const seenNew = new Set<string>()
+      const newPairs = incomingQuestions.filter((q) => {
+        const key = dedupKey(q.question, q.answer)
+        if (existingKeys.has(key) || seenNew.has(key)) return false
+        seenNew.add(key)
+        return true
+      })
 
       mergedQuestions = [...existingPairs, ...newPairs]
       newQuestionsAdded = newPairs.length
@@ -172,6 +177,21 @@ export async function POST(request: Request) {
       newQuestionsAdded = mergedQuestions.length
     }
 
+    // Build raw_response: preserve existing metadata (e.g. Oxylabs), nest Rufus under its own key
+    const rufusMetadata = {
+      last_batch_size: incomingQuestions.length,
+      new_added: newQuestionsAdded,
+      total_rufus: mergedQuestions.filter((q) => q.source === 'rufus').length,
+      total_oxylabs: mergedQuestions.filter((q) => q.source !== 'rufus').length,
+      extracted_at: new Date().toISOString(),
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existingRawResponse = (existing?.raw_response as Record<string, any>) || {}
+    const mergedRawResponse = {
+      ...existingRawResponse,
+      rufus: rufusMetadata,
+    }
+
     const { data: saved, error: saveErr } = await adminClient
       .from('lb_asin_questions')
       .upsert(
@@ -181,14 +201,7 @@ export async function POST(request: Request) {
           marketplace_domain: marketplace,
           total_questions: mergedQuestions.length,
           questions: mergedQuestions,
-          raw_response: {
-            source: 'rufus_extension',
-            last_batch_size: incomingQuestions.length,
-            new_added: newQuestionsAdded,
-            total_rufus: mergedQuestions.filter((q) => q.source === 'rufus').length,
-            total_oxylabs: mergedQuestions.filter((q) => q.source !== 'rufus').length,
-            extracted_at: new Date().toISOString(),
-          },
+          raw_response: mergedRawResponse,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'asin,country_id' }

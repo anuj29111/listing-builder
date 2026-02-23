@@ -129,6 +129,9 @@ function checkAmazonLogin() {
 
 // ─── Main Extraction Logic ───────────────────────────────────────
 
+// Global ref to current extractor so ABORT_EXTRACTION can reach it
+let currentExtractor = null
+
 class RufusExtractor {
   constructor(settings) {
     this.maxQuestions = settings.maxQuestions || 200 // Safety cap
@@ -139,6 +142,7 @@ class RufusExtractor {
     // Track consecutive rounds with no new questions to decide when to stop
     this.consecutiveEmptyRounds = 0
     this.maxEmptyRounds = 3 // Stop after 3 rounds with no new questions
+    this.aborted = false
   }
 
   /**
@@ -168,7 +172,7 @@ class RufusExtractor {
   async clickQuestions() {
     let questionsClicked = 0
 
-    while (questionsClicked < this.maxQuestions) {
+    while (questionsClicked < this.maxQuestions && !this.aborted) {
       // Find available question chips that haven't been clicked
       const chips = queryAll(this.selectors.questionChip)
       const unclicked = chips.filter((chip) => {
@@ -341,11 +345,27 @@ class RufusExtractor {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'EXTRACT_RUFUS_QA') {
     const extractor = new RufusExtractor(message.settings)
+    currentExtractor = extractor
     extractor
       .run()
-      .then(sendResponse)
-      .catch((err) => sendResponse({ success: false, error: err.message }))
+      .then((result) => {
+        currentExtractor = null
+        sendResponse(result)
+      })
+      .catch((err) => {
+        currentExtractor = null
+        sendResponse({ success: false, error: err.message })
+      })
     return true // Keep the message channel open for async response
+  }
+
+  if (message.type === 'ABORT_EXTRACTION') {
+    if (currentExtractor) {
+      currentExtractor.aborted = true
+      console.log('[Rufus Extractor] Abort signal received — stopping extraction')
+    }
+    sendResponse({ success: true })
+    return true
   }
 
   if (message.type === 'CHECK_LOGIN') {

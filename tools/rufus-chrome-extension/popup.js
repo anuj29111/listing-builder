@@ -212,15 +212,23 @@ exportBtn.addEventListener('click', () => {
       return
     }
 
-    // Build CSV with proper escaping
+    // Build CSV with proper escaping (handles newlines, commas, quotes)
+    function csvEscape(val) {
+      const str = String(val || '')
+      if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+        return `"${str.replace(/"/g, '""')}"`
+      }
+      return str
+    }
+
     const rows = [['ASIN', 'Marketplace', 'Question', 'Answer']]
     for (const item of response.data) {
       for (const qa of item.questions) {
         rows.push([
-          item.asin,
-          item.marketplace,
-          `"${(qa.question || '').replace(/"/g, '""')}"`,
-          `"${(qa.answer || '').replace(/"/g, '""')}"`,
+          csvEscape(item.asin),
+          csvEscape(item.marketplace),
+          csvEscape(qa.question),
+          csvEscape(qa.answer),
         ])
       }
     }
