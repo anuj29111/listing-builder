@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Clock, ChevronRight, Loader2, ArrowLeft, Sparkles, Check, X, ExternalLink, Trash2 } from 'lucide-react'
+import { Search, Clock, ChevronRight, Loader2, ArrowLeft, Sparkles, Check, X, ExternalLink, Trash2, FileDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import type { LbCountry, LbMarketIntelligence } from '@/types'
 import type { MarketIntelligenceResult } from '@/types/market-intelligence'
 import { MarketIntelligenceReport } from './MarketIntelligenceReport'
+import { generateMIReportHTML, downloadMIReport } from '@/lib/mi-pdf'
 import toast from 'react-hot-toast'
 import { TagBadge } from '@/components/shared/TagInput'
 import { NotesIndicator } from '@/components/shared/NotesEditor'
@@ -846,6 +847,30 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
   if (view === 'report' && reportData) {
     const country = countries.find(c => c.id === reportData.country_id)
     const keywords = (reportData as unknown as Record<string, unknown>).keywords as string[] | undefined
+    const displayKeyword = keywords && keywords.length > 1 ? keywords.join(', ') : reportData.keyword
+
+    const handleDownloadPDF = () => {
+      const analysisResult = reportData.analysis_result as unknown as MarketIntelligenceResult
+      if (!analysisResult) {
+        toast.error('No analysis data to export')
+        return
+      }
+      const html = generateMIReportHTML(
+        analysisResult,
+        (reportData.competitors_data || []) as unknown as Array<Record<string, unknown>>,
+        {
+          keyword: displayKeyword,
+          marketplace: country?.name || 'Unknown',
+          flagEmoji: country?.flag_emoji || undefined,
+          date: new Date(reportData.created_at).toLocaleDateString(),
+          competitorCount: reportData.selected_asins?.length || reportData.top_asins?.length || 0,
+          modelUsed: reportData.model_used || undefined,
+          tokensUsed: reportData.tokens_used || undefined,
+          marketplaceDomain: reportData.marketplace_domain,
+        },
+      )
+      downloadMIReport(html)
+    }
 
     return (
       <div className="space-y-6">
@@ -854,16 +879,22 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
             <ArrowLeft className="h-4 w-4 mr-1" />
             Back to Search
           </Button>
-          <div className="text-xs text-muted-foreground">
-            {reportData.tokens_used && `${(reportData.tokens_used / 1000).toFixed(0)}K tokens`}
-            {reportData.oxylabs_calls_used > 0 && ` · ${reportData.oxylabs_calls_used} API calls`}
-            {reportData.model_used && ` · ${reportData.model_used}`}
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={handleDownloadPDF}>
+              <FileDown className="h-4 w-4 mr-1" />
+              Download PDF
+            </Button>
+            <div className="text-xs text-muted-foreground">
+              {reportData.tokens_used && `${(reportData.tokens_used / 1000).toFixed(0)}K tokens`}
+              {reportData.oxylabs_calls_used > 0 && ` · ${reportData.oxylabs_calls_used} API calls`}
+              {reportData.model_used && ` · ${reportData.model_used}`}
+            </div>
           </div>
         </div>
 
         <div className="text-center space-y-1">
           <h2 className="text-2xl font-bold">
-            {country?.flag_emoji} Market Intelligence: &ldquo;{keywords && keywords.length > 1 ? keywords.join(', ') : reportData.keyword}&rdquo;
+            {country?.flag_emoji} Market Intelligence: &ldquo;{displayKeyword}&rdquo;
           </h2>
           <p className="text-sm text-muted-foreground">
             {country?.name} · {reportData.selected_asins?.length || reportData.top_asins?.length || 0} competitors analyzed · {new Date(reportData.created_at).toLocaleDateString()}
