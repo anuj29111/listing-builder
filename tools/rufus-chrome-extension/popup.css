@@ -48,6 +48,12 @@ header h1 {
 }
 
 /* Fields */
+.field-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .field {
   margin-bottom: 8px;
 }

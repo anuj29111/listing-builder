@@ -15,20 +15,34 @@
 
     <!-- Input Section -->
     <section class="input-section">
-      <div class="field">
-        <label for="marketplace">Marketplace</label>
-        <select id="marketplace">
-          <option value="amazon.com">US (amazon.com)</option>
-          <option value="amazon.co.uk">UK (amazon.co.uk)</option>
-          <option value="amazon.de">DE (amazon.de)</option>
-          <option value="amazon.fr">FR (amazon.fr)</option>
-          <option value="amazon.ca">CA (amazon.ca)</option>
-          <option value="amazon.it">IT (amazon.it)</option>
-          <option value="amazon.es">ES (amazon.es)</option>
-          <option value="amazon.com.mx">MX (amazon.com.mx)</option>
-          <option value="amazon.com.au">AU (amazon.com.au)</option>
-          <option value="amazon.ae">AE (amazon.ae)</option>
-        </select>
+      <div class="field-row">
+        <div class="field" style="flex: 1;">
+          <label for="marketplace">Marketplace</label>
+          <select id="marketplace">
+            <option value="amazon.com">US (amazon.com)</option>
+            <option value="amazon.co.uk">UK (amazon.co.uk)</option>
+            <option value="amazon.de">DE (amazon.de)</option>
+            <option value="amazon.fr">FR (amazon.fr)</option>
+            <option value="amazon.ca">CA (amazon.ca)</option>
+            <option value="amazon.it">IT (amazon.it)</option>
+            <option value="amazon.es">ES (amazon.es)</option>
+            <option value="amazon.com.mx">MX (amazon.com.mx)</option>
+            <option value="amazon.com.au">AU (amazon.com.au)</option>
+            <option value="amazon.ae">AE (amazon.ae)</option>
+          </select>
+        </div>
+        <div class="field" style="width: 100px;">
+          <label for="maxQuestionsSelect">Max Q&A</label>
+          <select id="maxQuestionsSelect">
+            <option value="20">20</option>
+            <option value="30">30</option>
+            <option value="50" selected>50</option>
+            <option value="75">75</option>
+            <option value="100">100</option>
+            <option value="150">150</option>
+            <option value="200">200</option>
+          </select>
+        </div>
       </div>
 
       <div class="field">

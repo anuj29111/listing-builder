@@ -21,10 +21,26 @@ const loginWarning = document.getElementById('loginWarning')
 const queueList = document.getElementById('queueList')
 const queueCount = document.getElementById('queueCount')
 const settingsBtn = document.getElementById('settingsBtn')
+const maxQuestionsSelect = document.getElementById('maxQuestionsSelect')
 
 // ─── Load saved preferences ─────────────────────────────────────
-chrome.storage.sync.get(['lastMarketplace'], (result) => {
+chrome.storage.sync.get(['lastMarketplace', 'settings'], (result) => {
   if (result.lastMarketplace) marketplace.value = result.lastMarketplace
+  // Restore max questions from settings (default 50)
+  const saved = result.settings?.maxQuestions
+  if (saved && maxQuestionsSelect.querySelector(`option[value="${saved}"]`)) {
+    maxQuestionsSelect.value = saved
+  }
+})
+
+// Save max questions when changed (updates the shared settings object)
+maxQuestionsSelect.addEventListener('change', () => {
+  const val = parseInt(maxQuestionsSelect.value, 10)
+  chrome.storage.sync.get('settings', (result) => {
+    const settings = result.settings || {}
+    settings.maxQuestions = val
+    chrome.storage.sync.set({ settings })
+  })
 })
 
 // ─── State Rendering ─────────────────────────────────────────────
