@@ -39,7 +39,7 @@ export default async function AsinLookupPage() {
     supabase
       .from('lb_market_intelligence')
       .select(
-        'id, keyword, country_id, marketplace_domain, max_competitors, top_asins, status, progress, error_message, tokens_used, oxylabs_calls_used, tags, notes, created_at, updated_at'
+        'id, keyword, keywords, country_id, marketplace_domain, max_competitors, top_asins, selected_asins, status, progress, error_message, tokens_used, oxylabs_calls_used, tags, notes, created_at, updated_at'
       )
       .order('created_at', { ascending: false })
       .limit(20),

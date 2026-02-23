@@ -563,9 +563,11 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                                   : record.error_message}
                               </span>
                             )}
-                            {record.top_asins && record.top_asins.length > 0 && (
+                            {record.selected_asins && record.selected_asins.length > 0 ? (
+                              <span>{record.selected_asins.length} selected / {record.top_asins?.length || '?'} ASINs</span>
+                            ) : record.top_asins && record.top_asins.length > 0 ? (
                               <span>{record.top_asins.length} ASINs</span>
-                            )}
+                            ) : null}
                             {record.tokens_used && (
                               <span>{(record.tokens_used / 1000).toFixed(0)}K tokens</span>
                             )}
