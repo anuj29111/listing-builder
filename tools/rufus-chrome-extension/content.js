@@ -102,33 +102,48 @@ function getAsinFromUrl() {
  */
 function getProductTitle() {
   const el = document.getElementById('productTitle') || document.getElementById('title')
-  return el ? el.textContent.trim().toLowerCase() : ''
+  return el ? el.textContent.trim() : ''
 }
 
 /**
- * Extract keywords from product title (words 3+ chars, no stop words).
+ * Extract meaningful keywords from text (words 3+ chars, no stop words).
+ * Used to build topic profiles from product title + initial questions.
+ *
+ * How off-topic detection works:
+ * 1. Keywords are extracted from the ACTUAL product title on the page (dynamic, not hardcoded)
+ * 2. The first 8 questions also contribute keywords to enrich the topic profile
+ * 3. After the seed phase, questions that share no keywords with the profile are off-topic
+ * 4. After 5 consecutive off-topic questions, extraction stops
  */
-function extractKeywords(title) {
-  const stopWords = new Set([
-    'the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'were',
-    'been', 'being', 'have', 'has', 'had', 'does', 'did', 'will', 'would',
-    'could', 'should', 'may', 'might', 'can', 'shall', 'not', 'but', 'yet',
-    'set', 'pack', 'pcs', 'piece', 'count', 'size', 'color', 'colours',
-  ])
-  return title
+const STOP_WORDS = new Set([
+  // Common English
+  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'were',
+  'been', 'being', 'have', 'has', 'had', 'does', 'did', 'will', 'would',
+  'could', 'should', 'may', 'might', 'can', 'shall', 'not', 'but', 'yet',
+  'also', 'just', 'more', 'most', 'some', 'any', 'all', 'each', 'every',
+  'very', 'too', 'only', 'own', 'same', 'than', 'then', 'when', 'where',
+  'which', 'while', 'who', 'whom', 'why', 'how', 'what', 'about', 'into',
+  'through', 'during', 'before', 'after', 'above', 'below', 'between',
+  'other', 'another', 'such', 'like', 'over', 'under', 'again', 'once',
+  // Question/generic words (common in Rufus questions)
+  'tell', 'know', 'come', 'comes', 'make', 'made', 'use', 'used', 'good',
+  'best', 'well', 'much', 'many', 'way', 'ways', 'get', 'got', 'need',
+  'new', 'one', 'two', 'first', 'last', 'long', 'great', 'little',
+  'right', 'big', 'high', 'low', 'small', 'large', 'old', 'different',
+  'thing', 'things', 'able', 'work', 'works', 'help', 'look', 'want',
+  // Product-generic words
+  'product', 'item', 'buy', 'purchase', 'price', 'quality', 'review',
+  'reviews', 'rating', 'recommend', 'worth', 'value', 'deal', 'compare',
+  'versus', 'better', 'worse', 'similar', 'available', 'option', 'options',
+  'set', 'pack', 'pcs', 'piece', 'count', 'size', 'color', 'colours',
+])
+
+function extractKeywords(text) {
+  return text
+    .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter((w) => w.length >= 3 && !stopWords.has(w))
-}
-
-/**
- * Check if a question is relevant to the product based on keyword overlap.
- * Returns true if the question shares at least one keyword with the product.
- */
-function isRelevantQuestion(questionText, productKeywords) {
-  if (productKeywords.length === 0) return true // Can't determine, allow all
-  const qLower = questionText.toLowerCase()
-  return productKeywords.some((kw) => qLower.includes(kw))
+    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w))
 }
 
 /**
@@ -177,8 +192,9 @@ class RufusExtractor {
     this.consecutiveEmptyRounds = 0
     this.maxEmptyRounds = 3 // Stop after 3 rounds with no new questions
     this.aborted = false
-    // Off-topic detection
-    this.productKeywords = extractKeywords(getProductTitle())
+    // Off-topic detection: learn topic from product title + first N questions
+    this.topicKeywords = new Set(extractKeywords(getProductTitle()))
+    this.seedPhaseSize = 8 // First 8 questions enrich the topic profile (always on-topic)
     this.consecutiveOffTopic = 0
     this.maxOffTopic = 5 // Stop after 5 consecutive off-topic questions
   }
@@ -265,19 +281,30 @@ class RufusExtractor {
       const target = unclicked[0]
       const questionText = target.textContent.trim()
 
-      // Off-topic detection: check if question is relevant to the product
-      if (this.productKeywords.length > 0 && !isRelevantQuestion(questionText, this.productKeywords)) {
-        this.consecutiveOffTopic++
-        console.log(
-          `[Rufus Extractor] Off-topic question (${this.consecutiveOffTopic}/${this.maxOffTopic}): "${questionText.substring(0, 50)}..."`
-        )
-        if (this.consecutiveOffTopic >= this.maxOffTopic) {
-          console.log('[Rufus Extractor] Stopping — too many consecutive off-topic questions')
-          break
+      // Off-topic detection: learn from initial questions, then detect drift
+      const questionKws = extractKeywords(questionText)
+      if (questionsClicked < this.seedPhaseSize) {
+        // Seed phase: first N questions enrich the topic profile (always on-topic)
+        for (const kw of questionKws) this.topicKeywords.add(kw)
+        this.consecutiveOffTopic = 0
+      } else if (this.topicKeywords.size > 0) {
+        // Detection phase: check if question shares any keyword with learned topic
+        const isOnTopic = questionKws.some((kw) => this.topicKeywords.has(kw))
+        if (!isOnTopic && questionKws.length > 0) {
+          this.consecutiveOffTopic++
+          console.log(
+            `[Rufus Extractor] Off-topic question (${this.consecutiveOffTopic}/${this.maxOffTopic}): "${questionText.substring(0, 50)}..."`
+          )
+          if (this.consecutiveOffTopic >= this.maxOffTopic) {
+            console.log('[Rufus Extractor] Stopping — too many consecutive off-topic questions')
+            break
+          }
+          // Still click it (to move forward) but track that it's off-topic
+        } else {
+          this.consecutiveOffTopic = 0 // Reset on relevant question
+          // On-topic questions also enrich the profile
+          for (const kw of questionKws) this.topicKeywords.add(kw)
         }
-        // Still click it (to move forward) but track that it's off-topic
-      } else {
-        this.consecutiveOffTopic = 0 // Reset on relevant question
       }
 
       this.clickedQuestions.add(questionText)
@@ -369,7 +396,8 @@ class RufusExtractor {
    */
   async run() {
     console.log('[Rufus Extractor] Starting extraction (will run until questions exhausted)...')
-    console.log(`[Rufus Extractor] Product keywords: ${this.productKeywords.join(', ')}`)
+    console.log(`[Rufus Extractor] Product title keywords: ${Array.from(this.topicKeywords).join(', ')}`)
+    console.log(`[Rufus Extractor] First ${this.seedPhaseSize} questions will enrich topic profile, then off-topic detection kicks in`)
 
     // Step 0: Check Amazon login
     const loginStatus = checkAmazonLogin()
