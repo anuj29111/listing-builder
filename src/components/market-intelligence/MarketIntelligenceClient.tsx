@@ -784,8 +784,8 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                     )}
                   </div>
                   {bsr && bsr.rank && (
-                    <div className="text-[10px] text-muted-foreground mt-0.5">
-                      BSR #{bsr.rank.toLocaleString()}
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      <span className="font-medium">BSR #{bsr.rank.toLocaleString()}</span>
                       {bsr.ladder && bsr.ladder.length > 0 && (
                         <span className="ml-1">in {bsr.ladder[bsr.ladder.length - 1]?.name || bsr.ladder[0]?.name}</span>
                       )}

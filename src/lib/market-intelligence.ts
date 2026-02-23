@@ -18,6 +18,16 @@ const CACHE_HOURS = 168 // 7 days
 const ASIN_TIMEOUT_MS = 65_000
 const DELAY_BETWEEN_CALLS_MS = 2_000
 
+/** Parse sales_volume strings like "10K+ bought in past month" or "500+ bought in past month" into numbers */
+function parseSalesVolume(str: string): number {
+  if (!str) return 0
+  const match = str.match(/^([\d,.]+)(K\+|k\+|\+)?/i)
+  if (!match) return 0
+  const num = parseFloat(match[1].replace(/,/g, ''))
+  if (match[2] && match[2].toLowerCase().startsWith('k')) return num * 1000
+  return num
+}
+
 async function updateMI(id: string, updates: Record<string, unknown>) {
   const admin = createAdminClient()
   const { error } = await admin
@@ -372,9 +382,65 @@ export async function backgroundCollect(
       }
     }
 
+    // ========== Deduplicate parent/child variations ==========
+    // Group by parent_asin, keep only the highest sales_volume variant per parent.
+    // This surfaces more diverse brands instead of listing 5 variants of the same product.
+    const allProducts = Array.from(competitorsMap.values())
+    const parentGroups = new Map<string, Array<Record<string, unknown>>>()
+    const standalone: Array<Record<string, unknown>> = []
+
+    for (const prod of allProducts) {
+      if (prod.error) { // Skip errored lookups
+        standalone.push(prod)
+        continue
+      }
+      const parentAsin = (prod.parent_asin as string) || null
+      if (parentAsin) {
+        const group = parentGroups.get(parentAsin) || []
+        group.push(prod)
+        parentGroups.set(parentAsin, group)
+      } else {
+        standalone.push(prod)
+      }
+    }
+
+    // For each parent group, keep the variant with the highest sales volume.
+    // Also check if the parent ASIN itself is in standalone (it has no parent_asin since IT is the parent).
+    const deduped: Array<Record<string, unknown>> = []
+    const consumedStandalone = new Set<string>()
+
+    Array.from(parentGroups.entries()).forEach(([parentAsin, variants]) => {
+      // Check if the parent ASIN itself was fetched as a standalone product
+      const parentProduct = standalone.find(s => (s.asin as string) === parentAsin)
+      const allCandidates = parentProduct ? [parentProduct, ...variants] : variants
+      if (parentProduct) consumedStandalone.add(parentAsin)
+
+      if (allCandidates.length === 1) {
+        deduped.push(allCandidates[0])
+      } else {
+        // Parse sales_volume strings like "10K+ bought..." or "500+ bought..."
+        const withParsed = allCandidates.map(v => ({
+          product: v,
+          volume: parseSalesVolume((v.sales_volume as string) || ''),
+        }))
+        withParsed.sort((a, b) => b.volume - a.volume)
+        deduped.push(withParsed[0].product)
+        const keptAsin = withParsed[0].product.asin
+        const removedAsins = allCandidates.filter(v => v.asin !== keptAsin).map(v => v.asin)
+        console.log(`[MI ${id}] Parent dedup: kept ${keptAsin}, removed ${removedAsins.length} variants (${removedAsins.join(', ')})`)
+      }
+    })
+
+    // Add standalone products that weren't consumed by a parent group
+    for (const prod of standalone) {
+      if (!consumedStandalone.has(prod.asin as string)) {
+        deduped.push(prod)
+      }
+    }
+
     // ========== Save collected data & transition to awaiting_selection ==========
-    const competitorsData = Array.from(competitorsMap.values())
-    const topAsins = Array.from(competitorsMap.keys())
+    const competitorsData = deduped
+    const topAsins = deduped.map(c => c.asin as string).filter(Boolean)
 
     if (topAsins.length === 0) {
       await updateMI(id, { status: 'failed', error_message: 'No products found for any keyword' })
