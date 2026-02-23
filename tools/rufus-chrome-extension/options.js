@@ -15,15 +15,15 @@ const DEFAULTS = {
     rufusButton:
       '[data-action="rufus-open"], #rufus-entry-point, .rufus-launcher, [aria-label*="Rufus"], [data-testid*="rufus"]',
     questionChip:
-      '.rufus-suggestion, [data-testid="rufus-suggestion"], .rufus-chip, [role="button"][data-suggestion]',
+      'li.rufus-carousel-card button',
     chatContainer:
-      '.rufus-chat-container, [data-testid="rufus-messages"], .rufus-messages',
+      '#nav-flyout-rufus',
     questionBubble:
-      '.rufus-message-user, [data-testid="rufus-user-message"], .rufus-question',
+      '.rufus-customer-text',
     answerBubble:
-      '.rufus-message-bot, [data-testid="rufus-bot-message"], .rufus-answer',
+      '[id^="section_groupId_text_template_"]',
     loadingIndicator:
-      '.rufus-loading, [data-testid="rufus-loading"], .rufus-typing',
+      '.a-spinner, .rufus-loading',
   },
 }
 

@@ -28,11 +28,11 @@ const DEFAULT_SETTINGS = {
   delayBetweenProducts: 5000,
   selectors: {
     rufusButton: '[data-action="rufus-open"], #rufus-entry-point, .rufus-launcher, [aria-label*="Rufus"], [data-testid*="rufus"]',
-    questionChip: '.rufus-suggestion, [data-testid="rufus-suggestion"], .rufus-chip, [role="button"][data-suggestion]',
-    chatContainer: '.rufus-chat-container, [data-testid="rufus-messages"], .rufus-messages',
-    questionBubble: '.rufus-message-user, [data-testid="rufus-user-message"], .rufus-question',
-    answerBubble: '.rufus-message-bot, [data-testid="rufus-bot-message"], .rufus-answer',
-    loadingIndicator: '.rufus-loading, [data-testid="rufus-loading"], .rufus-typing',
+    questionChip: 'li.rufus-carousel-card button',
+    chatContainer: '#nav-flyout-rufus',
+    questionBubble: '.rufus-customer-text',
+    answerBubble: '[id^="section_groupId_text_template_"]',
+    loadingIndicator: '.a-spinner, .rufus-loading',
   },
 }
 
