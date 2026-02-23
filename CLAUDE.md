@@ -115,8 +115,8 @@ npm run lint         # ESLint
 26. **Product Mapper** — `lb_products` table (ASIN unique key). `/products` page. Import upserts on ASIN in batches of 100.
 28. **ASIN Lookup via Oxylabs** — Oxylabs E-Commerce Scraper API. Credentials in `lb_admin_settings`. `domain` from `lb_countries.amazon_domain` minus `amazon.` prefix. `searchKeyword()`, `lookupAsin()`, `fetchQuestions()` return `{ success, data?, error? }` — always unwrap `.data`.
 29. **ASIN Lookup page is 5-tabbed** — "ASIN Lookup" | "Keyword Search" | "Reviews" | "Market Intelligence" | "Collections". Tables: `lb_asin_lookups`, `lb_keyword_searches`, `lb_asin_reviews`, `lb_market_intelligence`, `lb_asin_questions` (7-day TTL). All UNIQUE on entity+country. `toAbsoluteAmazonUrl()` for relative URLs.
-51. **Apify review provider** — `src/lib/apify.ts`. Actor: `delicious_zebu~amazon-reviews-scraper-with-advanced-filters`. Token from `lb_admin_settings` key `apify_api_token`. Default provider. Background fetch: fire-and-forget → `lb_asin_reviews.status` (`pending → fetching → completed/failed`) + `error_message`. Frontend polls every 3s, auto-resumes on mount. Uses `createAdminClient()` for background DB writes. `max_reviews` is snake_case (actor ignores camelCase). Star ratings: validates `Score` range + `parseRatingFromTitle()` fallback. Images deduplicated. CSV export + image lightbox. Also wired into MI background analysis.
-31. **Market Intelligence** — Multi-keyword → dedup ASINs → product selection → 4-phase Claude analysis (16384 tokens each). Status: `pending → collecting → awaiting_selection → analyzing → completed/failed`. "Our Product" badges. Competitor cards: expandable, lightbox, CSV export.
+51. **Apify review provider** — `src/lib/apify.ts`. Actor: `delicious_zebu~amazon-reviews-scraper-with-advanced-filters`. Token: `apify_api_token`. Background fetch: fire-and-forget → status polling via `fetchingIdsRef` (ref avoids stale closure). `createAdminClient()` for background writes. `max_reviews` snake_case only — ALWAYS send it (0=no limit, omitting uses actor's tiny default). Actor fields: `ReviewScore`(string), `ReviewId`, `HelpfulCounts`(text), `Variant`(array), `Verified`(bool), aspects: `positiv`/`negativ`/`aspect_name`. Smart refresh + confirmation dialog. Paginated (25/page), collapsible. CSV includes image URLs. Wired into MI. Actor returns ~3.4x duplicates (multi-filter scraping) — dedup on `ReviewId` is correct and required.
+31. **Market Intelligence** — Multi-keyword → parent-level dedup (highest `sales_volume` per `parent_asin`) → product selection (auto-saved to DB, BSR/badges) → parallel Apify reviews (`fetchReviewsParallel()`: 3s stagger, 15s poll, 75%+ threshold) → Q&A sequential → 4-phase Claude analysis. Primitives in `apify.ts`: `startApifyReviewRun`, `checkApifyRunStatus`, `fetchApifyDataset`.
 32. **ASIN Lookup auto-fetches Q&A** — `POST /api/asin-lookup` fetches Q&A alongside product data. Cached in `lb_asin_questions`.
 33. **Collections, Tags & Notes** — All 4 research tables: `tags TEXT[]` (GIN) + `notes TEXT`. `lb_collections` + `lb_collection_items` (CASCADE). API: `/api/collections` CRUD, `/api/tags` autocomplete. 5th Collections tab.
 
@@ -133,23 +133,29 @@ npm run lint         # ESLint
 
 ## Reference Docs
 
-34. **Seller Pull** — `/seller-pull` pulls catalog via Oxylabs `amazon_search` with `merchant_id`. Multi-country tabs from `lb_admin_settings` `seller_ids` JSON. Smart auto-categorization, bundle detection. Flow: Pull → Import → Scrape Details → Discover Variations. API: `/api/seller-pull` (pull/import/scrape/variations). `fetchSellerProducts()` paginates 3 pages/batch, max 20 pages. Variation discovery: `lookupAsin()` on parent ASINs finds hidden siblings.
+34. **Seller Pull** — `/seller-pull` pulls catalog via Oxylabs `amazon_search` with `merchant_id`. Multi-country tabs from `lb_admin_settings` `seller_ids` JSON. Smart auto-categorization, bundle detection. Flow: Pull → Import → Scrape Details → Discover Variations. `fetchSellerProducts()` paginates 3 pages/batch, max 20 pages.
 37. **Map iteration** — Use `Array.from(map.entries()).forEach()` to avoid `--downlevelIteration` errors.
 38. **Creative Brief layer** — `lb_image_workshops` has `creative_brief JSONB`, `product_photos TEXT[]`, `product_photo_descriptions JSONB`. Brief generated via `/api/images/workshop/creative-brief`. Propagates to ALL 6 prompt builders via `buildImageResearchContext()`.
 39. **Product photo upload** — `/api/images/workshop/upload-photos` (FormData → Storage). `/api/images/workshop/analyze-photos` → Claude Vision base64. Anthropic SDK 0.24.3 requires base64 — use `fetchImageAsBase64()`.
 40. **Workshop 3-state flow** — State 1: no workshop → "Start Workshop". State 2: workshop, no prompts → photos + brief + CTA. State 3: prompts → concept cards. `skip_prompt_generation: true` for photo-first flow. ConceptCard `imageType` prop controls metadata fields per tab.
 41. **Reference images** — Product photos as visual refs: OpenAI (`images.edit()` + `toFile()`, `gpt-image-1` model, up to 16 refs), Gemini (`inlineData`). `fetchReferenceImages()` fetches ONCE per batch. `images.generate()` for text-only with `gpt-image-1.5`.
-
-42. **Listing quality rules** — Titles: 185-200 chars (post-gen validation + retry). Bullets: sentence case only (NO ALL CAPS except acronyms), 180-250 chars, 3 variations per bullet. Search terms: no word repetition, lowercase, no brand/ASINs. Backend attributes: 25+ Amazon categories.
-43. **DB constraints for bullets** — `lb_listing_sections_section_type_check` includes `bullet_6` through `bullet_10`. `lb_countries`: `bullet_limit=250`, `bullet_count=10`. UNIQUE on `(listing_id, section_type)` — always `.upsert()` with `onConflict`.
+42. **Listing quality rules** — Titles: 185-200 chars (validation + retry). Bullets: sentence case, 180-250 chars, 3 variations. Search terms: no repetition, lowercase, no brand/ASINs.
+43. **DB constraints for bullets** — `bullet_6`–`bullet_10` in check constraint. `bullet_limit=250`, `bullet_count=10`. UNIQUE `(listing_id, section_type)` — always `.upsert()` with `onConflict`.
 47. **Bullet variations format** — `BulletsPhaseResult.bullets` is `string[][]` (not nested strategy objects). Each bullet gets 3 flat variations. `normalizeBullet()` handles legacy format.
-
-48. **MI background analysis** — `/collect` does keyword search + product lookup (~30s). `/select` fires `backgroundAnalyze()` (fire-and-forget) — fetches reviews + Q&A + 4-phase Claude analysis. No separate `/analyze` route. GET `[id]` has 30-min stale detection. Frontend auto-resumes on mount.
-
 44. **Own Product badge** — Green "Own" badge for ASINs in `lb_products`. Batch API: `GET /api/products/check-asins?asins=...`. Collection badges also inline.
 45. **Oxylabs source limitations** — `amazon_reviews` unsupported on current plan. Fallback: `amazon_product` top reviews (~13). Code auto-detects.
-49. **MI in Research** — MI replaces Competitor Analysis. Bridge record: `lb_research_analysis` with `analysis_type='market_intelligence'`, `source='linked'`, `market_intelligence_id` FK. API: `GET/POST/DELETE /api/research/market-intelligence`. Product count: use `top_asins` fallback when `selected_asins` null. `analyzed_by` → `lbUser.id` (NOT `authUser.id`).
-50. **MI auto-resolve in generation** — All listing + image routes auto-resolve linked MI from bridge record. `buildCompetitiveSection()` prefers MI over legacy competitor data. Flows into `buildSharedContext()`, `buildImageResearchContext()`, and all 8 image/video routes.
+49. **MI in Research** — Bridge: `lb_research_analysis` with `analysis_type='market_intelligence'`, `source='linked'`, `market_intelligence_id` FK. `analyzed_by` → `lbUser.id` (NOT `authUser.id`).
+50. **MI auto-resolve in generation** — All listing + image routes auto-resolve linked MI. `buildCompetitiveSection()` prefers MI over legacy competitor data.
+52. **Apify review quirks** — `RatingTypeTotalReviews` unreliable (sometimes "5.0 out of 5 stars"), fallback if parsed < actual. Smart refresh: auto if >3 months or requesting more; `status: 'exists'` → confirmation dialog.
+54. **Apify polling timeout** — `APIFY_MAX_WAIT_SECS = 3600` (60 min). Stale fetch recovery: >30 min → auto-reset to failed. NEVER deploy while fetching.
+55. **Reviews history** — page.tsx MUST include `status, error_message` in SELECT. `refreshHistory()` on mount. Expanded view: full ReviewCards, 25/page pagination, no "+X more".
+56. **`maxReviewsRequested`** — Stored in `raw_response` JSONB. Displayed as "(requested: X)" in results header and expanded view.
+
+57. **Rufus Q&A Chrome Extension** — `tools/rufus-chrome-extension/` (MV3). Opens Rufus sidebar on Amazon product pages, clicks suggested questions, extracts Q&A pairs. Sequential processing (one ASIN at a time). State persisted via `chrome.storage.local`. API key in `chrome.storage.local` (not synced). Settings in `chrome.storage.sync`. API endpoint: `POST /api/rufus-qna` with bearer token `rufus_extension_api_key` from `lb_admin_settings`. Upserts to `lb_asin_questions` with `onConflict: 'asin,country_id'`.
+58. **Rufus off-topic detection** — Extracts keywords from product title + first 8 questions to build topic profile. After seed phase, questions sharing no keywords with profile = off-topic. 5 consecutive off-topic → stop. On-topic questions keep enriching profile.
+59. **Rufus partial results** — On timeout, sends `EXTRACT_QA_ONLY` to salvage DOM Q&A. Errored items with Q&A show count + exportable in CSV. `ABORT_EXTRACTION` stops clicking.
+60. **Rufus between-product refresh** — Must force-refresh between products to reset Rufus chat state. `about:blank` → product URL navigation. Known issue: Rufus sometimes retains previous session Q&A if page not fully reset.
+61. **Rufus DOM selectors** — `questionChip: 'li.rufus-carousel-card button'`, `chatContainer: '#nav-flyout-rufus'`, `questionBubble: '.rufus-customer-text'`, `answerBubble: '[id^="section_groupId_text_template_"]'`. Configurable in extension Settings.
 
 ---
 
@@ -157,3 +163,6 @@ npm run lint         # ESLint
 
 - **e2e Testing:** All modules — Listings, Image Builder, ASIN Lookup, Keyword Search, Reviews, Market Intelligence, Seller Pull
 - **Seller Pull — Automated Periodic Pulls:** Automate regular pulls at intervals (not yet built)
+- **Rufus Extension — Force Refresh:** Rufus retains old Q&A between products. Need harder page reset (clear Rufus state fully before next ASIN)
+- **Rufus Q&A Page:** New `/rufus-qna` page — manual ASIN input OR auto-feed from Market Intelligence selected ASINs. Displays extraction status, results, integrates with research phase
+- **MI → Rufus Pipeline:** Flow selected MI ASINs into Rufus Q&A module for automated extraction
