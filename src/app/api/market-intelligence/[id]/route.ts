@@ -61,6 +61,7 @@ export async function PATCH(
     const updates: Record<string, unknown> = {}
     if (body.tags !== undefined) updates.tags = body.tags
     if (body.notes !== undefined) updates.notes = body.notes || null
+    if (body.selected_asins !== undefined) updates.selected_asins = body.selected_asins
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
@@ -70,7 +71,7 @@ export async function PATCH(
       .from('lb_market_intelligence')
       .update(updates)
       .eq('id', params.id)
-      .select('id, tags, notes')
+      .select('id, tags, notes, selected_asins')
       .single()
 
     if (error) {

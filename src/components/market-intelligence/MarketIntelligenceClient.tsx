@@ -1,13 +1,13 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Clock, ChevronRight, Loader2, ArrowLeft, Sparkles, Check, X, ExternalLink } from 'lucide-react'
+import { Search, Clock, ChevronRight, Loader2, ArrowLeft, Sparkles, Check, X, ExternalLink, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import type { LbCountry, LbMarketIntelligence } from '@/types'
 import type { MarketIntelligenceResult } from '@/types/market-intelligence'
 import { MarketIntelligenceReport } from './MarketIntelligenceReport'
@@ -55,6 +55,10 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
   const [lightboxImage, setLightboxImage] = useState<string | null>(null)
   const [selectionDomain, setSelectionDomain] = useState<string>('')
 
+  // Delete confirmation state
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [deleteConfirmKeyword, setDeleteConfirmKeyword] = useState<string>('')
+
   // Report state
   const [reportData, setReportData] = useState<LbMarketIntelligence | null>(null)
 
@@ -93,7 +97,13 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
         const competitors = (data.competitors_data || []) as Array<Record<string, unknown>>
         const validProducts = competitors.filter(c => !c.error)
         setSelectionProducts(validProducts)
-        setSelectedAsins(new Set(validProducts.map(p => p.asin as string)))
+        // Restore saved selections if available, otherwise select all
+        const savedSelections = data.selected_asins as string[] | null
+        if (savedSelections && savedSelections.length > 0) {
+          setSelectedAsins(new Set(savedSelections))
+        } else {
+          setSelectedAsins(new Set(validProducts.map(p => p.asin as string)))
+        }
         setSelectionDomain(data.marketplace_domain || '')
         setView('product_selection')
         toast.success(`Found ${validProducts.length} products. Select which to analyze.`)
@@ -222,7 +232,13 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
           const competitors = (data.competitors_data || []) as Array<Record<string, unknown>>
           const validProducts = competitors.filter((c: Record<string, unknown>) => !c.error)
           setSelectionProducts(validProducts)
-          setSelectedAsins(new Set(validProducts.map((p: Record<string, unknown>) => p.asin as string)))
+          // Restore saved selections if available, otherwise select all
+          const savedSelections = data.selected_asins as string[] | null
+          if (savedSelections && savedSelections.length > 0) {
+            setSelectedAsins(new Set(savedSelections))
+          } else {
+            setSelectedAsins(new Set(validProducts.map((p: Record<string, unknown>) => p.asin as string)))
+          }
           setSelectionDomain(data.marketplace_domain || '')
           setView('product_selection')
         }
@@ -280,15 +296,33 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
     }
   }
 
-  const handleDelete = async (id: string) => {
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirmId) return
     try {
-      await fetch(`/api/market-intelligence/${id}`, { method: 'DELETE' })
-      setHistory(prev => prev.filter(h => h.id !== id))
+      await fetch(`/api/market-intelligence/${deleteConfirmId}`, { method: 'DELETE' })
+      setHistory(prev => prev.filter(h => h.id !== deleteConfirmId))
       toast.success('Report deleted')
     } catch {
       toast.error('Failed to delete')
+    } finally {
+      setDeleteConfirmId(null)
+      setDeleteConfirmKeyword('')
     }
   }
+
+  // Auto-save product selections to DB (debounced)
+  const saveSelectionTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const saveSelectionsToDb = useCallback((asins: Set<string>) => {
+    if (!activeRecordId || asins.size === 0) return
+    if (saveSelectionTimerRef.current) clearTimeout(saveSelectionTimerRef.current)
+    saveSelectionTimerRef.current = setTimeout(() => {
+      fetch(`/api/market-intelligence/${activeRecordId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selected_asins: Array.from(asins) }),
+      }).catch(() => {}) // Silent save
+    }, 1000)
+  }, [activeRecordId])
 
   // Filter history by search term
   const filteredHistory = historyFilter.trim()
@@ -514,11 +548,18 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                             Select Products <ChevronRight className="h-3 w-3 ml-1" />
                           </Button>
                         )}
-                        {record.status === 'failed' && (
-                          <Button size="sm" variant="ghost" onClick={() => handleDelete(record.id!)} className="text-xs text-destructive">
-                            Delete
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            const kws = (record as Record<string, unknown>).keywords as string[] | undefined
+                            setDeleteConfirmKeyword(kws && kws.length > 1 ? kws.join(', ') : (record.keyword || 'this report'))
+                            setDeleteConfirmId(record.id!)
+                          }}
+                          className="text-xs text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
                         {record.status && ['pending', 'collecting', 'collected', 'analyzing'].includes(record.status) && (
                           <Button size="sm" variant="outline" onClick={() => handleViewBrief(record)} className="text-xs">
                             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
@@ -536,6 +577,25 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
             </div>
           </div>
         )}
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={!!deleteConfirmId} onOpenChange={() => { setDeleteConfirmId(null); setDeleteConfirmKeyword('') }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete Report</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to permanently delete the market intelligence report for <span className="font-medium text-foreground">&quot;{deleteConfirmKeyword}&quot;</span>? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => { setDeleteConfirmId(null); setDeleteConfirmKeyword('') }}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={handleDeleteConfirm}>
+                Delete Report
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
@@ -633,10 +693,17 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
         </div>
 
         <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={() => setSelectedAsins(new Set(selectionProducts.map(p => p.asin as string)))}>
+          <Button variant="outline" size="sm" onClick={() => {
+            const all = new Set(selectionProducts.map(p => p.asin as string))
+            setSelectedAsins(all)
+            saveSelectionsToDb(all)
+          }}>
             Select All
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setSelectedAsins(new Set())}>
+          <Button variant="outline" size="sm" onClick={() => {
+            setSelectedAsins(new Set())
+            saveSelectionsToDb(new Set())
+          }}>
             Clear All
           </Button>
         </div>
@@ -653,11 +720,15 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
             const reviewsCount = (prod.reviews_count as number) || 0
             const images = (prod.images as string[]) || []
             const isOurProduct = ourAsins.has(asin)
+            const salesVolume = (prod.sales_volume as string) || ''
+            const amazonChoice = (prod.amazon_choice as boolean) || false
+            const salesRank = (prod.sales_rank as Array<{ rank?: number; ladder?: Array<{ name: string }> }>) || []
+            const bsr = salesRank[0]
 
             return (
               <div
                 key={i}
-                className={`rounded-lg border p-3 flex items-center gap-3 cursor-pointer transition-colors ${
+                className={`rounded-lg border p-3 flex items-start gap-3 cursor-pointer transition-colors ${
                   isSelected ? 'bg-card border-primary/50' : 'bg-muted/20 opacity-60'
                 }`}
                 onClick={() => {
@@ -665,9 +736,10 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                   if (next.has(asin)) next.delete(asin)
                   else next.add(asin)
                   setSelectedAsins(next)
+                  saveSelectionsToDb(next)
                 }}
               >
-                <div className={`h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                <div className={`h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
                   isSelected ? 'bg-primary border-primary' : 'border-muted-foreground/40'
                 }`}>
                   {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
@@ -687,7 +759,7 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
 
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium line-clamp-1">{title}</p>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 flex-wrap">
                     {brand && <span>{brand}</span>}
                     <span className="font-mono text-[10px]">{asin}</span>
                     {selectionDomain && (
@@ -704,13 +776,26 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                     {isOurProduct && (
                       <Badge className="text-[9px] bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 px-1 py-0">Our Product</Badge>
                     )}
+                    {amazonChoice && (
+                      <Badge className="text-[9px] bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 px-1 py-0">Amazon&apos;s Choice</Badge>
+                    )}
+                    {salesVolume && (
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 font-normal">{salesVolume}</Badge>
+                    )}
                   </div>
+                  {bsr && bsr.rank && (
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                      BSR #{bsr.rank.toLocaleString()}
+                      {bsr.ladder && bsr.ladder.length > 0 && (
+                        <span className="ml-1">in {bsr.ladder[bsr.ladder.length - 1]?.name || bsr.ladder[0]?.name}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0">
+                <div className="flex flex-col items-end gap-0.5 text-xs text-muted-foreground flex-shrink-0">
                   {price != null && <span className="font-semibold text-foreground">{currency}{price.toFixed(2)}</span>}
-                  <span>{rating.toFixed(1)}★</span>
-                  <span>{reviewsCount.toLocaleString()} rev</span>
+                  <span>{rating.toFixed(1)}★ · {reviewsCount.toLocaleString()} rev</span>
                 </div>
               </div>
             )
