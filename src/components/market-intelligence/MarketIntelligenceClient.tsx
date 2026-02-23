@@ -261,18 +261,22 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
     if (!record.id) return
 
     const completedPhases = record.progress?.completed_phases || []
-    const resumePhase = completedPhases.length > 0
-      ? `phase ${completedPhases.length + 1}`
+    // Infer if reviews are done from progress step (phase_1+ means reviews were fetched)
+    const failedStep = record.progress?.failed_at || record.progress?.step || ''
+    const reviewsDone = failedStep.startsWith('phase_') || completedPhases.length > 0
+    const nextPhase = completedPhases.length + 1
+    const resumeLabel = reviewsDone
+      ? (completedPhases.length > 0 ? `phase ${nextPhase} (${completedPhases.length} phases saved)` : 'phase 1 (reviews already fetched)')
       : 'the beginning'
 
     setActiveRecordId(record.id)
     setLoading(true)
     setView('progress')
     setProgressData({
-      step: completedPhases.length > 0 ? `phase_${completedPhases.length + 1}` : 'review_fetch',
+      step: reviewsDone ? `phase_${nextPhase}` : 'review_fetch',
       current: completedPhases.length,
       total: 4,
-      message: `Resuming from ${resumePhase}...`,
+      message: `Resuming from ${resumeLabel}...`,
     })
 
     try {
@@ -287,7 +291,7 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
         throw new Error(err.error || 'Failed to resume')
       }
 
-      toast.success(`Resuming analysis from ${resumePhase}...`)
+      toast.success(`Resuming from ${resumeLabel}...`)
       pollRef.current = setInterval(() => pollForProgress(record.id!), POLL_INTERVAL)
     } catch (err) {
       setLoading(false)
@@ -717,7 +721,9 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
 
           <div className="space-y-2">
             {steps.map((s, i) => {
-              const isDone = i < currentStepIdx
+              const completedPhasesArr = progressData?.completed_phases || []
+              // A step is done if it's before current OR if it's in completed_phases
+              const isDone = i < currentStepIdx || completedPhasesArr.includes(s.id)
               const isCurrent = i === currentStepIdx
               return (
                 <div key={s.id} className={`flex items-center gap-3 text-sm ${
@@ -727,6 +733,9 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                     isDone ? 'bg-green-500' : isCurrent ? 'bg-primary animate-pulse' : 'bg-muted-foreground/30'
                   }`} />
                   {s.label}
+                  {isDone && !isCurrent && completedPhasesArr.includes(s.id) && (
+                    <Check className="h-3 w-3 text-green-500" />
+                  )}
                   {isCurrent && (step === 'asin_lookup' || step === 'review_fetch' || step === 'qna_fetch') && (
                     <span className="text-xs text-muted-foreground">({current}/{total})</span>
                   )}

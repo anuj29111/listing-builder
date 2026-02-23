@@ -53,14 +53,27 @@ export async function POST(
     const completedPhases = ((record.progress as Record<string, unknown>)?.completed_phases || []) as string[]
     const hasReviewsData = record.reviews_data && Object.keys(record.reviews_data as Record<string, unknown>).length > 0
 
-    const resumeStep = isResume && hasReviewsData && completedPhases.length > 0
-      ? `phase_${completedPhases.length + 1}`
-      : 'review_fetch'
-    const resumeMessage = isResume && completedPhases.length > 0
-      ? `Resuming from phase ${completedPhases.length + 1} of 4...`
-      : isResume && hasReviewsData
-        ? 'Resuming analysis (reviews already fetched)...'
-        : 'Starting review collection...'
+    // Determine resume step and message
+    let resumeStep: string
+    let resumeMessage: string
+    let resumeCurrent: number
+    let resumeTotal: number
+
+    if (isResume && hasReviewsData) {
+      // Reviews already fetched — skip to Claude analysis phases
+      const nextPhase = completedPhases.length + 1
+      resumeStep = `phase_${nextPhase}`
+      resumeCurrent = completedPhases.length
+      resumeTotal = 4
+      resumeMessage = completedPhases.length > 0
+        ? `Resuming from phase ${nextPhase} of 4 (${completedPhases.length} phases already saved)...`
+        : `Resuming analysis — reviews already fetched, starting phase 1 of 4...`
+    } else {
+      resumeStep = 'review_fetch'
+      resumeCurrent = 0
+      resumeTotal = effectiveAsins.length
+      resumeMessage = 'Starting review collection...'
+    }
 
     // Update status to analyzing
     await admin.from('lb_market_intelligence').update({
@@ -69,8 +82,8 @@ export async function POST(
       error_message: null, // Clear previous error
       progress: {
         step: resumeStep,
-        current: completedPhases.length,
-        total: isResume && hasReviewsData ? 4 : effectiveAsins.length,
+        current: resumeCurrent,
+        total: resumeTotal,
         message: resumeMessage,
         completed_phases: completedPhases,
       },
