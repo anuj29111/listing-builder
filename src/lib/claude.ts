@@ -2660,7 +2660,7 @@ Only return valid JSON, no markdown fences or explanation.`
 async function runMIPhase(
   promptBuilder: () => string,
   phaseLabel: string
-): Promise<{ result: Record<string, unknown>; model: string; tokensUsed: number }> {
+): Promise<{ result: Record<string, unknown>; model: string; tokensUsed: number; inputTokens: number }> {
   const client = await getClient()
   const model = await getModel()
   const prompt = promptBuilder()
@@ -2685,13 +2685,14 @@ async function runMIPhase(
         .join('')
 
       const result = JSON.parse(stripMarkdownFences(text)) as Record<string, unknown>
-      const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+      const inputTokens = response.usage?.input_tokens ?? 0
+      const tokensUsed = inputTokens + (response.usage?.output_tokens ?? 0)
 
       if (attempt > 0) {
         console.log(`[MI] ${phaseLabel} succeeded on attempt ${attempt + 1}`)
       }
 
-      return { result, model, tokensUsed }
+      return { result, model, tokensUsed, inputTokens }
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
 
@@ -2718,18 +2719,18 @@ async function runMIPhase(
 
 export async function analyzeMarketIntelligencePhase1Reviews(
   data: MarketIntelligenceData
-): Promise<{ result: import('@/types/market-intelligence').MarketIntelligenceReviewPhaseResult; model: string; tokensUsed: number }> {
-  const { result, model, tokensUsed } = await runMIPhase(
+): Promise<{ result: import('@/types/market-intelligence').MarketIntelligenceReviewPhaseResult; model: string; tokensUsed: number; inputTokens: number }> {
+  const { result, model, tokensUsed, inputTokens } = await runMIPhase(
     () => buildMIPhase1ReviewsPrompt(data),
     'Phase 1: Reviews'
   )
-  return { result: result as unknown as import('@/types/market-intelligence').MarketIntelligenceReviewPhaseResult, model, tokensUsed }
+  return { result: result as unknown as import('@/types/market-intelligence').MarketIntelligenceReviewPhaseResult, model, tokensUsed, inputTokens }
 }
 
 export async function analyzeMarketIntelligencePhase2QnA(
   data: MarketIntelligenceData,
   phase1Result: Record<string, unknown>
-): Promise<{ result: import('@/types/market-intelligence').MarketIntelligenceQnAPhaseResult; model: string; tokensUsed: number }> {
+): Promise<{ result: import('@/types/market-intelligence').MarketIntelligenceQnAPhaseResult; model: string; tokensUsed: number; inputTokens: number }> {
   const phase1Summary = JSON.stringify({
     sentimentAnalysis: phase1Result.sentimentAnalysis,
     topPainPoints: phase1Result.topPainPoints,
@@ -2737,23 +2738,23 @@ export async function analyzeMarketIntelligencePhase2QnA(
     perProductSummaries: phase1Result.perProductSummaries,
   }, null, 2)
 
-  const { result, model, tokensUsed } = await runMIPhase(
+  const { result, model, tokensUsed, inputTokens } = await runMIPhase(
     () => buildMIPhase2QnAPrompt(data, phase1Summary),
     'Phase 2: Q&A'
   )
-  return { result: result as unknown as import('@/types/market-intelligence').MarketIntelligenceQnAPhaseResult, model, tokensUsed }
+  return { result: result as unknown as import('@/types/market-intelligence').MarketIntelligenceQnAPhaseResult, model, tokensUsed, inputTokens }
 }
 
 export async function analyzeMarketIntelligencePhase3Market(
   data: MarketIntelligenceData,
   phase1Result: Record<string, unknown>,
   phase2Result: Record<string, unknown>
-): Promise<{ result: import('@/types/market-intelligence').MarketIntelligenceMarketPhaseResult; model: string; tokensUsed: number }> {
-  const { result, model, tokensUsed } = await runMIPhase(
+): Promise<{ result: import('@/types/market-intelligence').MarketIntelligenceMarketPhaseResult; model: string; tokensUsed: number; inputTokens: number }> {
+  const { result, model, tokensUsed, inputTokens } = await runMIPhase(
     () => buildMIPhase3MarketPrompt(data, phase1Result, phase2Result),
     'Phase 3: Market'
   )
-  return { result: result as unknown as import('@/types/market-intelligence').MarketIntelligenceMarketPhaseResult, model, tokensUsed }
+  return { result: result as unknown as import('@/types/market-intelligence').MarketIntelligenceMarketPhaseResult, model, tokensUsed, inputTokens }
 }
 
 export async function analyzeMarketIntelligencePhase4Strategy(
@@ -2761,19 +2762,19 @@ export async function analyzeMarketIntelligencePhase4Strategy(
   phase1Result: Record<string, unknown>,
   phase2Result: Record<string, unknown>,
   phase3Result: Record<string, unknown>
-): Promise<{ result: import('@/types/market-intelligence').MarketIntelligenceStrategyPhaseResult; model: string; tokensUsed: number }> {
-  const { result, model, tokensUsed } = await runMIPhase(
+): Promise<{ result: import('@/types/market-intelligence').MarketIntelligenceStrategyPhaseResult; model: string; tokensUsed: number; inputTokens: number }> {
+  const { result, model, tokensUsed, inputTokens } = await runMIPhase(
     () => buildMIPhase4StrategyPrompt(data, phase1Result, phase2Result, phase3Result),
     'Phase 4: Strategy'
   )
-  return { result: result as unknown as import('@/types/market-intelligence').MarketIntelligenceStrategyPhaseResult, model, tokensUsed }
+  return { result: result as unknown as import('@/types/market-intelligence').MarketIntelligenceStrategyPhaseResult, model, tokensUsed, inputTokens }
 }
 
 // Legacy aliases for backward compatibility
 export async function analyzeMarketIntelligencePhase1(
   data: MarketIntelligenceData
-): Promise<{ result: import('@/types/market-intelligence').MarketIntelligencePhase1Result; model: string; tokensUsed: number }> {
-  return analyzeMarketIntelligencePhase1Reviews(data) as Promise<{ result: import('@/types/market-intelligence').MarketIntelligencePhase1Result; model: string; tokensUsed: number }>
+): Promise<{ result: import('@/types/market-intelligence').MarketIntelligencePhase1Result; model: string; tokensUsed: number; inputTokens: number }> {
+  return analyzeMarketIntelligencePhase1Reviews(data) as Promise<{ result: import('@/types/market-intelligence').MarketIntelligencePhase1Result; model: string; tokensUsed: number; inputTokens: number }>
 }
 
 export async function analyzeMarketIntelligencePhase2(

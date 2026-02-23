@@ -1003,8 +1003,14 @@ export async function backgroundAnalyze(
       },
     }
 
-    // Inter-phase delay to prevent rate limit hits (token bucket refills per minute)
-    const INTER_PHASE_DELAY_MS = 30_000
+    // Dynamic rate-limit-aware delay: waits based on actual tokens consumed
+    const RATE_LIMIT_TPM = 30_000    // Anthropic tokens-per-minute limit
+    const SAFETY_BUFFER_MS = 10_000  // 10s safety buffer
+
+    const calculateRateLimitDelay = (inputTokens: number, apiCallDurationMs: number): number => {
+      const refillTimeMs = (inputTokens / RATE_LIMIT_TPM) * 60_000
+      return Math.max(0, refillTimeMs - apiCallDurationMs + SAFETY_BUFFER_MS)
+    }
 
     let totalTokens = (record.tokens_used as number) || 0
     let mergedResult: Record<string, unknown> = { ...existingAnalysis }
@@ -1019,22 +1025,25 @@ export async function backgroundAnalyze(
           progress: { step: 'phase_1', current: 0, total: 4, message: 'Phase 1: Analyzing reviews...', completed_phases: completedPhases },
         })
       }
+      const phaseStart = Date.now()
       const phase1 = await analyzeMarketIntelligencePhase1Reviews(data)
+      const apiDuration = Date.now() - phaseStart
       totalTokens += phase1.tokensUsed
       modelUsed = phase1.model
       mergedResult = { ...mergedResult, ...phase1.result }
 
       // Persist phase 1 immediately
+      const delay1 = calculateRateLimitDelay(phase1.inputTokens, apiDuration)
       await updateMI(id, {
         analysis_result: mergedResult,
         model_used: modelUsed,
         tokens_used: totalTokens,
-        progress: { step: 'phase_2', current: 1, total: 4, message: 'Phase 1 complete. Waiting before Phase 2...', completed_phases: ['phase_1'] },
+        progress: { step: 'phase_2', current: 1, total: 4, message: `Phase 1 complete. Waiting ${Math.round(delay1 / 1000)}s for rate limit...`, completed_phases: ['phase_1'] },
       })
-      console.log(`[MI ${id}] Phase 1 complete and persisted. ${phase1.tokensUsed} tokens.`)
+      console.log(`[MI ${id}] Phase 1 complete and persisted. ${phase1.inputTokens} input tokens, API took ${Math.round(apiDuration / 1000)}s, waiting ${Math.round(delay1 / 1000)}s before next phase`)
 
-      // Delay between phases to let rate limit bucket refill
-      await new Promise(resolve => setTimeout(resolve, INTER_PHASE_DELAY_MS))
+      // Dynamic delay based on actual token consumption
+      if (delay1 > 0) await new Promise(resolve => setTimeout(resolve, delay1))
     }
 
     // Phase 2: Q&A Analysis
@@ -1044,21 +1053,24 @@ export async function backgroundAnalyze(
       await updateMI(id, {
         progress: { step: 'phase_2', current: 1, total: 4, message: 'Phase 2: Analyzing Q&A data...', completed_phases: mergedResult.sentimentAnalysis ? ['phase_1'] : [] },
       })
+      const phaseStart = Date.now()
       const phase2 = await analyzeMarketIntelligencePhase2QnA(data, mergedResult)
+      const apiDuration = Date.now() - phaseStart
       totalTokens += phase2.tokensUsed
       if (!modelUsed) modelUsed = phase2.model
       mergedResult = { ...mergedResult, ...phase2.result }
 
       // Persist phase 1+2 merged
+      const delay2 = calculateRateLimitDelay(phase2.inputTokens, apiDuration)
       await updateMI(id, {
         analysis_result: mergedResult,
         model_used: modelUsed,
         tokens_used: totalTokens,
-        progress: { step: 'phase_3', current: 2, total: 4, message: 'Phase 2 complete. Waiting before Phase 3...', completed_phases: ['phase_1', 'phase_2'] },
+        progress: { step: 'phase_3', current: 2, total: 4, message: `Phase 2 complete. Waiting ${Math.round(delay2 / 1000)}s for rate limit...`, completed_phases: ['phase_1', 'phase_2'] },
       })
-      console.log(`[MI ${id}] Phase 2 complete and persisted. ${phase2.tokensUsed} tokens.`)
+      console.log(`[MI ${id}] Phase 2 complete and persisted. ${phase2.inputTokens} input tokens, API took ${Math.round(apiDuration / 1000)}s, waiting ${Math.round(delay2 / 1000)}s before next phase`)
 
-      await new Promise(resolve => setTimeout(resolve, INTER_PHASE_DELAY_MS))
+      if (delay2 > 0) await new Promise(resolve => setTimeout(resolve, delay2))
     }
 
     // Phase 3: Market & Competitive
@@ -1068,28 +1080,31 @@ export async function backgroundAnalyze(
       await updateMI(id, {
         progress: { step: 'phase_3', current: 2, total: 4, message: 'Phase 3: Analyzing market & competition...', completed_phases: ['phase_1', 'phase_2'] },
       })
+      const phaseStart = Date.now()
       const phase3 = await analyzeMarketIntelligencePhase3Market(
         data,
         mergedResult,
         mergedResult
       )
+      const apiDuration = Date.now() - phaseStart
       totalTokens += phase3.tokensUsed
       if (!modelUsed) modelUsed = phase3.model
       mergedResult = { ...mergedResult, ...phase3.result }
 
       // Persist phase 1+2+3 merged
+      const delay3 = calculateRateLimitDelay(phase3.inputTokens, apiDuration)
       await updateMI(id, {
         analysis_result: mergedResult,
         model_used: modelUsed,
         tokens_used: totalTokens,
-        progress: { step: 'phase_4', current: 3, total: 4, message: 'Phase 3 complete. Waiting before Phase 4...', completed_phases: ['phase_1', 'phase_2', 'phase_3'] },
+        progress: { step: 'phase_4', current: 3, total: 4, message: `Phase 3 complete. Waiting ${Math.round(delay3 / 1000)}s for rate limit...`, completed_phases: ['phase_1', 'phase_2', 'phase_3'] },
       })
-      console.log(`[MI ${id}] Phase 3 complete and persisted. ${phase3.tokensUsed} tokens.`)
+      console.log(`[MI ${id}] Phase 3 complete and persisted. ${phase3.inputTokens} input tokens, API took ${Math.round(apiDuration / 1000)}s, waiting ${Math.round(delay3 / 1000)}s before next phase`)
 
-      await new Promise(resolve => setTimeout(resolve, INTER_PHASE_DELAY_MS))
+      if (delay3 > 0) await new Promise(resolve => setTimeout(resolve, delay3))
     }
 
-    // Phase 4: Customer Intelligence & Strategy
+    // Phase 4: Customer Intelligence & Strategy (no delay after — last phase)
     await updateMI(id, {
       progress: { step: 'phase_4', current: 3, total: 4, message: 'Phase 4: Building customer intelligence & strategy...', completed_phases: ['phase_1', 'phase_2', 'phase_3'] },
     })
