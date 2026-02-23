@@ -41,7 +41,7 @@ function renderQueue(state) {
   startBtn.disabled = isRunning || !hasPending
   stopBtn.disabled = !isRunning
   retryBtn.disabled = isRunning || !hasFailed
-  exportBtn.disabled = !queue.some((q) => q.status === 'done' && q.questions?.length)
+  exportBtn.disabled = !queue.some((q) => (q.status === 'done' || q.status === 'error') && q.questions?.length)
   clearBtn.disabled = isRunning || !hasCompleted
 
   // Login warning
@@ -62,7 +62,7 @@ function renderQueue(state) {
     const done = queue.filter((q) => q.status === 'done').length
     const errors = queue.filter((q) => q.status === 'error').length
     const totalQA = queue.reduce((sum, q) => sum + (q.questions?.length || 0), 0)
-    if (done > 0) {
+    if (done > 0 || totalQA > 0) {
       statusText.textContent = `Done: ${totalQA} unique Q&A pairs`
     } else {
       statusText.textContent = 'Ready'
@@ -93,12 +93,14 @@ function renderQueue(state) {
       div.appendChild(progSpan)
     }
 
-    // Q&A count (when done)
-    if (item.status === 'done' && item.questions?.length) {
+    // Q&A count (when done, or errored with partial results)
+    if ((item.status === 'done' || item.status === 'error') && item.questions?.length) {
       const qaSpan = document.createElement('span')
       qaSpan.className = 'qa-count'
       qaSpan.textContent = `${item.questions.length} Q&A`
       if (item.exhausted) qaSpan.title = 'All questions exhausted'
+      if (item.stoppedOffTopic) qaSpan.title = 'Stopped: off-topic questions'
+      if (item.status === 'error') qaSpan.title = 'Partial results (extraction had error)'
       div.appendChild(qaSpan)
 
       // API sent indicator

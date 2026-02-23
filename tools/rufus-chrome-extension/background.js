@@ -192,7 +192,8 @@ async function processNext() {
 
     // ── Step 2: Send extraction command to content script ──
     // Content script will click questions until exhausted
-    // Wrap in timeout to prevent hanging forever
+    // Wrap in timeout — on timeout, recover partial results from DOM
+    let timedOut = false
     const response = await Promise.race([
       chrome.tabs.sendMessage(activeTabId, {
         type: 'EXTRACT_RUFUS_QA',
@@ -202,21 +203,59 @@ async function processNext() {
           selectors: settings.selectors,
         },
       }),
-      sleep(EXTRACTION_TIMEOUT_MS).then(() => ({
-        success: false,
-        error: `Extraction timed out after ${EXTRACTION_TIMEOUT_MS / 60000} minutes`,
-      })),
+      sleep(EXTRACTION_TIMEOUT_MS).then(() => {
+        timedOut = true
+        return null // Will recover below
+      }),
     ])
 
-    if (response && response.success) {
-      item.status = 'done'
-      item.questions = response.questions
-      item.questionCount = response.questions.length
-      item.exhausted = response.exhausted
+    // On timeout, abort the running extraction and extract whatever Q&A is in the DOM
+    let finalResponse = response
+    if (timedOut) {
+      item.progress = 'Timed out — recovering partial results...'
+      broadcastState()
+      try {
+        finalResponse = await Promise.race([
+          chrome.tabs.sendMessage(activeTabId, {
+            type: 'EXTRACT_QA_ONLY',
+            settings: { selectors: settings.selectors },
+          }),
+          sleep(10000).then(() => ({
+            success: false,
+            error: `Extraction timed out after ${EXTRACTION_TIMEOUT_MS / 60000} minutes`,
+            questions: [],
+          })),
+        ])
+        if (finalResponse && finalResponse.questions?.length > 0) {
+          finalResponse.error = `Timed out after ${EXTRACTION_TIMEOUT_MS / 60000} min but recovered ${finalResponse.questions.length} Q&A pairs`
+        } else {
+          finalResponse = {
+            success: false,
+            error: `Extraction timed out after ${EXTRACTION_TIMEOUT_MS / 60000} minutes (no Q&A recovered)`,
+            questions: [],
+          }
+        }
+      } catch {
+        finalResponse = {
+          success: false,
+          error: `Extraction timed out after ${EXTRACTION_TIMEOUT_MS / 60000} minutes`,
+          questions: [],
+        }
+      }
+    }
+
+    if (finalResponse && (finalResponse.success || finalResponse.questions?.length > 0)) {
+      const hasQuestions = finalResponse.questions?.length > 0
+      item.status = hasQuestions ? 'done' : 'error'
+      item.questions = finalResponse.questions || []
+      item.questionCount = item.questions.length
+      item.exhausted = finalResponse.exhausted
+      item.stoppedOffTopic = finalResponse.stoppedOffTopic
       item.progress = null
+      if (finalResponse.error) item.error = finalResponse.error // Partial results with warning
 
       // ── Step 3: Send to platform API ──
-      if (settings.apiKey) {
+      if (settings.apiKey && hasQuestions) {
         item.progress = 'Sending to platform...'
         broadcastState()
         try {
@@ -229,17 +268,17 @@ async function processNext() {
           item.progress = null
         }
       }
-    } else if (response && response.loginRequired) {
+    } else if (finalResponse && finalResponse.loginRequired) {
       // Amazon login required — stop the entire queue
       item.status = 'error'
-      item.error = response.error
+      item.error = finalResponse.error
       isRunning = false
       broadcastState()
       await persistState()
       return // Don't process more — user needs to log in
     } else {
       item.status = 'error'
-      item.error = response?.error || 'Extraction failed'
+      item.error = finalResponse?.error || 'Extraction failed'
     }
   } catch (err) {
     item.status = 'error'
@@ -424,7 +463,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     case 'EXPORT_RESULTS': {
-      const completed = queue.filter((q) => q.status === 'done' && q.questions?.length)
+      // Include both completed AND errored items that have partial Q&A results
+      const completed = queue.filter((q) => (q.status === 'done' || q.status === 'error') && q.questions?.length)
       sendResponse({ success: true, data: completed })
       return true
     }

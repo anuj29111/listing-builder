@@ -63,7 +63,7 @@ function waitForLoadingDone(selector, timeoutMs = 15000) {
         resolve()
         return
       }
-      requestAnimationFrame(check)
+      setTimeout(check, 200) // Check every 200ms instead of every frame
     }
     check()
   })
@@ -95,6 +95,40 @@ function queryAll(selectorString) {
 function getAsinFromUrl() {
   const match = window.location.pathname.match(/\/dp\/([A-Z0-9]{10})/)
   return match ? match[1] : null
+}
+
+/**
+ * Get the product title from the page for relevance checking.
+ */
+function getProductTitle() {
+  const el = document.getElementById('productTitle') || document.getElementById('title')
+  return el ? el.textContent.trim().toLowerCase() : ''
+}
+
+/**
+ * Extract keywords from product title (words 3+ chars, no stop words).
+ */
+function extractKeywords(title) {
+  const stopWords = new Set([
+    'the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'were',
+    'been', 'being', 'have', 'has', 'had', 'does', 'did', 'will', 'would',
+    'could', 'should', 'may', 'might', 'can', 'shall', 'not', 'but', 'yet',
+    'set', 'pack', 'pcs', 'piece', 'count', 'size', 'color', 'colours',
+  ])
+  return title
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !stopWords.has(w))
+}
+
+/**
+ * Check if a question is relevant to the product based on keyword overlap.
+ * Returns true if the question shares at least one keyword with the product.
+ */
+function isRelevantQuestion(questionText, productKeywords) {
+  if (productKeywords.length === 0) return true // Can't determine, allow all
+  const qLower = questionText.toLowerCase()
+  return productKeywords.some((kw) => qLower.includes(kw))
 }
 
 /**
@@ -143,21 +177,44 @@ class RufusExtractor {
     this.consecutiveEmptyRounds = 0
     this.maxEmptyRounds = 3 // Stop after 3 rounds with no new questions
     this.aborted = false
+    // Off-topic detection
+    this.productKeywords = extractKeywords(getProductTitle())
+    this.consecutiveOffTopic = 0
+    this.maxOffTopic = 5 // Stop after 5 consecutive off-topic questions
   }
 
   /**
    * Open the Rufus chat panel by clicking its trigger button.
+   * Then wait for question chips to actually appear.
    */
   async openRufus() {
     try {
       const button = await waitForElement(this.selectors.rufusButton, 8000)
       button.click()
       await sleep(2000)
+
+      // Wait for question chips to appear (up to 10 seconds)
+      try {
+        await waitForElement(this.selectors.questionChip, 10000)
+        console.log('[Rufus Extractor] Question chips appeared')
+      } catch {
+        console.log('[Rufus Extractor] Question chips did not appear within 10s')
+      }
+
       return true
     } catch {
       console.log('[Rufus Extractor] Rufus button not found, checking if already open...')
       const chat = document.querySelector(this.selectors.chatContainer)
-      return !!chat
+      if (chat) {
+        // Rufus is open — wait for chips
+        try {
+          await waitForElement(this.selectors.questionChip, 10000)
+        } catch {
+          console.log('[Rufus Extractor] Rufus open but no question chips found')
+        }
+        return true
+      }
+      return false
     }
   }
 
@@ -167,6 +224,7 @@ class RufusExtractor {
    * Stops when:
    * - No new question chips appear for 3 consecutive rounds (exhausted)
    * - Safety cap (maxQuestions) is reached
+   * - 5 consecutive off-topic questions detected
    * - User stops the queue (checked via abort flag)
    */
   async clickQuestions() {
@@ -206,8 +264,23 @@ class RufusExtractor {
       // Click the first unclicked question
       const target = unclicked[0]
       const questionText = target.textContent.trim()
-      this.clickedQuestions.add(questionText)
 
+      // Off-topic detection: check if question is relevant to the product
+      if (this.productKeywords.length > 0 && !isRelevantQuestion(questionText, this.productKeywords)) {
+        this.consecutiveOffTopic++
+        console.log(
+          `[Rufus Extractor] Off-topic question (${this.consecutiveOffTopic}/${this.maxOffTopic}): "${questionText.substring(0, 50)}..."`
+        )
+        if (this.consecutiveOffTopic >= this.maxOffTopic) {
+          console.log('[Rufus Extractor] Stopping — too many consecutive off-topic questions')
+          break
+        }
+        // Still click it (to move forward) but track that it's off-topic
+      } else {
+        this.consecutiveOffTopic = 0 // Reset on relevant question
+      }
+
+      this.clickedQuestions.add(questionText)
       target.click()
       questionsClicked++
 
@@ -292,9 +365,11 @@ class RufusExtractor {
 
   /**
    * Run the full extraction pipeline.
+   * Always returns partial results even on error/abort.
    */
   async run() {
     console.log('[Rufus Extractor] Starting extraction (will run until questions exhausted)...')
+    console.log(`[Rufus Extractor] Product keywords: ${this.productKeywords.join(', ')}`)
 
     // Step 0: Check Amazon login
     const loginStatus = checkAmazonLogin()
@@ -320,22 +395,29 @@ class RufusExtractor {
     const clicked = await this.clickQuestions()
     console.log(`[Rufus Extractor] Clicked ${clicked} questions total`)
 
-    if (clicked === 0) {
-      return { success: false, error: 'No questions found to click. Check the question chip selector in settings.' }
-    }
-
-    // Step 3: Extract and de-duplicate Q&A pairs
+    // Step 3: Extract and de-duplicate Q&A pairs (always, even if 0 clicks)
     await sleep(1000) // Final settle time
     const pairs = this.extractQAPairs()
     console.log(`[Rufus Extractor] Extracted ${pairs.length} unique Q&A pairs (from ${clicked} clicks)`)
 
+    if (clicked === 0 && pairs.length === 0) {
+      return {
+        success: false,
+        error: 'No questions found to click. Check the question chip selector in settings.',
+        // Return partial data anyway
+        questions: [],
+        partialResults: true,
+      }
+    }
+
     return {
-      success: true,
+      success: pairs.length > 0,
       questions: pairs,
       asin: getAsinFromUrl(),
       url: window.location.href,
       clickedCount: clicked,
       exhausted: this.consecutiveEmptyRounds >= this.maxEmptyRounds,
+      stoppedOffTopic: this.consecutiveOffTopic >= this.maxOffTopic,
     }
   }
 }
@@ -354,7 +436,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
       .catch((err) => {
         currentExtractor = null
-        sendResponse({ success: false, error: err.message })
+        // On error, still try to return whatever was extracted
+        const pairs = extractor.extractQAPairs()
+        sendResponse({
+          success: pairs.length > 0,
+          error: err.message,
+          questions: pairs,
+          partialResults: true,
+        })
       })
     return true // Keep the message channel open for async response
   }
@@ -365,6 +454,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.log('[Rufus Extractor] Abort signal received — stopping extraction')
     }
     sendResponse({ success: true })
+    return true
+  }
+
+  if (message.type === 'EXTRACT_QA_ONLY') {
+    // Extract whatever Q&A is currently in the DOM (used after timeout)
+    if (currentExtractor) {
+      currentExtractor.aborted = true // Stop clicking
+      const pairs = currentExtractor.extractQAPairs()
+      sendResponse({ success: pairs.length > 0, questions: pairs, partialResults: true })
+    } else {
+      // No extractor running — create a temporary one just for extraction
+      const tempExtractor = new RufusExtractor(message.settings || {})
+      const pairs = tempExtractor.extractQAPairs()
+      sendResponse({ success: pairs.length > 0, questions: pairs, partialResults: true })
+    }
     return true
   }
 
