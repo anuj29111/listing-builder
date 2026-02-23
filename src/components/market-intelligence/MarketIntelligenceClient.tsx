@@ -717,6 +717,10 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
           })}
         </div>
 
+        <p className="text-xs text-muted-foreground text-center">
+          Review collection runs in parallel via Apify and may take 15-30 minutes depending on the number of products. You can navigate away while it runs.
+        </p>
+
         <div className="flex justify-center gap-3 pt-2">
           <Button variant="outline" onClick={handleBack}>
             <X className="h-4 w-4 mr-1" /> Cancel

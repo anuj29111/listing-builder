@@ -1,6 +1,12 @@
 import { createAdminClient, createClient } from '@/lib/supabase/server'
-import { searchKeyword, lookupAsin, fetchReviews, fetchQuestions } from '@/lib/oxylabs'
-import { fetchReviewsViaApify, normalizeApifyReview } from '@/lib/apify'
+import { searchKeyword, lookupAsin, fetchQuestions } from '@/lib/oxylabs'
+import {
+  startApifyReviewRun,
+  checkApifyRunStatus,
+  fetchApifyDataset,
+  isTerminalStatus,
+  normalizeApifyReview,
+} from '@/lib/apify'
 import {
   analyzeMarketIntelligencePhase1Reviews,
   analyzeMarketIntelligencePhase2QnA,
@@ -409,6 +415,255 @@ export async function backgroundCollect(
   }
 }
 
+// --- Parallel Apify review orchestration for MI ---
+
+const LAUNCH_STAGGER_MS = 3_000  // 3 seconds between launching each Apify run
+const POLL_CYCLE_MS = 15_000     // Poll all runs every 15 seconds
+const PARALLEL_REVIEW_TIMEOUT_MS = 60 * 60 * 1000 // 60 minutes overall timeout
+const SUCCESS_THRESHOLD = 0.75   // 75% of products must have reviews to proceed
+
+interface ParallelReviewJob {
+  asin: string
+  phase: 'cache_check' | 'launching' | 'polling' | 'fetching_results' | 'done' | 'failed'
+  runId?: string
+  datasetId?: string
+  reviews?: Array<Record<string, unknown>>
+  error?: string
+}
+
+/**
+ * Fetch reviews for all selected ASINs in parallel using Apify.
+ * 1. Check cache for all ASINs
+ * 2. Launch Apify runs with 3s stagger for uncached ASINs
+ * 3. Poll all runs in unified loop until all done or timeout
+ * 4. Evaluate: 75%+ success → proceed, <75% → fail MI
+ * Failed ASINs get top_reviews fallback.
+ */
+async function fetchReviewsParallel(
+  id: string,
+  selectedAsins: string[],
+  countryId: string,
+  amazonDomain: string,
+  reviewsPerProduct: number,
+  competitorsRaw: Array<Record<string, unknown>>,
+  userId: string,
+  cacheThreshold: string
+): Promise<{ success: boolean; reviewsData: Record<string, Array<Record<string, unknown>>>; error?: string }> {
+  const supabase = createClient()
+  const admin = createAdminClient()
+  const jobs = new Map<string, ParallelReviewJob>()
+  const reviewsData: Record<string, Array<Record<string, unknown>>> = {}
+  const startTime = Date.now()
+
+  // Initialize all jobs
+  for (const asin of selectedAsins) {
+    jobs.set(asin, { asin, phase: 'cache_check' })
+  }
+
+  // ---- PHASE 1: Check cache for all ASINs in parallel ----
+  const cachePromises = selectedAsins.map(async (asin) => {
+    const { data: cached } = await supabase
+      .from('lb_asin_reviews')
+      .select('reviews')
+      .eq('asin', asin)
+      .eq('country_id', countryId)
+      .gte('updated_at', cacheThreshold)
+      .single()
+
+    if (cached?.reviews) {
+      const job = jobs.get(asin)!
+      job.phase = 'done'
+      job.reviews = cached.reviews as Array<Record<string, unknown>>
+      reviewsData[asin] = job.reviews
+      console.log(`[MI ${id}] Reviews for ${asin}: found in cache`)
+    }
+  })
+  await Promise.all(cachePromises)
+
+  const cachedCount = Array.from(jobs.values()).filter(j => j.phase === 'done').length
+  const needFetch = Array.from(jobs.values()).filter(j => j.phase === 'cache_check')
+
+  await updateMI(id, {
+    progress: {
+      step: 'review_fetch',
+      current: cachedCount,
+      total: selectedAsins.length,
+      message: cachedCount > 0
+        ? `${cachedCount} cached, launching Apify for ${needFetch.length} products in parallel...`
+        : `Launching Apify for ${needFetch.length} products in parallel...`,
+    },
+  })
+
+  if (needFetch.length === 0) {
+    return { success: true, reviewsData } // All cached!
+  }
+
+  // ---- PHASE 2: Launch Apify runs with 3s stagger ----
+  for (let i = 0; i < needFetch.length; i++) {
+    const job = needFetch[i]
+    job.phase = 'launching'
+
+    const result = await startApifyReviewRun(
+      job.asin,
+      amazonDomain,
+      reviewsPerProduct,
+      'recent'
+    )
+
+    if (result.success && result.data) {
+      job.runId = result.data.runId
+      job.datasetId = result.data.datasetId
+      job.phase = isTerminalStatus(result.data.status) ? 'fetching_results' : 'polling'
+      console.log(`[MI ${id}] Launched Apify run for ${job.asin}: ${result.data.runId} (status: ${result.data.status})`)
+    } else {
+      job.phase = 'failed'
+      job.error = result.error || 'Failed to launch'
+      console.error(`[MI ${id}] Failed to launch Apify for ${job.asin}: ${result.error}`)
+    }
+
+    // Stagger: wait 3s before next launch (except last)
+    if (i < needFetch.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, LAUNCH_STAGGER_MS))
+    }
+  }
+
+  // ---- PHASE 3: Unified polling loop ----
+  while (Date.now() - startTime < PARALLEL_REVIEW_TIMEOUT_MS) {
+    const activeJobs = Array.from(jobs.values()).filter(j => j.phase === 'polling')
+    const fetchingJobs = Array.from(jobs.values()).filter(j => j.phase === 'fetching_results')
+
+    // Fetch dataset items for runs that have completed
+    for (const job of fetchingJobs) {
+      try {
+        const datasetResult = await fetchApifyDataset(job.datasetId!)
+        if (datasetResult.success && datasetResult.data?.length) {
+          const normalized = datasetResult.data.map(normalizeApifyReview)
+
+          // Deduplicate on ReviewId (actor returns ~3.4x dupes)
+          const seen = new Set<string>()
+          const unique = normalized.filter((r) => {
+            if (!r.id || seen.has(r.id)) return false
+            seen.add(r.id)
+            return true
+          })
+
+          // Cache upsert (fire-and-forget)
+          admin.from('lb_asin_reviews').upsert({
+            asin: job.asin,
+            country_id: countryId,
+            marketplace_domain: amazonDomain,
+            total_reviews: unique.length,
+            overall_rating: null,
+            rating_stars_distribution: null,
+            reviews: unique,
+            raw_response: { provider: 'apify', runId: job.runId },
+            sort_by: 'recent',
+            fetched_by: userId,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'asin,country_id,sort_by' })
+
+          job.reviews = unique as unknown as Array<Record<string, unknown>>
+          job.phase = 'done'
+          reviewsData[job.asin] = job.reviews
+          console.log(`[MI ${id}] Apify returned ${unique.length} reviews for ${job.asin}`)
+        } else {
+          job.phase = 'failed'
+          job.error = 'No reviews in dataset'
+          console.log(`[MI ${id}] Apify returned no reviews for ${job.asin}`)
+        }
+      } catch (err) {
+        job.phase = 'failed'
+        job.error = err instanceof Error ? err.message : 'Dataset fetch failed'
+        console.error(`[MI ${id}] Dataset fetch failed for ${job.asin}:`, job.error)
+      }
+    }
+
+    // If no active or fetching jobs remain, we're done
+    if (activeJobs.length === 0 && fetchingJobs.length === 0) break
+
+    // Poll all active runs in parallel
+    if (activeJobs.length > 0) {
+      const pollResults = await Promise.all(
+        activeJobs.map(async (job) => {
+          const result = await checkApifyRunStatus(job.runId!)
+          return { asin: job.asin, result }
+        })
+      )
+
+      for (const { asin, result } of pollResults) {
+        const job = jobs.get(asin)!
+        if (result.success && result.data) {
+          if (isTerminalStatus(result.data.status)) {
+            if (result.data.status === 'SUCCEEDED') {
+              job.datasetId = result.data.defaultDatasetId
+              job.phase = 'fetching_results'
+            } else {
+              job.phase = 'failed'
+              job.error = `Apify run ${result.data.status}: ${result.data.statusMessage || ''}`
+              console.error(`[MI ${id}] Apify run failed for ${asin}: ${job.error}`)
+            }
+          }
+          // else: still RUNNING/READY, keep polling
+        }
+        // If poll failed, keep trying next cycle (transient network error)
+      }
+    }
+
+    // Update progress
+    const doneCount = Array.from(jobs.values()).filter(j => j.phase === 'done').length
+    const failedCount = Array.from(jobs.values()).filter(j => j.phase === 'failed').length
+    const completedCount = doneCount + failedCount
+    const remainingCount = selectedAsins.length - completedCount
+
+    const elapsedMin = Math.round((Date.now() - startTime) / 60_000)
+    let estimateMsg = ''
+    if (completedCount > cachedCount && remainingCount > 0) {
+      const avgTimePerFetch = (Date.now() - startTime) / (completedCount - cachedCount)
+      // In parallel, remaining time is roughly the time for one more fetch, not remainingCount × avg
+      const estMinRemaining = Math.max(1, Math.round(avgTimePerFetch / 60_000))
+      estimateMsg = ` (~${estMinRemaining} min remaining)`
+    }
+
+    await updateMI(id, {
+      progress: {
+        step: 'review_fetch',
+        current: doneCount,
+        total: selectedAsins.length,
+        message: `Fetching reviews in parallel... ${doneCount}/${selectedAsins.length} complete${failedCount > 0 ? `, ${failedCount} failed` : ''}${estimateMsg}`,
+      },
+    })
+
+    // Wait before next poll cycle
+    await new Promise(resolve => setTimeout(resolve, POLL_CYCLE_MS))
+  }
+
+  // ---- PHASE 4: Evaluate results ----
+  const doneCount = Array.from(jobs.values()).filter(j => j.phase === 'done').length
+  const failedJobs = Array.from(jobs.values()).filter(j => j.phase !== 'done')
+
+  // Apply top_reviews fallback for failed/timed-out ASINs
+  for (const job of failedJobs) {
+    const comp = competitorsRaw.find(c => c.asin === job.asin)
+    if (comp?.top_reviews) {
+      reviewsData[job.asin] = comp.top_reviews as Array<Record<string, unknown>>
+      console.log(`[MI ${id}] ${job.asin} used top_reviews fallback (${job.error || 'timeout'})`)
+    } else {
+      console.log(`[MI ${id}] ${job.asin} has no reviews at all (${job.error || 'timeout'})`)
+    }
+  }
+
+  // Check 75% threshold
+  const successRate = doneCount / selectedAsins.length
+  if (successRate < SUCCESS_THRESHOLD) {
+    const msg = `Only ${doneCount}/${selectedAsins.length} products got reviews (${Math.round(successRate * 100)}%) — need at least 75% for reliable analysis. Please retry.`
+    console.error(`[MI ${id}] ${msg}`)
+    return { success: false, reviewsData, error: msg }
+  }
+
+  console.log(`[MI ${id}] Parallel review fetch complete: ${doneCount}/${selectedAsins.length} succeeded, ${failedJobs.length} used fallback`)
+  return { success: true, reviewsData }
+}
+
 /**
  * Background job: fetches reviews + Q&A for selected products, then runs 4-phase Claude analysis.
  * Called fire-and-forget from /select route.
@@ -437,142 +692,28 @@ export async function backgroundAnalyze(
     const oxylabsDomain = country.amazon_domain.replace('amazon.', '')
     const cacheThreshold = new Date(Date.now() - CACHE_HOURS * 60 * 60 * 1000).toISOString()
     const reviewsPerProduct = (record.reviews_per_product as number) || 200
-    const reviewPages = Math.ceil(reviewsPerProduct / 10)
     let oxylabsCallsUsed = (record.oxylabs_calls_used as number) || 0
     const competitorsRaw = (record.competitors_data || []) as Array<Record<string, unknown>>
     const admin = createAdminClient()
 
-    // ========== PHASE A: Fetch reviews for selected products ==========
-    const PER_ASIN_TIMEOUT_OXYLABS = 65_000 // 65s for Oxylabs
-    const PER_ASIN_TIMEOUT_APIFY = 420_000 // 7 min for Apify actor runs (300s internal + buffer)
-    const reviewsData: Record<string, Array<Record<string, unknown>>> = {}
+    // ========== PHASE A: Fetch reviews for selected products (PARALLEL) ==========
+    const reviewResult = await fetchReviewsParallel(
+      id,
+      selectedAsins,
+      record.country_id as string,
+      country.amazon_domain,
+      reviewsPerProduct,
+      competitorsRaw,
+      userId,
+      cacheThreshold
+    )
 
-    for (let i = 0; i < selectedAsins.length; i++) {
-      const asin = selectedAsins[i]
-
-      await updateMI(id, {
-        progress: {
-          step: 'review_fetch',
-          current: i,
-          total: selectedAsins.length,
-          message: `Fetching reviews for ${asin} via Apify (${i + 1}/${selectedAsins.length})... This may take a few minutes per product.`,
-        },
-      })
-
-      const reviewResult = await Promise.race([
-        (async () => {
-          // 1. Check cache first (7-day TTL)
-          const { data: cachedReviews } = await supabase
-            .from('lb_asin_reviews')
-            .select('reviews')
-            .eq('asin', asin)
-            .eq('country_id', record.country_id as string)
-            .gte('updated_at', cacheThreshold)
-            .single()
-
-          if (cachedReviews?.reviews) {
-            console.log(`[MI ${id}] Reviews for ${asin}: found in cache`)
-            return cachedReviews.reviews as Array<Record<string, unknown>>
-          }
-
-          // 2. Try Apify first (primary — gets 100-500 reviews)
-          try {
-            console.log(`[MI ${id}] Trying Apify for ${asin} reviews...`)
-            const apifyResult = await fetchReviewsViaApify(
-              asin,
-              country.amazon_domain,
-              reviewsPerProduct,
-              'recent'
-            )
-
-            if (apifyResult.success && apifyResult.data?.reviews?.length) {
-              const normalized = apifyResult.data.reviews.map(normalizeApifyReview)
-
-              // Cache upsert (fire-and-forget)
-              admin.from('lb_asin_reviews').upsert({
-                asin,
-                country_id: record.country_id as string,
-                marketplace_domain: country.amazon_domain,
-                total_reviews: normalized.length,
-                overall_rating: null,
-                rating_stars_distribution: null,
-                reviews: normalized,
-                raw_response: { provider: 'apify', runId: apifyResult.data.runId },
-                sort_by: 'recent',
-                fetched_by: userId,
-                updated_at: new Date().toISOString(),
-              }, { onConflict: 'asin,country_id,sort_by' })
-
-              console.log(`[MI ${id}] Apify returned ${normalized.length} reviews for ${asin}`)
-              return normalized as unknown as Array<Record<string, unknown>>
-            }
-            console.log(`[MI ${id}] Apify returned no reviews for ${asin}`)
-          } catch (apifyErr) {
-            console.error(`[MI ${id}] Apify failed for ${asin}:`, apifyErr)
-          }
-
-          // 3. Oxylabs fallback (only if Apify completely failed)
-          console.log(`[MI ${id}] Falling back to Oxylabs for ${asin} reviews...`)
-          await updateMI(id, {
-            progress: {
-              step: 'review_fetch',
-              current: i,
-              total: selectedAsins.length,
-              message: `Fetching reviews for ${asin} via Oxylabs fallback (${i + 1}/${selectedAsins.length})...`,
-            },
-          })
-
-          const result = await fetchReviews(asin, oxylabsDomain, 1, Math.min(reviewPages, 20))
-          oxylabsCallsUsed++
-
-          if (result.success && result.data?.reviews) {
-            // Cache upsert (fire-and-forget)
-            admin.from('lb_asin_reviews').upsert({
-              asin,
-              country_id: record.country_id as string,
-              marketplace_domain: country.amazon_domain,
-              reviews_count: result.data.reviews_count || result.data.reviews.length,
-              rating: result.data.rating,
-              rating_stars_distribution: result.data.rating_stars_distribution,
-              reviews: result.data.reviews,
-              raw_response: result.data,
-              sort_by: 'recent',
-              fetched_by: userId,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: 'asin,country_id,sort_by' })
-
-            return result.data.reviews as unknown as Array<Record<string, unknown>>
-          }
-
-          // 4. Final fallback: top_reviews from product lookup (~12 reviews)
-          console.log(`[MI ${id}] All providers failed for ${asin}, using top_reviews fallback`)
-          const comp = competitorsRaw.find(c => c.asin === asin)
-          return (comp?.top_reviews || null) as Array<Record<string, unknown>> | null
-        })().catch(() => {
-          const comp = competitorsRaw.find(c => c.asin === asin)
-          return (comp?.top_reviews || null) as Array<Record<string, unknown>> | null
-        }),
-        new Promise<null>((resolve) => setTimeout(() => {
-          console.error(`[MI ${id}] Review fetch for ${asin} timed out after ${PER_ASIN_TIMEOUT_APIFY / 1000}s — skipping`)
-          resolve(null)
-        }, PER_ASIN_TIMEOUT_APIFY)),
-      ])
-
-      if (reviewResult) {
-        reviewsData[asin] = reviewResult
-      } else {
-        // Fallback: top_reviews from product lookup
-        const comp = competitorsRaw.find(c => c.asin === asin)
-        if (comp?.top_reviews) {
-          reviewsData[asin] = comp.top_reviews as Array<Record<string, unknown>>
-        }
-      }
-
-      // Rate-limit delay between calls
-      if (i < selectedAsins.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 2000))
-      }
+    if (!reviewResult.success) {
+      await updateMI(id, { status: 'failed', error_message: reviewResult.error || 'Review fetch failed' })
+      return
     }
+
+    const reviewsData = reviewResult.reviewsData
 
     // Breathing room between review and Q&A phases
     await new Promise((resolve) => setTimeout(resolve, 3000))
@@ -633,7 +774,7 @@ export async function backgroundAnalyze(
         new Promise<null>((resolve) => setTimeout(() => {
           console.error(`[MI ${id}] Q&A fetch for ${asin} timed out — skipping`)
           resolve(null)
-        }, PER_ASIN_TIMEOUT_OXYLABS)),
+        }, ASIN_TIMEOUT_MS)),
       ])
 
       if (qnaResult) {

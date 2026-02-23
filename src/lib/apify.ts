@@ -341,6 +341,92 @@ function hashCode(str: string): string {
   return Math.abs(hash).toString(36)
 }
 
+// --- Parallel orchestration primitives (used by Market Intelligence) ---
+
+const TERMINAL_STATUSES = ['SUCCEEDED', 'FAILED', 'TIMED-OUT', 'ABORTED']
+
+/**
+ * Start an Apify actor run for reviews. Returns immediately (or after up to 60s if run finishes quickly).
+ * For use in parallel orchestration — caller manages polling separately.
+ */
+export async function startApifyReviewRun(
+  asin: string,
+  amazonDomain: string,
+  maxReviews: number = 100,
+  sortBy: string = 'recent'
+): Promise<{ success: boolean; data?: { runId: string; datasetId: string; status: string }; error?: string }> {
+  try {
+    const token = await getApifyToken()
+    const productUrl = `https://www.${amazonDomain}/dp/${asin}`
+
+    const input: Record<string, unknown> = {
+      ASIN_or_URL: [productUrl],
+      sortBy: sortBy === 'helpful' ? 'helpful' : 'recent',
+      filterByRating: 'allStars',
+      filter_by_ratings: ['five_star', 'four_star', 'three_star', 'two_star', 'one_star'],
+      filter_by_verified_purchase_only: ['all_reviews', 'avp_only_reviews'],
+      filter_by_mediaType: ['all_contents', 'media_reviews_only'],
+      get_customers_say: true,
+      max_reviews: maxReviews,
+    }
+
+    const run = await startActorRun(token, input)
+    return {
+      success: true,
+      data: {
+        runId: run.id,
+        datasetId: run.defaultDatasetId,
+        status: run.status,
+      },
+    }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Failed to start Apify run' }
+  }
+}
+
+/**
+ * Check the status of an Apify actor run (single long-poll, up to 60s).
+ * Returns the current run status without looping.
+ */
+export async function checkApifyRunStatus(
+  runId: string
+): Promise<{ success: boolean; data?: ApifyRunResult; error?: string }> {
+  try {
+    const token = await getApifyToken()
+    const response = await fetch(
+      `https://api.apify.com/v2/actor-runs/${runId}?waitForFinish=${APIFY_POLL_WAIT_SECS}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    if (!response.ok) {
+      return { success: false, error: `Poll failed: ${response.status}` }
+    }
+    const result = (await response.json()) as { data: ApifyRunResult }
+    return { success: true, data: result.data }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Poll failed' }
+  }
+}
+
+/**
+ * Fetch dataset items from a completed Apify run.
+ */
+export async function fetchApifyDataset(
+  datasetId: string
+): Promise<{ success: boolean; data?: ApifyReviewItem[]; error?: string }> {
+  try {
+    const token = await getApifyToken()
+    const items = await fetchDatasetItems(token, datasetId)
+    return { success: true, data: items }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Dataset fetch failed' }
+  }
+}
+
+/** Check if a run status is terminal (no more polling needed) */
+export function isTerminalStatus(status: string): boolean {
+  return TERMINAL_STATUSES.includes(status)
+}
+
 // --- Background fetch for async Apify jobs ---
 
 async function updateReviewRecord(
