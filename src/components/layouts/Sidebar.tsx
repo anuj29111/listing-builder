@@ -13,6 +13,7 @@ import {
   Package,
   Store,
   ScanSearch,
+  Bot,
   Settings,
   ChevronLeft,
   Shield,
@@ -27,6 +28,7 @@ const navItems = [
   { href: '/products', label: 'Products', icon: Package },
   { href: '/seller-pull', label: 'Seller Pull', icon: Store },
   { href: '/asin-lookup', label: 'ASIN Lookup', icon: ScanSearch },
+  { href: '/rufus-qna', label: 'Rufus Q&A', icon: Bot },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
 

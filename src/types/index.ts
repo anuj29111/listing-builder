@@ -34,6 +34,11 @@ export type {
   SellerPullSummary,
   SellerPullScrapeResult,
   SellerPullVariationResult,
+  LbAsinQuestions,
+  LbRufusJob,
+  LbRufusJobItem,
+  RufusJobStatus,
+  RufusJobItemStatus,
 } from './database'
 
 export type {

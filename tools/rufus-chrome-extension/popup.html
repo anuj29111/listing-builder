@@ -58,6 +58,20 @@
       <button id="addBtn" class="btn btn-primary">Add to Queue</button>
     </section>
 
+    <!-- Queue Mode (auto-pull from backend) -->
+    <section class="queue-mode-section">
+      <div class="queue-mode-row">
+        <label class="toggle-label" for="queueModeToggle">
+          <span>Auto-process from backend</span>
+          <span id="queueModeStatus" class="queue-mode-status">Off</span>
+        </label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="queueModeToggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </section>
+
     <!-- Controls -->
     <section class="controls">
       <button id="startBtn" class="btn btn-success" disabled>Start</button>

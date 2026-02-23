@@ -111,7 +111,8 @@ function getProductTitle() {
  *
  * How off-topic detection works:
  * 1. Keywords are extracted from the ACTUAL product title on the page (dynamic, not hardcoded)
- * 2. The first 8 questions also contribute keywords to enrich the topic profile
+ * 2. The first 5 questions can enrich the topic profile, but ONLY if they share at least
+ *    one keyword with the product title (prevents early off-topic questions from polluting)
  * 3. After the seed phase, questions that share no keywords with the profile are off-topic
  * 4. After 5 consecutive off-topic questions, extraction stops
  */
@@ -136,6 +137,10 @@ const STOP_WORDS = new Set([
   'reviews', 'rating', 'recommend', 'worth', 'value', 'deal', 'compare',
   'versus', 'better', 'worse', 'similar', 'available', 'option', 'options',
   'set', 'pack', 'pcs', 'piece', 'count', 'size', 'color', 'colours',
+  // Common in Rufus Q&A but not product-identifying
+  'technique', 'techniques', 'method', 'methods', 'beginner', 'beginners',
+  'learn', 'learning', 'start', 'started', 'starting', 'tips', 'easy', 'hard',
+  'professional', 'project', 'projects', 'idea', 'ideas', 'type', 'types',
 ])
 
 function extractKeywords(text) {
@@ -193,8 +198,9 @@ class RufusExtractor {
     this.maxEmptyRounds = 3 // Stop after 3 rounds with no new questions
     this.aborted = false
     // Off-topic detection: learn topic from product title + first N questions
-    this.topicKeywords = new Set(extractKeywords(getProductTitle()))
-    this.seedPhaseSize = 8 // First 8 questions enrich the topic profile (always on-topic)
+    this.titleKeywords = new Set(extractKeywords(getProductTitle()))
+    this.topicKeywords = new Set(this.titleKeywords) // Start with title keywords
+    this.seedPhaseSize = 5 // First 5 questions can enrich the topic profile (gated by title relevance)
     this.consecutiveOffTopic = 0
     this.maxOffTopic = 5 // Stop after 5 consecutive off-topic questions
   }
@@ -284,8 +290,14 @@ class RufusExtractor {
       // Off-topic detection: learn from initial questions, then detect drift
       const questionKws = extractKeywords(questionText)
       if (questionsClicked < this.seedPhaseSize) {
-        // Seed phase: first N questions enrich the topic profile (always on-topic)
-        for (const kw of questionKws) this.topicKeywords.add(kw)
+        // Seed phase: only enrich topic profile if question shares at least one
+        // keyword with the product title. Prevents unrelated early questions from
+        // polluting the profile (e.g., "painting techniques" on a chalk marker product).
+        const isRelevantSeed = this.titleKeywords.size === 0 ||
+          questionKws.some((kw) => this.titleKeywords.has(kw))
+        if (isRelevantSeed) {
+          for (const kw of questionKws) this.topicKeywords.add(kw)
+        }
         this.consecutiveOffTopic = 0
       } else if (this.topicKeywords.size > 0) {
         // Detection phase: check if question shares any keyword with learned topic
@@ -397,7 +409,8 @@ class RufusExtractor {
   async run() {
     console.log('[Rufus Extractor] Starting extraction (will run until questions exhausted)...')
     console.log(`[Rufus Extractor] Product title keywords: ${Array.from(this.topicKeywords).join(', ')}`)
-    console.log(`[Rufus Extractor] First ${this.seedPhaseSize} questions will enrich topic profile, then off-topic detection kicks in`)
+    console.log(`[Rufus Extractor] Title keywords: ${Array.from(this.titleKeywords).join(', ')}`)
+    console.log(`[Rufus Extractor] First ${this.seedPhaseSize} questions can enrich topic profile (only if title-relevant), then off-topic detection kicks in`)
 
     // Step 0: Check Amazon login
     const loginStatus = checkAmazonLogin()

@@ -18,6 +18,8 @@ let queue = [] // Array of { asin, marketplace, status, questions, error, ... }
 let isRunning = false
 let currentIndex = -1
 let activeTabId = null
+let queueMode = false // Auto-poll backend queue for ASINs
+let queueModeProcessing = false // Currently processing a backend queue item
 
 // ─── Default Settings ────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
@@ -38,6 +40,8 @@ const DEFAULT_SETTINGS = {
 
 const EXTRACTION_TIMEOUT_MS = 600000 // 10 minutes per product
 const ALARM_NAME = 'rufus-next-product'
+const QUEUE_POLL_ALARM = 'rufus-queue-poll'
+const QUEUE_POLL_INTERVAL_MINUTES = 0.25 // 15 seconds
 
 async function getSettings() {
   // Settings (non-sensitive) from sync, API key from local
@@ -56,7 +60,7 @@ async function getSettings() {
 
 async function persistState() {
   await chrome.storage.local.set({
-    _rufusState: { queue, isRunning, currentIndex, activeTabId },
+    _rufusState: { queue, isRunning, currentIndex, activeTabId, queueMode, queueModeProcessing },
   })
 }
 
@@ -68,6 +72,8 @@ async function restoreState() {
     isRunning = s.isRunning || false
     currentIndex = s.currentIndex ?? -1
     activeTabId = s.activeTabId || null
+    queueMode = s.queueMode || false
+    queueModeProcessing = s.queueModeProcessing || false
 
     // If we were running when the worker died, resume processing
     if (isRunning) {
@@ -87,6 +93,11 @@ async function restoreState() {
         currentIndex = -1
         await persistState()
       }
+    }
+
+    // Resume queue mode polling if it was active
+    if (queueMode && !queueModeProcessing) {
+      startQueuePolling()
     }
   }
 }
@@ -111,7 +122,7 @@ const MARKETPLACE_URLS = {
 // ─── Queue Management ────────────────────────────────────────────
 
 function broadcastState() {
-  const state = { queue, isRunning, currentIndex }
+  const state = { queue, isRunning, currentIndex, queueMode, queueModeProcessing }
   chrome.runtime.sendMessage({ type: 'STATE_UPDATE', data: state }).catch(() => {
     // Popup may be closed — ignore
   })
@@ -158,22 +169,16 @@ async function processNext() {
 
   try {
     // ── Step 1: Navigate to product page ──
-    // Always do a fresh navigation to ensure clean Rufus state
+    // Close old tab entirely and open a fresh one. A new tab gets a completely
+    // clean browsing context — no residual localStorage, sessionStorage,
+    // IndexedDB, or in-memory Rufus widget state from the previous product.
     if (activeTabId) {
-      try {
-        // Refresh: navigate to a blank page first, then to the product
-        // This ensures Rufus chat is fully reset between products
-        await chrome.tabs.update(activeTabId, { url: 'about:blank' })
-        await sleep(500)
-        await chrome.tabs.update(activeTabId, { url: productUrl })
-      } catch {
-        const tab = await chrome.tabs.create({ url: productUrl, active: true })
-        activeTabId = tab.id
-      }
-    } else {
-      const tab = await chrome.tabs.create({ url: productUrl, active: true })
-      activeTabId = tab.id
+      try { await chrome.tabs.remove(activeTabId) } catch { /* already closed */ }
+      activeTabId = null
     }
+    await sleep(300)
+    const tab = await chrome.tabs.create({ url: productUrl, active: true })
+    activeTabId = tab.id
 
     // Wait for page to fully load
     await waitForTabLoad(activeTabId)
@@ -313,12 +318,183 @@ async function processNext() {
   }
 }
 
-// Resume processing when the between-product alarm fires
+// Resume processing when alarms fire
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME && isRunning) {
     processNext()
   }
+  if (alarm.name === QUEUE_POLL_ALARM && queueMode && !queueModeProcessing && !isRunning) {
+    pollBackendQueue()
+  }
 })
+
+// ─── Backend Queue Polling ──────────────────────────────────────
+
+function startQueuePolling() {
+  chrome.alarms.create(QUEUE_POLL_ALARM, {
+    delayInMinutes: QUEUE_POLL_INTERVAL_MINUTES,
+    periodInMinutes: QUEUE_POLL_INTERVAL_MINUTES,
+  })
+}
+
+function stopQueuePolling() {
+  chrome.alarms.clear(QUEUE_POLL_ALARM)
+}
+
+/**
+ * Poll the backend queue for the next pending ASIN.
+ * If found, process it using the same extraction flow as manual queue.
+ */
+async function pollBackendQueue() {
+  if (queueModeProcessing || isRunning) return
+
+  const settings = await getSettings()
+  if (!settings.apiUrl || !settings.apiKey) return
+
+  try {
+    const response = await fetch(`${settings.apiUrl}/api/rufus-qna/queue`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${settings.apiKey}` },
+    })
+
+    if (!response.ok) return
+
+    const data = await response.json()
+    if (!data.item) return // Queue empty
+
+    const { item_id, asin, marketplace, max_questions } = data.item
+
+    queueModeProcessing = true
+    broadcastState()
+    await persistState()
+
+    // Process this ASIN using the extraction flow
+    await processQueueItem(item_id, asin, marketplace, max_questions || 50, settings)
+
+    queueModeProcessing = false
+    broadcastState()
+    await persistState()
+  } catch (err) {
+    console.error('[Queue Mode] Poll error:', err.message)
+    queueModeProcessing = false
+    await persistState()
+  }
+}
+
+/**
+ * Process a single ASIN from the backend queue.
+ * Similar to processNext() but for backend-queued items.
+ */
+async function processQueueItem(itemId, asin, marketplace, maxQuestions, settings) {
+  const baseUrl = MARKETPLACE_URLS[marketplace] || 'https://www.amazon.com'
+  const productUrl = `${baseUrl}/dp/${asin}`
+
+  try {
+    // Navigate: close old tab, open fresh one
+    if (activeTabId) {
+      try { await chrome.tabs.remove(activeTabId) } catch { /* already closed */ }
+      activeTabId = null
+    }
+    await sleep(300)
+    const tab = await chrome.tabs.create({ url: productUrl, active: true })
+    activeTabId = tab.id
+
+    await waitForTabLoad(activeTabId)
+    await sleep(2000)
+
+    const alive = await pingContentScript(activeTabId)
+    if (!alive) {
+      throw new Error('Content script did not respond')
+    }
+
+    // Extract Q&A
+    let timedOut = false
+    const response = await Promise.race([
+      chrome.tabs.sendMessage(activeTabId, {
+        type: 'EXTRACT_RUFUS_QA',
+        settings: {
+          maxQuestions,
+          delayBetweenClicks: settings.delayBetweenClicks,
+          selectors: settings.selectors,
+        },
+      }),
+      sleep(EXTRACTION_TIMEOUT_MS).then(() => {
+        timedOut = true
+        return null
+      }),
+    ])
+
+    let finalResponse = response
+    if (timedOut) {
+      try {
+        finalResponse = await Promise.race([
+          chrome.tabs.sendMessage(activeTabId, {
+            type: 'EXTRACT_QA_ONLY',
+            settings: { selectors: settings.selectors },
+          }),
+          sleep(10000).then(() => ({ success: false, error: 'Timed out', questions: [] })),
+        ])
+      } catch {
+        finalResponse = { success: false, error: 'Timed out', questions: [] }
+      }
+    }
+
+    const questions = finalResponse?.questions || []
+    const hasQuestions = questions.length > 0
+
+    // Send Q&A to platform (same as manual mode)
+    if (settings.apiKey && hasQuestions) {
+      try {
+        await fetch(`${settings.apiUrl}/api/rufus-qna`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${settings.apiKey}`,
+          },
+          body: JSON.stringify({ asin, marketplace, questions }),
+        })
+      } catch (apiErr) {
+        console.error('[Queue Mode] API send error:', apiErr.message)
+      }
+    }
+
+    // Report completion to queue
+    await fetch(`${settings.apiUrl}/api/rufus-qna/queue`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.apiKey}`,
+      },
+      body: JSON.stringify({
+        item_id: itemId,
+        status: hasQuestions ? 'completed' : 'failed',
+        questions_found: questions.length,
+        error_message: hasQuestions ? null : (finalResponse?.error || 'No Q&A extracted'),
+      }),
+    })
+  } catch (err) {
+    console.error(`[Queue Mode] Error processing ${asin}:`, err.message)
+    // Report failure to queue
+    try {
+      await fetch(`${settings.apiUrl}/api/rufus-qna/queue`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${settings.apiKey}`,
+        },
+        body: JSON.stringify({
+          item_id: itemId,
+          status: 'failed',
+          questions_found: 0,
+          error_message: err.message,
+        }),
+      })
+    } catch { /* ignore report failure */ }
+  }
+
+  // Delay before next poll
+  await sleep(settings.delayBetweenProducts || 5000)
+}
 
 async function sendToPlatform(item, settings) {
   const response = await fetch(`${settings.apiUrl}/api/rufus-qna`, {
@@ -370,8 +546,22 @@ function sleep(ms) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     case 'GET_STATE':
-      sendResponse({ queue, isRunning, currentIndex })
+      sendResponse({ queue, isRunning, currentIndex, queueMode, queueModeProcessing })
       return true
+
+    case 'TOGGLE_QUEUE_MODE': {
+      queueMode = !queueMode
+      if (queueMode) {
+        startQueuePolling()
+      } else {
+        stopQueuePolling()
+        queueModeProcessing = false
+      }
+      broadcastState()
+      persistState()
+      sendResponse({ success: true, queueMode })
+      return true
+    }
 
     case 'ADD_TO_QUEUE': {
       const { asins, marketplace } = message.data

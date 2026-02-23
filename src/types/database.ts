@@ -505,6 +505,7 @@ export interface LbAsinQuestions {
     question: string
     answer: string
     votes: number
+    source?: string // 'rufus' | 'oxylabs' | undefined (legacy)
     author?: string
     date?: string
   }>
@@ -512,6 +513,36 @@ export interface LbAsinQuestions {
   fetched_by: string | null
   created_at: string
   updated_at: string
+}
+
+// Rufus Q&A Job Queue
+export type RufusJobStatus = 'queued' | 'processing' | 'completed' | 'completed_partial' | 'failed' | 'cancelled'
+export type RufusJobItemStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'skipped'
+
+export interface LbRufusJob {
+  id: string
+  country_id: string
+  marketplace_domain: string
+  source: 'manual' | 'market_intelligence'
+  market_intelligence_id: string | null
+  status: RufusJobStatus
+  total_asins: number
+  completed_asins: number
+  failed_asins: number
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface LbRufusJobItem {
+  id: string
+  job_id: string
+  asin: string
+  status: RufusJobItemStatus
+  questions_found: number
+  error_message: string | null
+  started_at: string | null
+  completed_at: string | null
 }
 
 // Seller Pull Jobs (background processing)

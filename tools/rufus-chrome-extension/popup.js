@@ -22,6 +22,8 @@ const queueList = document.getElementById('queueList')
 const queueCount = document.getElementById('queueCount')
 const settingsBtn = document.getElementById('settingsBtn')
 const maxQuestionsSelect = document.getElementById('maxQuestionsSelect')
+const queueModeToggle = document.getElementById('queueModeToggle')
+const queueModeStatus = document.getElementById('queueModeStatus')
 
 // ─── Load saved preferences ─────────────────────────────────────
 chrome.storage.sync.get(['lastMarketplace', 'settings'], (result) => {
@@ -46,8 +48,25 @@ maxQuestionsSelect.addEventListener('change', () => {
 // ─── State Rendering ─────────────────────────────────────────────
 
 function renderQueue(state) {
-  const { queue, isRunning } = state
+  const { queue, isRunning, queueMode: qm, queueModeProcessing: qmp } = state
   queueCount.textContent = `(${queue.length})`
+
+  // Update queue mode toggle
+  if (queueModeToggle) {
+    queueModeToggle.checked = !!qm
+    if (queueModeStatus) {
+      if (qmp) {
+        queueModeStatus.textContent = 'Processing...'
+        queueModeStatus.className = 'queue-mode-status active'
+      } else if (qm) {
+        queueModeStatus.textContent = 'Polling'
+        queueModeStatus.className = 'queue-mode-status active'
+      } else {
+        queueModeStatus.textContent = 'Off'
+        queueModeStatus.className = 'queue-mode-status'
+      }
+    }
+  }
 
   const hasPending = queue.some((q) => q.status === 'pending')
   const hasFailed = queue.some((q) => q.status === 'error')
@@ -273,4 +292,9 @@ asinInput.addEventListener('keydown', (e) => {
     e.preventDefault()
     addBtn.click()
   }
+})
+
+// Queue mode toggle
+queueModeToggle.addEventListener('change', () => {
+  chrome.runtime.sendMessage({ type: 'TOGGLE_QUEUE_MODE' })
 })
