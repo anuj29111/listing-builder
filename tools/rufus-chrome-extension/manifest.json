@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Rufus Q&A Extractor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Automates Rufus Q&A extraction from Amazon product pages and sends data to Listing Builder",
   "permissions": [
     "storage",
