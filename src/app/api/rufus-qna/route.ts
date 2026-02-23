@@ -185,8 +185,7 @@ export async function POST(request: Request) {
       total_oxylabs: mergedQuestions.filter((q) => q.source !== 'rufus').length,
       extracted_at: new Date().toISOString(),
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const existingRawResponse = (existing?.raw_response as Record<string, any>) || {}
+    const existingRawResponse = (existing?.raw_response as Record<string, unknown>) || {}
     const mergedRawResponse = {
       ...existingRawResponse,
       rufus: rufusMetadata,
