@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rufus Extractor — Settings</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      color: #1a1a1a;
+      background: #f8f9fa;
+      padding: 24px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    h1 { font-size: 20px; margin-bottom: 20px; }
+    h2 { font-size: 15px; margin: 20px 0 10px; color: #333; border-bottom: 1px solid #e0e0e0; padding-bottom: 6px; }
+    .field { margin-bottom: 12px; }
+    .field label { display: block; font-weight: 500; margin-bottom: 4px; color: #444; font-size: 13px; }
+    .field .hint { font-size: 11px; color: #888; margin-top: 2px; }
+    input[type="text"], input[type="number"], input[type="url"], textarea {
+      width: 100%; padding: 8px 10px; border: 1px solid #d0d0d0;
+      border-radius: 4px; font-size: 13px; background: white;
+    }
+    textarea { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; resize: vertical; }
+    .btn {
+      padding: 8px 16px; border: none; border-radius: 4px;
+      font-size: 13px; font-weight: 500; cursor: pointer;
+    }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-secondary { background: #e5e7eb; color: #374151; margin-left: 8px; }
+    .btn:hover { opacity: 0.85; }
+    .actions { margin-top: 20px; }
+    .saved { color: #16a34a; font-size: 13px; margin-left: 12px; display: none; }
+  </style>
+</head>
+<body>
+  <h1>Rufus Q&A Extractor — Settings</h1>
+
+  <h2>Platform Connection</h2>
+  <div class="field">
+    <label for="apiUrl">Listing Builder API URL</label>
+    <input type="url" id="apiUrl" placeholder="http://localhost:3000">
+    <div class="hint">Production: https://listing-builder-production.up.railway.app</div>
+  </div>
+  <div class="field">
+    <label for="apiKey">API Key</label>
+    <input type="password" id="apiKey" placeholder="Enter the key from Admin Settings">
+    <div class="hint">Set in Listing Builder → Admin Settings → "rufus_extension_api_key"</div>
+  </div>
+
+  <h2>Extraction Settings</h2>
+  <div class="field">
+    <label for="maxQuestions">Safety cap (max questions per product)</label>
+    <input type="number" id="maxQuestions" value="200" min="10" max="500">
+    <div class="hint">Extraction runs until Rufus stops producing new questions. This is only a safety cap to prevent infinite loops.</div>
+  </div>
+  <div class="field">
+    <label for="delayClicks">Delay between question clicks (ms)</label>
+    <input type="number" id="delayClicks" value="3000" min="500" max="15000" step="500">
+    <div class="hint">Lower = faster but more likely to miss answers. Recommended: 2000-4000ms</div>
+  </div>
+  <div class="field">
+    <label for="delayProducts">Delay between products (ms)</label>
+    <input type="number" id="delayProducts" value="5000" min="2000" max="30000" step="1000">
+    <div class="hint">Pause before navigating to next product. Recommended: 3000-8000ms</div>
+  </div>
+
+  <h2>DOM Selectors</h2>
+  <p style="font-size: 12px; color: #666; margin-bottom: 10px;">
+    CSS selectors for Rufus UI elements. Comma-separated for fallback matching.
+    Update these if Amazon changes their DOM structure.
+  </p>
+  <div class="field">
+    <label for="selRufusBtn">Rufus open button</label>
+    <textarea id="selRufusBtn" rows="2"></textarea>
+  </div>
+  <div class="field">
+    <label for="selQuestionChip">Question suggestion chips</label>
+    <textarea id="selQuestionChip" rows="2"></textarea>
+  </div>
+  <div class="field">
+    <label for="selChatContainer">Chat message container</label>
+    <textarea id="selChatContainer" rows="2"></textarea>
+  </div>
+  <div class="field">
+    <label for="selQuestionBubble">User question bubble</label>
+    <textarea id="selQuestionBubble" rows="2"></textarea>
+  </div>
+  <div class="field">
+    <label for="selAnswerBubble">Rufus answer bubble</label>
+    <textarea id="selAnswerBubble" rows="2"></textarea>
+  </div>
+  <div class="field">
+    <label for="selLoading">Loading indicator</label>
+    <textarea id="selLoading" rows="2"></textarea>
+  </div>
+
+  <div class="actions">
+    <button id="saveBtn" class="btn btn-primary">Save Settings</button>
+    <button id="resetBtn" class="btn btn-secondary">Reset Defaults</button>
+    <span id="savedMsg" class="saved">Saved!</span>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
