@@ -27,6 +27,7 @@ interface MarketIntelligenceReportProps {
   ourAsins?: Set<string>
   questionsData?: Record<string, Array<Record<string, unknown>>>
   reviewsData?: Record<string, Array<Record<string, unknown>>>
+  selectedAsins?: string[]
 }
 
 export function MarketIntelligenceReport({
@@ -36,9 +37,16 @@ export function MarketIntelligenceReport({
   ourAsins,
   questionsData,
   reviewsData,
+  selectedAsins,
 }: MarketIntelligenceReportProps) {
   const r = analysisResult
   if (!r) return <div className="text-center py-12 text-muted-foreground">No analysis data available.</div>
+
+  // Filter competitors to selected ASINs only (if available)
+  const selectedSet = selectedAsins && selectedAsins.length > 0 ? new Set(selectedAsins) : null
+  const filteredCompetitors = selectedSet
+    ? competitorsData.filter(c => selectedSet.has(c.asin as string))
+    : competitorsData
 
   const totalReviewCount = reviewsData
     ? Object.values(reviewsData).reduce((sum, arr) => sum + (arr?.length || 0), 0)
@@ -133,12 +141,12 @@ export function MarketIntelligenceReport({
       {/* 5. Customer Segments */}
       {r.customerSegments?.length > 0 && <CustomerSegmentsSection segments={r.customerSegments} />}
 
-      {/* 6. Similar Reviews (raw data) */}
-      <SimilarReviewsSection competitorsData={competitorsData} />
+      {/* 6. Reviews (Apify-fetched, actually analyzed) */}
+      <SimilarReviewsSection reviewsData={reviewsData} competitorsData={filteredCompetitors} />
 
-      {/* 7. Competitor Products (raw data) */}
+      {/* 7. Competitor Products (selected ASINs only) */}
       <CompetitorProductsSection
-        competitorsData={competitorsData}
+        competitorsData={filteredCompetitors}
         marketplaceDomain={marketplaceDomain}
         ourAsins={ourAsins}
       />
@@ -147,7 +155,7 @@ export function MarketIntelligenceReport({
       <QnASection
         qnaResult={qnaResult}
         questionsData={questionsData}
-        competitorsData={competitorsData}
+        competitorsData={filteredCompetitors}
       />
 
       {/* 9. Image Recommendations */}

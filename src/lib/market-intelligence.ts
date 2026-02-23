@@ -771,21 +771,65 @@ export async function backgroundAnalyze(
     const existingReviewsData = record.reviews_data as Record<string, Array<Record<string, unknown>>> | null
     const existingQuestionsData = record.questions_data as Record<string, Array<Record<string, unknown>>> | null
     const existingAnalysis = (record.analysis_result || {}) as Record<string, unknown>
-    const hasPersistedData = existingReviewsData && Object.keys(existingReviewsData).length > 0
+    const hasReviews = existingReviewsData && Object.keys(existingReviewsData).length > 0
+    const hasQuestions = existingQuestionsData && Object.keys(existingQuestionsData).length > 0
     // Resume if reviews already fetched (skip data collection, jump to analysis phases)
-    const isResuming = hasPersistedData && (existingQuestionsData !== null)
+    // Note: empty {} for questions_data means Q&A was never fetched — only skip Q&A if it has actual data
+    const canSkipReviews = hasReviews
+    const canSkipQnA = hasQuestions || completedPhases.length > 0 // If any phase completed, Q&A fetch already ran (may have returned empty)
+    const isResuming = canSkipReviews
 
     if (isResuming) {
-      console.log(`[MI ${id}] Resuming analysis. Reviews: ${Object.keys(existingReviewsData!).length} ASINs. Completed phases: ${completedPhases.join(', ') || 'none'}. Skipping review/Q&A fetch.`)
+      console.log(`[MI ${id}] Resuming analysis. Reviews: ${Object.keys(existingReviewsData!).length} ASINs. Q&A: ${hasQuestions ? Object.keys(existingQuestionsData!).length + ' ASINs' : 'will re-fetch'}. Completed phases: ${completedPhases.join(', ') || 'none'}.`)
     }
 
     let reviewsData: Record<string, Array<Record<string, unknown>>>
     let questionsData: Record<string, Array<Record<string, unknown>>>
 
-    if (isResuming) {
-      // Skip review + Q&A fetch — data already persisted from previous run
+    if (isResuming && canSkipQnA) {
+      // Skip both review + Q&A fetch — data already persisted from previous run
       reviewsData = existingReviewsData!
       questionsData = existingQuestionsData || {}
+    } else if (isResuming && !canSkipQnA) {
+      // Reviews exist but Q&A was never fetched — skip reviews, re-fetch Q&A only
+      reviewsData = existingReviewsData!
+      console.log(`[MI ${id}] Reviews already fetched. Re-fetching Q&A for ${selectedAsins.length} ASINs...`)
+
+      const fetchedQuestionsData: Record<string, Array<Record<string, unknown>>> = {}
+      for (let i = 0; i < selectedAsins.length; i++) {
+        const asin = selectedAsins[i]
+        await updateMI(id, {
+          progress: { step: 'qna_fetch', current: i, total: selectedAsins.length, message: `Fetching Q&A for ${asin} (${i + 1}/${selectedAsins.length})...`, completed_phases: completedPhases },
+        })
+        const qnaResult = await Promise.race([
+          (async () => {
+            const { data: cachedQnA } = await supabase
+              .from('lb_asin_questions').select('questions')
+              .eq('asin', asin).eq('country_id', record.country_id as string)
+              .gte('updated_at', cacheThreshold).single()
+            if (cachedQnA?.questions) return cachedQnA.questions as Array<Record<string, unknown>>
+            const result = await fetchQuestions(asin, oxylabsDomain, 1)
+            oxylabsCallsUsed++
+            if (result.success && result.data?.questions) {
+              admin.from('lb_asin_questions').upsert({
+                asin, country_id: record.country_id as string, marketplace_domain: country.amazon_domain,
+                total_questions: result.data.questions.length, questions: result.data.questions,
+                raw_response: result.data, fetched_by: userId, updated_at: new Date().toISOString(),
+              }, { onConflict: 'asin,country_id' }).then(({ error: cacheErr }) => {
+                if (cacheErr) console.error(`[MI ${id}] Failed to cache Q&A for ${asin}:`, cacheErr.message)
+              })
+              return result.data.questions as unknown as Array<Record<string, unknown>>
+            }
+            return null
+          })().catch((err) => { console.error(`[MI ${id}] Failed to fetch Q&A for ${asin}:`, err); return null }),
+          new Promise<null>((resolve) => setTimeout(() => { console.error(`[MI ${id}] Q&A fetch for ${asin} timed out — skipping`); resolve(null) }, ASIN_TIMEOUT_MS)),
+        ])
+        if (qnaResult) fetchedQuestionsData[asin] = qnaResult
+        if (i < selectedAsins.length - 1) await new Promise((resolve) => setTimeout(resolve, 2000))
+      }
+      questionsData = fetchedQuestionsData
+      await updateMI(id, { questions_data: questionsData, oxylabs_calls_used: oxylabsCallsUsed })
+      console.log(`[MI ${id}] Q&A re-fetch complete. ${Object.keys(questionsData).length} ASINs with Q&A.`)
     } else {
       // ========== PHASE A: Fetch reviews for selected products (PARALLEL) ==========
       const reviewResult = await fetchReviewsParallel(

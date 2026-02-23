@@ -980,6 +980,7 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
           ourAsins={ourAsins}
           questionsData={(reportData.questions_data || {}) as Record<string, Array<Record<string, unknown>>>}
           reviewsData={((reportData as unknown as Record<string, unknown>).reviews_data || {}) as Record<string, Array<Record<string, unknown>>>}
+          selectedAsins={(reportData.selected_asins || []) as string[]}
         />
       </div>
     )
