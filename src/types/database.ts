@@ -460,7 +460,7 @@ export interface LbMarketIntelligence {
   questions_data: Record<string, unknown> | null
   analysis_result: Record<string, unknown>
   status: 'pending' | 'collecting' | 'collected' | 'awaiting_selection' | 'analyzing' | 'completed' | 'failed'
-  progress: { step?: string; current?: number; total?: number; message?: string }
+  progress: { step?: string; current?: number; total?: number; message?: string; completed_phases?: string[]; failed_at?: string; error_detail?: string }
   error_message: string | null
   model_used: string | null
   tokens_used: number | null

@@ -2665,21 +2665,55 @@ async function runMIPhase(
   const model = await getModel()
   const prompt = promptBuilder()
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: 16384,
-    messages: [{ role: 'user', content: prompt }],
-  })
+  const MAX_RETRIES = 3
+  const BASE_DELAY_RATE_LIMIT = 60_000  // 60s — token bucket refills per minute
+  const BASE_DELAY_SERVER_ERROR = 10_000 // 10s for 5xx errors
 
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    .map((b) => b.text)
-    .join('')
+  let lastError: Error | null = null
 
-  const result = JSON.parse(stripMarkdownFences(text)) as Record<string, unknown>
-  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await client.messages.create({
+        model,
+        max_tokens: 16384,
+        messages: [{ role: 'user', content: prompt }],
+      })
 
-  return { result, model, tokensUsed }
+      const text = response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+
+      const result = JSON.parse(stripMarkdownFences(text)) as Record<string, unknown>
+      const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+
+      if (attempt > 0) {
+        console.log(`[MI] ${phaseLabel} succeeded on attempt ${attempt + 1}`)
+      }
+
+      return { result, model, tokensUsed }
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+
+      const isApiError = err instanceof Anthropic.APIError
+      const statusCode = isApiError ? (err.status ?? 0) : 0
+      const isRateLimit = statusCode === 429
+      const isServerError = statusCode >= 500
+      const isRetryable = isRateLimit || isServerError
+
+      if (!isRetryable || attempt >= MAX_RETRIES) {
+        console.error(`[MI] ${phaseLabel} failed (attempt ${attempt + 1}, status ${statusCode}): ${lastError.message}`)
+        throw lastError
+      }
+
+      const baseDelay = isRateLimit ? BASE_DELAY_RATE_LIMIT : BASE_DELAY_SERVER_ERROR
+      const delay = baseDelay * Math.pow(2, attempt)
+      console.log(`[MI] ${phaseLabel} attempt ${attempt + 1} failed (${isRateLimit ? '429 rate limit' : `${statusCode} server error`}), retrying in ${Math.round(delay / 1000)}s...`)
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+
+  throw lastError!
 }
 
 export async function analyzeMarketIntelligencePhase1Reviews(

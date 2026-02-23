@@ -257,6 +257,45 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
     refreshHistory()
   }
 
+  const handleResume = async (record: Partial<LbMarketIntelligence>) => {
+    if (!record.id) return
+
+    const completedPhases = record.progress?.completed_phases || []
+    const resumePhase = completedPhases.length > 0
+      ? `phase ${completedPhases.length + 1}`
+      : 'the beginning'
+
+    setActiveRecordId(record.id)
+    setLoading(true)
+    setView('progress')
+    setProgressData({
+      step: completedPhases.length > 0 ? `phase_${completedPhases.length + 1}` : 'review_fetch',
+      current: completedPhases.length,
+      total: 4,
+      message: `Resuming from ${resumePhase}...`,
+    })
+
+    try {
+      const res = await fetch(`/api/market-intelligence/${record.id}/select`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selected_asins: record.selected_asins || [] }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Failed to resume')
+      }
+
+      toast.success(`Resuming analysis from ${resumePhase}...`)
+      pollRef.current = setInterval(() => pollForProgress(record.id!), POLL_INTERVAL)
+    } catch (err) {
+      setLoading(false)
+      setView('search')
+      toast.error(err instanceof Error ? err.message : 'Failed to resume')
+    }
+  }
+
   // Auto-resume: check for in-progress MI records on mount
   const hasAutoResumed = useRef(false)
   useEffect(() => {
@@ -512,6 +551,18 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${statusColor}`}>
                               {record.status}
                             </span>
+                            {record.status === 'failed' && record.progress?.completed_phases && record.progress.completed_phases.length > 0 && (
+                              <span className="text-[10px] text-amber-600 font-medium">
+                                {record.progress.completed_phases.length}/4 phases saved
+                              </span>
+                            )}
+                            {record.status === 'failed' && record.error_message && (
+                              <span className="text-red-500 text-[10px] truncate max-w-[200px]" title={record.error_message}>
+                                {record.error_message.length > 60
+                                  ? record.error_message.slice(0, 60) + '...'
+                                  : record.error_message}
+                              </span>
+                            )}
                             {record.top_asins && record.top_asins.length > 0 && (
                               <span>{record.top_asins.length} ASINs</span>
                             )}
@@ -547,6 +598,16 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                         {record.status === 'awaiting_selection' && (
                           <Button size="sm" variant="outline" onClick={() => handleViewBrief(record)} className="text-xs">
                             Select Products <ChevronRight className="h-3 w-3 ml-1" />
+                          </Button>
+                        )}
+                        {record.status === 'failed' && record.selected_asins && record.selected_asins.length > 0 && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleResume(record)}
+                            className="text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
+                          >
+                            Resume <ChevronRight className="h-3 w-3 ml-1" />
                           </Button>
                         )}
                         <Button

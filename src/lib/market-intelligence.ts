@@ -613,7 +613,7 @@ async function fetchReviewsParallel(
             return true
           })
 
-          // Cache upsert (fire-and-forget)
+          // Cache upsert (fire-and-forget with error logging)
           admin.from('lb_asin_reviews').upsert({
             asin: job.asin,
             country_id: countryId,
@@ -627,6 +627,9 @@ async function fetchReviewsParallel(
             fetched_by: userId,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'asin,country_id,sort_by' })
+            .then(({ error: cacheErr }) => {
+              if (cacheErr) console.error(`[MI ${id}] Failed to cache reviews for ${job.asin}:`, cacheErr.message)
+            })
 
           job.reviews = unique as unknown as Array<Record<string, unknown>>
           job.phase = 'done'
@@ -762,104 +765,132 @@ export async function backgroundAnalyze(
     const competitorsRaw = (record.competitors_data || []) as Array<Record<string, unknown>>
     const admin = createAdminClient()
 
-    // ========== PHASE A: Fetch reviews for selected products (PARALLEL) ==========
-    const reviewResult = await fetchReviewsParallel(
-      id,
-      selectedAsins,
-      record.country_id as string,
-      country.amazon_domain,
-      reviewsPerProduct,
-      competitorsRaw,
-      userId,
-      cacheThreshold
-    )
+    // ========== RESUME DETECTION ==========
+    const existingProgress = (record.progress || {}) as Record<string, unknown>
+    const completedPhases: string[] = (existingProgress.completed_phases as string[]) || []
+    const existingReviewsData = record.reviews_data as Record<string, Array<Record<string, unknown>>> | null
+    const existingQuestionsData = record.questions_data as Record<string, Array<Record<string, unknown>>> | null
+    const existingAnalysis = (record.analysis_result || {}) as Record<string, unknown>
+    const hasPersistedData = existingReviewsData && Object.keys(existingReviewsData).length > 0
+    // Resume if reviews already fetched (skip data collection, jump to analysis phases)
+    const isResuming = hasPersistedData && (existingQuestionsData !== null)
 
-    if (!reviewResult.success) {
-      await updateMI(id, { status: 'failed', error_message: reviewResult.error || 'Review fetch failed' })
-      return
+    if (isResuming) {
+      console.log(`[MI ${id}] Resuming analysis. Reviews: ${Object.keys(existingReviewsData!).length} ASINs. Completed phases: ${completedPhases.join(', ') || 'none'}. Skipping review/Q&A fetch.`)
     }
 
-    const reviewsData = reviewResult.reviewsData
+    let reviewsData: Record<string, Array<Record<string, unknown>>>
+    let questionsData: Record<string, Array<Record<string, unknown>>>
 
-    // Breathing room between review and Q&A phases
-    await new Promise((resolve) => setTimeout(resolve, 3000))
+    if (isResuming) {
+      // Skip review + Q&A fetch — data already persisted from previous run
+      reviewsData = existingReviewsData!
+      questionsData = existingQuestionsData || {}
+    } else {
+      // ========== PHASE A: Fetch reviews for selected products (PARALLEL) ==========
+      const reviewResult = await fetchReviewsParallel(
+        id,
+        selectedAsins,
+        record.country_id as string,
+        country.amazon_domain,
+        reviewsPerProduct,
+        competitorsRaw,
+        userId,
+        cacheThreshold
+      )
 
-    // ========== PHASE B: Fetch Q&A for selected products ==========
-    const questionsData: Record<string, Array<Record<string, unknown>>> = {}
+      if (!reviewResult.success) {
+        await updateMI(id, { status: 'failed', error_message: reviewResult.error || 'Review fetch failed' })
+        return
+      }
 
-    for (let i = 0; i < selectedAsins.length; i++) {
-      const asin = selectedAsins[i]
+      reviewsData = reviewResult.reviewsData
 
+      // Breathing room between review and Q&A phases
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+
+      // ========== PHASE B: Fetch Q&A for selected products ==========
+      const fetchedQuestionsData: Record<string, Array<Record<string, unknown>>> = {}
+
+      for (let i = 0; i < selectedAsins.length; i++) {
+        const asin = selectedAsins[i]
+
+        await updateMI(id, {
+          progress: {
+            step: 'qna_fetch',
+            current: i,
+            total: selectedAsins.length,
+            message: `Fetching Q&A for ${asin} (${i + 1}/${selectedAsins.length})...`,
+          },
+        })
+
+        const qnaResult = await Promise.race([
+          (async () => {
+            // Check cache
+            const { data: cachedQnA } = await supabase
+              .from('lb_asin_questions')
+              .select('questions')
+              .eq('asin', asin)
+              .eq('country_id', record.country_id as string)
+              .gte('updated_at', cacheThreshold)
+              .single()
+
+            if (cachedQnA?.questions) {
+              return cachedQnA.questions as Array<Record<string, unknown>>
+            }
+
+            const result = await fetchQuestions(asin, oxylabsDomain, 1)
+            oxylabsCallsUsed++
+
+            if (result.success && result.data?.questions) {
+              // Cache upsert (fire-and-forget with error logging)
+              admin.from('lb_asin_questions').upsert({
+                asin,
+                country_id: record.country_id as string,
+                marketplace_domain: country.amazon_domain,
+                total_questions: result.data.questions.length,
+                questions: result.data.questions,
+                raw_response: result.data,
+                fetched_by: userId,
+                updated_at: new Date().toISOString(),
+              }, { onConflict: 'asin,country_id' })
+                .then(({ error: cacheErr }) => {
+                  if (cacheErr) console.error(`[MI ${id}] Failed to cache Q&A for ${asin}:`, cacheErr.message)
+                })
+
+              return result.data.questions as unknown as Array<Record<string, unknown>>
+            }
+            return null
+          })().catch((err) => {
+            console.error(`[MI ${id}] Failed to fetch Q&A for ${asin}:`, err)
+            return null
+          }),
+          new Promise<null>((resolve) => setTimeout(() => {
+            console.error(`[MI ${id}] Q&A fetch for ${asin} timed out — skipping`)
+            resolve(null)
+          }, ASIN_TIMEOUT_MS)),
+        ])
+
+        if (qnaResult) {
+          fetchedQuestionsData[asin] = qnaResult
+        }
+
+        // Rate-limit delay between Oxylabs calls
+        if (i < selectedAsins.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 2000))
+        }
+      }
+
+      questionsData = fetchedQuestionsData
+
+      // Save reviews + Q&A data, update oxylabs count
       await updateMI(id, {
-        progress: {
-          step: 'qna_fetch',
-          current: i,
-          total: selectedAsins.length,
-          message: `Fetching Q&A for ${asin} (${i + 1}/${selectedAsins.length})...`,
-        },
+        reviews_data: reviewsData,
+        questions_data: questionsData,
+        oxylabs_calls_used: oxylabsCallsUsed,
+        progress: { step: 'phase_1', current: 0, total: 4, message: 'Phase 1: Analyzing reviews...' },
       })
-
-      const qnaResult = await Promise.race([
-        (async () => {
-          // Check cache
-          const { data: cachedQnA } = await supabase
-            .from('lb_asin_questions')
-            .select('questions')
-            .eq('asin', asin)
-            .eq('country_id', record.country_id as string)
-            .gte('updated_at', cacheThreshold)
-            .single()
-
-          if (cachedQnA?.questions) {
-            return cachedQnA.questions as Array<Record<string, unknown>>
-          }
-
-          const result = await fetchQuestions(asin, oxylabsDomain, 1)
-          oxylabsCallsUsed++
-
-          if (result.success && result.data?.questions) {
-            // Cache upsert (fire-and-forget)
-            admin.from('lb_asin_questions').upsert({
-              asin,
-              country_id: record.country_id as string,
-              marketplace_domain: country.amazon_domain,
-              total_questions: result.data.questions.length,
-              questions: result.data.questions,
-              raw_response: result.data,
-              fetched_by: userId,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: 'asin,country_id' })
-
-            return result.data.questions as unknown as Array<Record<string, unknown>>
-          }
-          return null
-        })().catch((err) => {
-          console.error(`[MI ${id}] Failed to fetch Q&A for ${asin}:`, err)
-          return null
-        }),
-        new Promise<null>((resolve) => setTimeout(() => {
-          console.error(`[MI ${id}] Q&A fetch for ${asin} timed out — skipping`)
-          resolve(null)
-        }, ASIN_TIMEOUT_MS)),
-      ])
-
-      if (qnaResult) {
-        questionsData[asin] = qnaResult
-      }
-
-      // Rate-limit delay between Oxylabs calls
-      if (i < selectedAsins.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 2000))
-      }
     }
-
-    // Save reviews + Q&A data, update oxylabs count
-    await updateMI(id, {
-      reviews_data: reviewsData,
-      questions_data: questionsData,
-      oxylabs_calls_used: oxylabsCallsUsed,
-      progress: { step: 'phase_1', current: 0, total: 4, message: 'Phase 1: Analyzing reviews...' },
-    })
 
     // ========== PHASE C: 4-phase Claude analysis ==========
     // Build data object for Claude (same structure as old analyze route)
@@ -972,65 +1003,142 @@ export async function backgroundAnalyze(
       },
     }
 
-    let totalTokens = 0
+    // Inter-phase delay to prevent rate limit hits (token bucket refills per minute)
+    const INTER_PHASE_DELAY_MS = 30_000
+
+    let totalTokens = (record.tokens_used as number) || 0
+    let mergedResult: Record<string, unknown> = { ...existingAnalysis }
+    let modelUsed = ''
 
     // Phase 1: Review Deep-Dive
-    const phase1 = await analyzeMarketIntelligencePhase1Reviews(data)
-    totalTokens += phase1.tokensUsed
+    if (completedPhases.includes('phase_1')) {
+      console.log(`[MI ${id}] Phase 1 already complete, skipping`)
+    } else {
+      if (!isResuming) {
+        await updateMI(id, {
+          progress: { step: 'phase_1', current: 0, total: 4, message: 'Phase 1: Analyzing reviews...', completed_phases: completedPhases },
+        })
+      }
+      const phase1 = await analyzeMarketIntelligencePhase1Reviews(data)
+      totalTokens += phase1.tokensUsed
+      modelUsed = phase1.model
+      mergedResult = { ...mergedResult, ...phase1.result }
 
-    await updateMI(id, {
-      progress: { step: 'phase_2', current: 1, total: 4, message: 'Phase 2: Analyzing Q&A data...' },
-    })
+      // Persist phase 1 immediately
+      await updateMI(id, {
+        analysis_result: mergedResult,
+        model_used: modelUsed,
+        tokens_used: totalTokens,
+        progress: { step: 'phase_2', current: 1, total: 4, message: 'Phase 1 complete. Waiting before Phase 2...', completed_phases: ['phase_1'] },
+      })
+      console.log(`[MI ${id}] Phase 1 complete and persisted. ${phase1.tokensUsed} tokens.`)
 
-    // Phase 2: Q&A Analysis
-    const phase2 = await analyzeMarketIntelligencePhase2QnA(data, phase1.result as unknown as Record<string, unknown>)
-    totalTokens += phase2.tokensUsed
-
-    await updateMI(id, {
-      progress: { step: 'phase_3', current: 2, total: 4, message: 'Phase 3: Analyzing market & competition...' },
-    })
-
-    // Phase 3: Market & Competitive
-    const phase3 = await analyzeMarketIntelligencePhase3Market(
-      data,
-      phase1.result as unknown as Record<string, unknown>,
-      phase2.result as unknown as Record<string, unknown>
-    )
-    totalTokens += phase3.tokensUsed
-
-    await updateMI(id, {
-      progress: { step: 'phase_4', current: 3, total: 4, message: 'Phase 4: Building customer intelligence & strategy...' },
-    })
-
-    // Phase 4: Customer Intelligence & Strategy
-    const phase4 = await analyzeMarketIntelligencePhase4Strategy(
-      data,
-      phase1.result as unknown as Record<string, unknown>,
-      phase2.result as unknown as Record<string, unknown>,
-      phase3.result as unknown as Record<string, unknown>
-    )
-    totalTokens += phase4.tokensUsed
-
-    // Merge all 4 phases and mark complete
-    const mergedResult = {
-      ...phase1.result,
-      ...phase2.result,
-      ...phase3.result,
-      ...phase4.result,
+      // Delay between phases to let rate limit bucket refill
+      await new Promise(resolve => setTimeout(resolve, INTER_PHASE_DELAY_MS))
     }
 
+    // Phase 2: Q&A Analysis
+    if (completedPhases.includes('phase_2')) {
+      console.log(`[MI ${id}] Phase 2 already complete, skipping`)
+    } else {
+      await updateMI(id, {
+        progress: { step: 'phase_2', current: 1, total: 4, message: 'Phase 2: Analyzing Q&A data...', completed_phases: mergedResult.sentimentAnalysis ? ['phase_1'] : [] },
+      })
+      const phase2 = await analyzeMarketIntelligencePhase2QnA(data, mergedResult)
+      totalTokens += phase2.tokensUsed
+      if (!modelUsed) modelUsed = phase2.model
+      mergedResult = { ...mergedResult, ...phase2.result }
+
+      // Persist phase 1+2 merged
+      await updateMI(id, {
+        analysis_result: mergedResult,
+        model_used: modelUsed,
+        tokens_used: totalTokens,
+        progress: { step: 'phase_3', current: 2, total: 4, message: 'Phase 2 complete. Waiting before Phase 3...', completed_phases: ['phase_1', 'phase_2'] },
+      })
+      console.log(`[MI ${id}] Phase 2 complete and persisted. ${phase2.tokensUsed} tokens.`)
+
+      await new Promise(resolve => setTimeout(resolve, INTER_PHASE_DELAY_MS))
+    }
+
+    // Phase 3: Market & Competitive
+    if (completedPhases.includes('phase_3')) {
+      console.log(`[MI ${id}] Phase 3 already complete, skipping`)
+    } else {
+      await updateMI(id, {
+        progress: { step: 'phase_3', current: 2, total: 4, message: 'Phase 3: Analyzing market & competition...', completed_phases: ['phase_1', 'phase_2'] },
+      })
+      const phase3 = await analyzeMarketIntelligencePhase3Market(
+        data,
+        mergedResult,
+        mergedResult
+      )
+      totalTokens += phase3.tokensUsed
+      if (!modelUsed) modelUsed = phase3.model
+      mergedResult = { ...mergedResult, ...phase3.result }
+
+      // Persist phase 1+2+3 merged
+      await updateMI(id, {
+        analysis_result: mergedResult,
+        model_used: modelUsed,
+        tokens_used: totalTokens,
+        progress: { step: 'phase_4', current: 3, total: 4, message: 'Phase 3 complete. Waiting before Phase 4...', completed_phases: ['phase_1', 'phase_2', 'phase_3'] },
+      })
+      console.log(`[MI ${id}] Phase 3 complete and persisted. ${phase3.tokensUsed} tokens.`)
+
+      await new Promise(resolve => setTimeout(resolve, INTER_PHASE_DELAY_MS))
+    }
+
+    // Phase 4: Customer Intelligence & Strategy
+    await updateMI(id, {
+      progress: { step: 'phase_4', current: 3, total: 4, message: 'Phase 4: Building customer intelligence & strategy...', completed_phases: ['phase_1', 'phase_2', 'phase_3'] },
+    })
+    const phase4 = await analyzeMarketIntelligencePhase4Strategy(
+      data,
+      mergedResult,
+      mergedResult,
+      mergedResult
+    )
+    totalTokens += phase4.tokensUsed
+    if (!modelUsed) modelUsed = phase4.model
+    mergedResult = { ...mergedResult, ...phase4.result }
+
+    // Final merge and mark complete
     await updateMI(id, {
       status: 'completed',
       analysis_result: mergedResult,
-      model_used: phase1.model,
+      model_used: modelUsed,
       tokens_used: totalTokens,
-      progress: { step: 'completed', current: 4, total: 4, message: 'Analysis complete.' },
+      progress: { step: 'completed', current: 4, total: 4, message: 'Analysis complete.', completed_phases: ['phase_1', 'phase_2', 'phase_3', 'phase_4'] },
     })
 
-    console.log(`[MI ${id}] Background analysis complete. ${totalTokens} tokens used.`)
+    console.log(`[MI ${id}] Background analysis complete. ${totalTokens} total tokens used.`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
     console.error(`[MI ${id}] Background analyze failed:`, msg)
-    await updateMI(id, { status: 'failed', error_message: msg })
+
+    // Record which phase failed by reading current progress from DB
+    try {
+      const adminForError = createAdminClient()
+      const { data: currentRecord } = await adminForError
+        .from('lb_market_intelligence')
+        .select('progress')
+        .eq('id', id)
+        .single()
+
+      const currentProgress = (currentRecord?.progress || {}) as Record<string, unknown>
+      await updateMI(id, {
+        status: 'failed',
+        error_message: msg,
+        progress: {
+          ...currentProgress,
+          failed_at: currentProgress.step || 'unknown',
+          error_detail: msg.slice(0, 500),
+        },
+      })
+    } catch {
+      // Fallback: save error without progress details
+      await updateMI(id, { status: 'failed', error_message: msg })
+    }
   }
 }
