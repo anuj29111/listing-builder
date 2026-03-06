@@ -160,15 +160,63 @@ function extractKeywords(text) {
 
 /**
  * Clean extracted question/answer text by stripping DOM artifacts.
- * Rufus DOM includes hidden metadata like "{}" from script tags and
- * screen-reader text like "Customer question" that pollute textContent.
+ * Rufus DOM includes hidden metadata like "{}" from script tags,
+ * screen-reader text, Amazon product listings, and other noise.
  */
 function cleanExtractedText(text) {
   return text
-    .replace(/^\{\}\s*/g, '')                    // Leading "{}" from script tags
-    .replace(/^Customer question\s*/i, '')       // Screen-reader label
-    .replace(/\s+/g, ' ')                        // Collapse whitespace
+    .replace(/\{\}/g, '')                         // All "{}" from script tags
+    .replace(/Customer question\s*/gi, '')        // Screen-reader labels (all occurrences)
+    .replace(/Rufus has completed generating a response/gi, '')
+    .replace(/Your feedback has been submitted[^]*?Submit/gi, '') // Feedback UI
+    .replace(/Resume response/gi, '')
+    .replace(/Start of chat history/gi, '')
+    .replace(/Load more/gi, '')
+    .replace(/\(window\.AmazonUIPageJS[^]*?;/g, '') // Amazon scripts
+    .replace(/window\.AmazonUIPageJS[^]*?;/g, '')
+    .replace(/P\.now\([^)]*\)[^;]*;/g, '')        // Amazon P.now() calls
+    .replace(/\{\\?"[A-Z_]+\\?":\\?"[^"]*\\?"[^}]*\}/g, '') // JSON config blobs
+    .replace(/Add to cart/gi, '')                  // Product recommendation UI
+    .replace(/FREE delivery[^.]*\./gi, '')
+    .replace(/\d+\+? bought in past month/gi, '')
+    .replace(/\d+% off/gi, '')
+    .replace(/Limited time deal/gi, '')
+    .replace(/See more details and confirm pricing[^]*?Learn more/gi, '')
+    .replace(/Continue to site/gi, '')
+    .replace(/Have questions\?/gi, '')
+    .replace(/\s+/g, ' ')                         // Collapse whitespace
     .trim()
+}
+
+/**
+ * Validate a Q&A pair is real content, not UI junk.
+ * Returns false for garbage entries like Rufus panel UI text.
+ */
+function isValidQAPair(question, answer) {
+  // Question must be substantial (at least 10 chars of real text)
+  if (!question || question.length < 10) return false
+  // Answer must be substantial
+  if (!answer || answer.length < 20) return false
+  // Reject known UI junk
+  const junkPatterns = [
+    /^Drag to reposition/i,
+    /^Auto-minimize/i,
+    /^Chat history/i,
+    /^Load more/i,
+    /^Start of chat/i,
+    /^New chat/i,
+    /^Get started/i,
+    /^Minimizes the Rufus/i,
+    /^Select All That Apply/i,
+    /^This is irrelevant/i,
+  ]
+  for (const pattern of junkPatterns) {
+    if (pattern.test(question) || pattern.test(answer)) return false
+  }
+  // Reject if answer is mostly script/config text
+  if (answer.includes('AmazonUIPageJS') || answer.includes('PUISClients')) return false
+  if (answer.includes('aapi-token-puis')) return false
+  return true
 }
 
 /**
@@ -205,21 +253,29 @@ let currentExtractor = null
 class RufusExtractor {
   /**
    * @param {Object} settings - Extraction settings (selectors, delays, batch size)
-   * @param {string[]} completedQuestions - Questions already handled in previous batches
+   * @param {string[]} completedQuestions - ALL questions handled in previous batches (for counting/off-topic)
    * @param {string[]} topicKeywords - Topic keywords built up from previous batches
+   * @param {string[]} skippedSeeds - Initial pills already explored as seeds in previous batches
    */
-  constructor(settings, completedQuestions = [], topicKeywords = []) {
+  constructor(settings, completedQuestions = [], topicKeywords = [], skippedSeeds = []) {
     this.batchSize = settings.batchSize || 5
     this.delayBetweenClicks = settings.delayBetweenClicks || 3000
     this.selectors = settings.selectors || {}
     this.aborted = false
 
-    // Questions already handled in previous batches (skip these when clicking)
+    // ALL questions handled in previous batches (for counting + follow-up skip)
     this._previouslyCompleted = new Set(completedQuestions)
     // Questions clicked in THIS batch only (for text-anchor DOM extraction)
     this._batchClicked = []
-    // All handled questions = previous + this batch (for skip logic)
+    // All handled questions = previous + this batch (prevents re-clicking in SAME batch)
     this._allHandled = new Set(completedQuestions)
+
+    // Initial pills already explored as seeds — skip these even though they're "initial"
+    this._skippedSeeds = new Set(skippedSeeds)
+    // Fresh pills: visible BEFORE any clicking (= initial/product-anchored pills)
+    this._freshPills = new Set()
+    // Track which initial pills this batch clicked (for background to update exploredSeeds)
+    this._clickedInitials = []
 
     // Off-topic detection
     this.titleKeywords = new Set(extractKeywords(getProductTitle()))
@@ -271,12 +327,31 @@ class RufusExtractor {
   /**
    * Click up to batchSize NEW questions on THIS page load.
    *
-   * - Skips questions already completed in previous batches
-   * - Skips off-topic questions (doesn't click them)
-   * - Harvests all visible pill texts for background to track
-   * - No Rufus reset — background handles full page refresh between batches
+   * INITIAL vs FOLLOW-UP pill logic:
+   * - "Initial" pills = visible BEFORE any clicking (product-anchored by Rufus)
+   * - "Follow-up" pills = appear AFTER clicking a question (conversation-contextual)
+   *
+   * After a page refresh, Rufus shows the same initial pills. We must:
+   * - ALLOW re-clicking initial pills (they're seeds into follow-up trees)
+   * - SKIP initial pills already explored as seeds in previous batches
+   * - SKIP follow-up pills already clicked in any batch
+   *
+   * This way each batch explores a different seed's follow-up tree.
    */
   async clickBatch() {
+    // ── Harvest fresh pills BEFORE clicking anything ──
+    // These are the "initial" pills — product-anchored suggestions.
+    // After refresh, these should be the same golden set.
+    const preClickChips = queryAll(this.selectors.questionChip)
+    for (const chip of preClickChips) {
+      const text = chip.textContent.trim()
+      if (text) {
+        this._freshPills.add(text)
+        this.harvestedPills.add(text)
+      }
+    }
+    console.log(`[Rufus] Harvested ${this._freshPills.size} initial pills, ${this._skippedSeeds.size} seeds already explored`)
+
     let clicked = 0
     let consecutiveEmpty = 0
     const maxEmpty = 3
@@ -285,16 +360,28 @@ class RufusExtractor {
       // Find available question chips
       const chips = queryAll(this.selectors.questionChip)
 
-      // Harvest all visible pills (including ones we'll skip)
+      // Harvest all visible pills (including follow-ups that appeared after clicking)
       for (const chip of chips) {
         const text = chip.textContent.trim()
         if (text) this.harvestedPills.add(text)
       }
 
-      // Find chips not yet handled (across all batches)
+      // ── Smart skip logic: initial pills vs follow-ups ──
       const unclicked = chips.filter((chip) => {
         const text = chip.textContent.trim()
-        return text && !this._allHandled.has(text)
+        if (!text) return false
+
+        // Already handled in THIS batch? Always skip (prevents re-clicking within same batch)
+        if (this._allHandled.has(text)) return false
+
+        // Is this an "initial" pill (visible before we clicked anything)?
+        if (this._freshPills.has(text)) {
+          // Initial pill: only skip if already explored as a seed in a PREVIOUS batch
+          return !this._skippedSeeds.has(text)
+        } else {
+          // Follow-up pill: skip if handled in any previous batch
+          return !this._previouslyCompleted.has(text)
+        }
       })
 
       if (unclicked.length === 0) {
@@ -344,6 +431,10 @@ class RufusExtractor {
       this._allHandled.add(questionText)
       this._batchClicked.push(questionText)
       this.totalQuestionsHandled++
+      // Track if this was an initial pill (seed) or a follow-up
+      if (this._freshPills.has(questionText)) {
+        this._clickedInitials.push(questionText)
+      }
       target.click()
       clicked++
 
@@ -470,14 +561,21 @@ class RufusExtractor {
 
     console.log(`[Rufus] Extraction strategy: ${strategyUsed} (${rawPairs.length} raw pairs)`)
 
-    // De-duplicate by exact (question + answer) pair
+    // De-duplicate by exact (question + answer) pair AND validate quality
     const seen = new Set()
     const uniquePairs = []
     for (const pair of rawPairs) {
-      const key = `${pair.question.toLowerCase().trim()}|||${pair.answer.toLowerCase().trim()}`
+      const q = cleanExtractedText(pair.question)
+      const a = cleanExtractedText(pair.answer)
+      // Skip garbage entries (UI junk, scripts, etc.)
+      if (!isValidQAPair(q, a)) {
+        console.log(`[Rufus] Skipped junk entry: "${q.substring(0, 40)}..."`)
+        continue
+      }
+      const key = `${q.toLowerCase().trim()}|||${a.toLowerCase().trim()}`
       if (!seen.has(key)) {
         seen.add(key)
-        uniquePairs.push(pair)
+        uniquePairs.push({ question: q, answer: a })
       }
     }
 
@@ -734,6 +832,10 @@ class RufusExtractor {
       clickedQuestions: Array.from(this._allHandled),
       batchClicked: this._batchClicked,
       harvestedPills: Array.from(this.harvestedPills),
+      // Golden set: pills visible BEFORE clicking (initial/product-anchored)
+      freshPills: Array.from(this._freshPills),
+      // Which initial pills this batch explored as seeds
+      clickedInitials: this._clickedInitials,
       topicKeywords: Array.from(this.topicKeywords),
       consecutiveOffTopic: this.consecutiveOffTopic,
       // Stop signals
@@ -754,6 +856,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       message.settings,
       message.completedQuestions || [],
       message.topicKeywords || [],
+      message.skippedSeeds || [],
     )
     currentExtractor = extractor
     extractor
@@ -786,6 +889,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       message.settings,
       message.completedQuestions || [],
       message.topicKeywords || [],
+      message.skippedSeeds || [],
     )
     currentExtractor = extractor
     extractor

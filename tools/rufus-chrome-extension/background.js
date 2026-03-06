@@ -462,9 +462,11 @@ async function processQueueItem(itemId, asin, marketplace, maxQuestions, setting
  */
 async function extractWithRefreshCycle(tabId, productUrl, settings, item) {
   const startTime = Date.now()
-  const completedQuestions = []
+  const completedQuestions = []    // ALL questions clicked (for counting + off-topic)
   const topicKeywords = []
   const accumulatedPairs = []
+  let initialPills = []            // Golden set: initial pills from first batch
+  const exploredSeeds = []         // Initial pills already explored as batch seeds
   let batchNumber = 0
   let consecutiveEmptyBatches = 0
   let consecutiveOffTopic = 0
@@ -483,24 +485,20 @@ async function extractWithRefreshCycle(tabId, productUrl, settings, item) {
     if (!isRunning && !queueModeProcessing) break
 
     batchNumber++
-    console.log(`[Rufus] ── Batch ${batchNumber} (${accumulatedPairs.length} pairs so far) ──`)
+    console.log(`[Rufus] ── Batch ${batchNumber} (${accumulatedPairs.length} pairs, ${exploredSeeds.length}/${initialPills.length} seeds explored) ──`)
 
     // ── After first batch, do FULL PAGE REFRESH ──
-    // This resets Rufus conversation state completely
     if (batchNumber > 1) {
       item.progress = `Batch ${batchNumber}: Refreshing page...`
       broadcastState()
 
-      // Navigate away to clear ALL Rufus state
       await chrome.tabs.update(tabId, { url: 'about:blank' })
       await sleep(1500)
 
-      // Navigate back to product page
       await chrome.tabs.update(tabId, { url: productUrl })
       await waitForTabLoad(tabId)
-      await sleep(2500) // Extra time for dynamic content (Rufus widget, etc.)
+      await sleep(2500)
 
-      // Verify content script is loaded
       const alive = await pingContentScript(tabId)
       if (!alive) {
         console.log('[Rufus] Content script not responding after page refresh')
@@ -512,6 +510,7 @@ async function extractWithRefreshCycle(tabId, productUrl, settings, item) {
     broadcastState()
 
     // ── Send batch command to content script ──
+    // Pass skippedSeeds so content.js knows which initial pills to skip
     let batchTimedOut = false
     const result = await Promise.race([
       chrome.tabs.sendMessage(tabId, {
@@ -524,6 +523,7 @@ async function extractWithRefreshCycle(tabId, productUrl, settings, item) {
         },
         completedQuestions,
         topicKeywords,
+        skippedSeeds: exploredSeeds,  // Initial pills to skip (already explored)
       }),
       sleep(BATCH_TIMEOUT_MS).then(() => {
         batchTimedOut = true
@@ -531,7 +531,7 @@ async function extractWithRefreshCycle(tabId, productUrl, settings, item) {
       }),
     ])
 
-    // Handle batch timeout — try to salvage whatever is in DOM
+    // Handle batch timeout
     if (batchTimedOut || !result) {
       console.log(`[Rufus] Batch ${batchNumber} timed out`)
       try {
@@ -562,7 +562,6 @@ async function extractWithRefreshCycle(tabId, productUrl, settings, item) {
     // Error with no pairs from this batch
     if (result.error && (!result.pairs || result.pairs.length === 0)) {
       console.log(`[Rufus] Batch ${batchNumber} error: ${result.error}`)
-      // If we have accumulated pairs from previous batches, continue
       if (accumulatedPairs.length === 0) {
         return {
           success: false,
@@ -574,23 +573,58 @@ async function extractWithRefreshCycle(tabId, productUrl, settings, item) {
       break
     }
 
+    // ── Capture golden set from first batch ──
+    if (batchNumber === 1 && result.freshPills?.length > 0) {
+      initialPills = result.freshPills
+      console.log(`[Rufus] Golden set captured: ${initialPills.length} initial pills: ${initialPills.map((p) => p.substring(0, 30)).join(', ')}`)
+    }
+
+    // ── Verify reset on subsequent batches (≥60% overlap with golden set) ──
+    if (batchNumber > 1 && initialPills.length > 0 && result.freshPills?.length > 0) {
+      let overlap = 0
+      for (const pill of result.freshPills) {
+        if (initialPills.includes(pill)) overlap++
+      }
+      const ratio = overlap / Math.max(result.freshPills.length, 1)
+      console.log(`[Rufus] Reset verification: ${overlap}/${result.freshPills.length} pills match golden set (${(ratio * 100).toFixed(0)}%)`)
+      if (ratio < 0.4) {
+        console.log('[Rufus] WARNING: Low overlap — Rufus may not have fully reset')
+      }
+    }
+
+    // ── Track explored seeds (initial pills used as batch starters) ──
+    if (result.clickedInitials?.length > 0) {
+      for (const seed of result.clickedInitials) {
+        if (!exploredSeeds.includes(seed)) {
+          exploredSeeds.push(seed)
+        }
+      }
+      console.log(`[Rufus] Seeds explored: ${exploredSeeds.length}/${initialPills.length}`)
+    }
+
     // ── Accumulate pairs (de-duplicate across batches) ──
     if (result.pairs?.length > 0) {
       const existingKeys = new Set(
         accumulatedPairs.map((p) => `${p.question.toLowerCase().trim()}|||${p.answer.toLowerCase().trim()}`),
       )
+      let newPairs = 0
       for (const pair of result.pairs) {
         const key = `${pair.question.toLowerCase().trim()}|||${pair.answer.toLowerCase().trim()}`
         if (!existingKeys.has(key)) {
           accumulatedPairs.push(pair)
           existingKeys.add(key)
+          newPairs++
         }
       }
-      consecutiveEmptyBatches = 0
-      console.log(`[Rufus] Batch ${batchNumber}: +${result.pairs.length} pairs (${accumulatedPairs.length} total)`)
+      if (newPairs > 0) {
+        consecutiveEmptyBatches = 0
+      } else {
+        consecutiveEmptyBatches++
+      }
+      console.log(`[Rufus] Batch ${batchNumber}: +${newPairs} NEW pairs (${result.pairs.length} total extracted, ${accumulatedPairs.length} accumulated)`)
     } else {
       consecutiveEmptyBatches++
-      console.log(`[Rufus] Batch ${batchNumber}: no new pairs (empty batch ${consecutiveEmptyBatches}/${maxEmptyBatches})`)
+      console.log(`[Rufus] Batch ${batchNumber}: no pairs (empty batch ${consecutiveEmptyBatches}/${maxEmptyBatches})`)
     }
 
     // Update state for next batch
@@ -610,26 +644,34 @@ async function extractWithRefreshCycle(tabId, productUrl, settings, item) {
       console.log('[Rufus] Stopped: too many consecutive off-topic questions')
       break
     }
-    if (result.noMoreQuestions) {
-      if (consecutiveEmptyBatches >= maxEmptyBatches) {
-        console.log('[Rufus] Stopped: no new questions after multiple batches')
-        break
-      }
-      // One more try after refresh (fresh Rufus might show different pills)
-    }
     if (accumulatedPairs.length >= maxQuestions) {
       console.log(`[Rufus] Stopped: reached max questions (${maxQuestions})`)
       break
     }
+
+    // Check if truly exhausted: all seeds explored AND no new follow-ups
+    const allSeedsExplored = initialPills.length > 0 && exploredSeeds.length >= initialPills.length
+    if (result.noMoreQuestions) {
+      if (allSeedsExplored) {
+        console.log('[Rufus] Stopped: all initial seeds explored and no new follow-ups')
+        break
+      }
+      if (consecutiveEmptyBatches >= maxEmptyBatches) {
+        console.log('[Rufus] Stopped: no new questions after multiple batches')
+        break
+      }
+      // Still have unexplored seeds — refresh will show them as clickable
+      console.log(`[Rufus] No new questions this batch, but ${initialPills.length - exploredSeeds.length} seeds unexplored — will refresh`)
+    }
   }
 
-  console.log(`[Rufus] Extraction complete: ${accumulatedPairs.length} pairs from ${completedQuestions.length} questions across ${batchNumber} batches`)
+  console.log(`[Rufus] Extraction complete: ${accumulatedPairs.length} pairs from ${completedQuestions.length} questions across ${batchNumber} batches (${exploredSeeds.length}/${initialPills.length} seeds explored)`)
 
   return {
     success: accumulatedPairs.length > 0,
     questions: accumulatedPairs,
     clickedCount: completedQuestions.length,
-    exhausted: consecutiveEmptyBatches >= maxEmptyBatches,
+    exhausted: exploredSeeds.length >= initialPills.length && consecutiveEmptyBatches >= maxEmptyBatches,
     stoppedOffTopic: consecutiveOffTopic >= 5,
   }
 }
