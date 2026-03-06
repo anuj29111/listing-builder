@@ -49,10 +49,25 @@ async function getSettings() {
     chrome.storage.sync.get('settings'),
     chrome.storage.local.get('apiKey'),
   ])
+
+  const saved = syncResult.settings || {}
+
+  // Auto-migrate selectors when extension version changes.
+  // This keeps the user's API URL + API key intact while updating
+  // selectors to the latest defaults (so they don't have to Reset Defaults).
+  const currentVersion = chrome.runtime.getManifest().version
+  if (saved.selectorsVersion !== currentVersion) {
+    saved.selectors = DEFAULT_SETTINGS.selectors
+    saved.selectorsVersion = currentVersion
+    // Persist the migration so it only runs once
+    chrome.storage.sync.set({ settings: { ...saved } })
+    console.log(`[Rufus] Auto-migrated selectors to v${currentVersion} defaults`)
+  }
+
   return {
     ...DEFAULT_SETTINGS,
-    ...syncResult.settings,
-    apiKey: localResult.apiKey || syncResult.settings?.apiKey || '',
+    ...saved,
+    apiKey: localResult.apiKey || saved.apiKey || '',
   }
 }
 

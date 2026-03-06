@@ -65,6 +65,8 @@ function readFields() {
       maxQuestions: parseInt(fields.maxQuestions.value, 10) || DEFAULTS.maxQuestions,
       delayBetweenClicks: parseInt(fields.delayClicks.value, 10) || DEFAULTS.delayBetweenClicks,
       delayBetweenProducts: parseInt(fields.delayProducts.value, 10) || DEFAULTS.delayBetweenProducts,
+      // Track which version the selectors belong to (for auto-migration)
+      selectorsVersion: chrome.runtime.getManifest().version,
       selectors: {
         rufusButton: fields.selRufusBtn.value.trim() || DEFAULTS.selectors.rufusButton,
         questionChip: fields.selQuestionChip.value.trim() || DEFAULTS.selectors.questionChip,
