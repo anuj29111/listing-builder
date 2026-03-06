@@ -1,13 +1,15 @@
 /**
  * Rufus Q&A Extractor — Background Service Worker
  *
- * Manages the ASIN queue, orchestrates tab navigation, and handles
- * communication between the popup, content scripts, and the platform API.
+ * Manages the ASIN queue, orchestrates tab navigation and PAGE REFRESH
+ * CYCLES, and handles communication between popup, content scripts, and API.
  *
  * KEY DESIGN DECISIONS:
  * - Sequential only — one product at a time (Rufus chat state would mix in parallel)
- * - Full page refresh between products to reset Rufus chat state
- * - Runs until Rufus stops producing new questions (no fixed count)
+ * - Full page refresh between BATCHES to reset Rufus conversation context
+ *   (close/reopen does NOT work — Rufus persists state server-side)
+ * - Content script is a STATELESS BATCH WORKER — clicks up to 5 questions per page load
+ * - Background accumulates Q&A across batches and manages refresh cycle
  * - De-duplication happens both client-side (content.js) and server-side (API)
  * - State persisted to chrome.storage.local to survive service worker restarts (MV3)
  * - Uses chrome.alarms for between-product delays (survives worker termination)
@@ -210,59 +212,10 @@ async function processNext() {
     broadcastState()
     await persistState()
 
-    // ── Step 2: Send extraction command to content script ──
-    // Content script will click questions until exhausted
-    // Wrap in timeout — on timeout, recover partial results from DOM
-    let timedOut = false
-    const response = await Promise.race([
-      chrome.tabs.sendMessage(activeTabId, {
-        type: 'EXTRACT_RUFUS_QA',
-        settings: {
-          maxQuestions: settings.maxQuestions,
-          delayBetweenClicks: settings.delayBetweenClicks,
-          selectors: settings.selectors,
-        },
-      }),
-      sleep(EXTRACTION_TIMEOUT_MS).then(() => {
-        timedOut = true
-        return null // Will recover below
-      }),
-    ])
-
-    // On timeout, abort the running extraction and extract whatever Q&A is in the DOM
-    let finalResponse = response
-    if (timedOut) {
-      item.progress = 'Timed out — recovering partial results...'
-      broadcastState()
-      try {
-        finalResponse = await Promise.race([
-          chrome.tabs.sendMessage(activeTabId, {
-            type: 'EXTRACT_QA_ONLY',
-            settings: { selectors: settings.selectors },
-          }),
-          sleep(10000).then(() => ({
-            success: false,
-            error: `Extraction timed out after ${EXTRACTION_TIMEOUT_MS / 60000} minutes`,
-            questions: [],
-          })),
-        ])
-        if (finalResponse && finalResponse.questions?.length > 0) {
-          finalResponse.error = `Timed out after ${EXTRACTION_TIMEOUT_MS / 60000} min but recovered ${finalResponse.questions.length} Q&A pairs`
-        } else {
-          finalResponse = {
-            success: false,
-            error: `Extraction timed out after ${EXTRACTION_TIMEOUT_MS / 60000} minutes (no Q&A recovered)`,
-            questions: [],
-          }
-        }
-      } catch {
-        finalResponse = {
-          success: false,
-          error: `Extraction timed out after ${EXTRACTION_TIMEOUT_MS / 60000} minutes`,
-          questions: [],
-        }
-      }
-    }
+    // ── Step 2: Run extraction with page refresh between batches ──
+    // Background orchestrates the refresh cycle. Content script handles one batch per page load.
+    // This prevents Rufus topic drift by giving it a fresh conversation context each batch.
+    const finalResponse = await extractWithRefreshCycle(activeTabId, productUrl, settings, item)
 
     if (finalResponse && (finalResponse.success || finalResponse.questions?.length > 0)) {
       const hasQuestions = finalResponse.questions?.length > 0
@@ -422,39 +375,12 @@ async function processQueueItem(itemId, asin, marketplace, maxQuestions, setting
       throw new Error('Content script did not respond')
     }
 
-    // Extract Q&A
-    let timedOut = false
-    const response = await Promise.race([
-      chrome.tabs.sendMessage(activeTabId, {
-        type: 'EXTRACT_RUFUS_QA',
-        settings: {
-          maxQuestions,
-          delayBetweenClicks: settings.delayBetweenClicks,
-          selectors: settings.selectors,
-        },
-      }),
-      sleep(EXTRACTION_TIMEOUT_MS).then(() => {
-        timedOut = true
-        return null
-      }),
-    ])
+    // Extract Q&A with page refresh cycle between batches
+    const dummyItem = { progress: null } // Progress tracking for refresh cycle
+    settings.maxQuestions = maxQuestions
+    const result = await extractWithRefreshCycle(activeTabId, productUrl, settings, dummyItem)
 
-    let finalResponse = response
-    if (timedOut) {
-      try {
-        finalResponse = await Promise.race([
-          chrome.tabs.sendMessage(activeTabId, {
-            type: 'EXTRACT_QA_ONLY',
-            settings: { selectors: settings.selectors },
-          }),
-          sleep(10000).then(() => ({ success: false, error: 'Timed out', questions: [] })),
-        ])
-      } catch {
-        finalResponse = { success: false, error: 'Timed out', questions: [] }
-      }
-    }
-
-    const questions = finalResponse?.questions || []
+    const questions = result?.questions || []
     const hasQuestions = questions.length > 0
 
     // Send Q&A to platform (same as manual mode)
@@ -484,7 +410,7 @@ async function processQueueItem(itemId, asin, marketplace, maxQuestions, setting
         item_id: itemId,
         status: hasQuestions ? 'completed' : 'failed',
         questions_found: questions.length,
-        error_message: hasQuestions ? null : (finalResponse?.error || 'No Q&A extracted'),
+        error_message: hasQuestions ? null : (result?.error || 'No Q&A extracted'),
       }),
     })
   } catch (err) {
@@ -509,6 +435,203 @@ async function processQueueItem(itemId, asin, marketplace, maxQuestions, setting
 
   // Delay before next poll
   await sleep(settings.delayBetweenProducts || 5000)
+}
+
+/**
+ * Run the full extraction for one product using PAGE REFRESH between batches.
+ *
+ * WHY PAGE REFRESH: Rufus stores conversation state SERVER-SIDE. Simply
+ * closing/reopening the panel does NOT reset it — the next suggested questions
+ * continue from where the conversation left off. A full page refresh
+ * (about:blank → product URL) creates a completely new Rufus session.
+ *
+ * FLOW:
+ * 1. Batch 1: Content script opens Rufus, clicks up to 5 questions, extracts Q&A
+ * 2. Background refreshes page (about:blank → product URL)
+ * 3. Batch 2: Content script opens fresh Rufus, clicks NEXT 5 unclicked questions
+ * 4. Repeat until exhausted or max questions reached
+ *
+ * State is passed between batches via messages (completedQuestions, topicKeywords).
+ * Content script is destroyed on each refresh — it's a stateless worker.
+ *
+ * @param {number} tabId - The tab to operate on
+ * @param {string} productUrl - Product URL to navigate back to after refresh
+ * @param {Object} settings - Extraction settings
+ * @param {Object} item - Queue item for progress reporting (needs .progress)
+ * @returns {Object} { success, questions, clickedCount, exhausted, stoppedOffTopic }
+ */
+async function extractWithRefreshCycle(tabId, productUrl, settings, item) {
+  const startTime = Date.now()
+  const completedQuestions = []
+  const topicKeywords = []
+  const accumulatedPairs = []
+  let batchNumber = 0
+  let consecutiveEmptyBatches = 0
+  let consecutiveOffTopic = 0
+  const maxEmptyBatches = 2
+  const maxQuestions = settings.maxQuestions || 50
+  const BATCH_TIMEOUT_MS = 180000 // 3 minutes per batch
+
+  while (accumulatedPairs.length < maxQuestions) {
+    // Overall time limit
+    if (Date.now() - startTime > EXTRACTION_TIMEOUT_MS) {
+      console.log(`[Rufus] Overall extraction timeout after ${EXTRACTION_TIMEOUT_MS / 60000} minutes`)
+      break
+    }
+
+    // Queue was stopped
+    if (!isRunning && !queueModeProcessing) break
+
+    batchNumber++
+    console.log(`[Rufus] ── Batch ${batchNumber} (${accumulatedPairs.length} pairs so far) ──`)
+
+    // ── After first batch, do FULL PAGE REFRESH ──
+    // This resets Rufus conversation state completely
+    if (batchNumber > 1) {
+      item.progress = `Batch ${batchNumber}: Refreshing page...`
+      broadcastState()
+
+      // Navigate away to clear ALL Rufus state
+      await chrome.tabs.update(tabId, { url: 'about:blank' })
+      await sleep(1500)
+
+      // Navigate back to product page
+      await chrome.tabs.update(tabId, { url: productUrl })
+      await waitForTabLoad(tabId)
+      await sleep(2500) // Extra time for dynamic content (Rufus widget, etc.)
+
+      // Verify content script is loaded
+      const alive = await pingContentScript(tabId)
+      if (!alive) {
+        console.log('[Rufus] Content script not responding after page refresh')
+        break
+      }
+    }
+
+    item.progress = `Batch ${batchNumber}: Clicking questions...`
+    broadcastState()
+
+    // ── Send batch command to content script ──
+    let batchTimedOut = false
+    const result = await Promise.race([
+      chrome.tabs.sendMessage(tabId, {
+        type: 'CLICK_BATCH_AND_EXTRACT',
+        settings: {
+          batchSize: 5,
+          delayBetweenClicks: settings.delayBetweenClicks,
+          selectors: settings.selectors,
+          consecutiveOffTopic,
+        },
+        completedQuestions,
+        topicKeywords,
+      }),
+      sleep(BATCH_TIMEOUT_MS).then(() => {
+        batchTimedOut = true
+        return null
+      }),
+    ])
+
+    // Handle batch timeout — try to salvage whatever is in DOM
+    if (batchTimedOut || !result) {
+      console.log(`[Rufus] Batch ${batchNumber} timed out`)
+      try {
+        const partial = await Promise.race([
+          chrome.tabs.sendMessage(tabId, { type: 'EXTRACT_QA_ONLY', settings: { selectors: settings.selectors } }),
+          sleep(10000).then(() => null),
+        ])
+        if (partial?.questions?.length > 0) {
+          for (const pair of partial.questions) {
+            accumulatedPairs.push(pair)
+          }
+        }
+      } catch { /* ignore */ }
+      break
+    }
+
+    // Login required — stop everything
+    if (result.loginRequired) {
+      return {
+        success: false,
+        loginRequired: true,
+        error: result.error,
+        questions: accumulatedPairs,
+        clickedCount: completedQuestions.length,
+      }
+    }
+
+    // Error with no pairs from this batch
+    if (result.error && (!result.pairs || result.pairs.length === 0)) {
+      console.log(`[Rufus] Batch ${batchNumber} error: ${result.error}`)
+      // If we have accumulated pairs from previous batches, continue
+      if (accumulatedPairs.length === 0) {
+        return {
+          success: false,
+          error: result.error,
+          questions: [],
+          clickedCount: completedQuestions.length,
+        }
+      }
+      break
+    }
+
+    // ── Accumulate pairs (de-duplicate across batches) ──
+    if (result.pairs?.length > 0) {
+      const existingKeys = new Set(
+        accumulatedPairs.map((p) => `${p.question.toLowerCase().trim()}|||${p.answer.toLowerCase().trim()}`),
+      )
+      for (const pair of result.pairs) {
+        const key = `${pair.question.toLowerCase().trim()}|||${pair.answer.toLowerCase().trim()}`
+        if (!existingKeys.has(key)) {
+          accumulatedPairs.push(pair)
+          existingKeys.add(key)
+        }
+      }
+      consecutiveEmptyBatches = 0
+      console.log(`[Rufus] Batch ${batchNumber}: +${result.pairs.length} pairs (${accumulatedPairs.length} total)`)
+    } else {
+      consecutiveEmptyBatches++
+      console.log(`[Rufus] Batch ${batchNumber}: no new pairs (empty batch ${consecutiveEmptyBatches}/${maxEmptyBatches})`)
+    }
+
+    // Update state for next batch
+    if (result.clickedQuestions) {
+      for (const q of result.clickedQuestions) {
+        if (!completedQuestions.includes(q)) completedQuestions.push(q)
+      }
+    }
+    if (result.topicKeywords) {
+      topicKeywords.length = 0
+      topicKeywords.push(...result.topicKeywords)
+    }
+    consecutiveOffTopic = result.consecutiveOffTopic || 0
+
+    // ── Stop conditions ──
+    if (result.stoppedOffTopic) {
+      console.log('[Rufus] Stopped: too many consecutive off-topic questions')
+      break
+    }
+    if (result.noMoreQuestions) {
+      if (consecutiveEmptyBatches >= maxEmptyBatches) {
+        console.log('[Rufus] Stopped: no new questions after multiple batches')
+        break
+      }
+      // One more try after refresh (fresh Rufus might show different pills)
+    }
+    if (accumulatedPairs.length >= maxQuestions) {
+      console.log(`[Rufus] Stopped: reached max questions (${maxQuestions})`)
+      break
+    }
+  }
+
+  console.log(`[Rufus] Extraction complete: ${accumulatedPairs.length} pairs from ${completedQuestions.length} questions across ${batchNumber} batches`)
+
+  return {
+    success: accumulatedPairs.length > 0,
+    questions: accumulatedPairs,
+    clickedCount: completedQuestions.length,
+    exhausted: consecutiveEmptyBatches >= maxEmptyBatches,
+    stoppedOffTopic: consecutiveOffTopic >= 5,
+  }
 }
 
 async function sendToPlatform(item, settings) {
