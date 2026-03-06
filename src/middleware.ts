@@ -1,8 +1,16 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+// Dev auth bypass — local development only, never set in production
+const DEV_AUTH_BYPASS = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === 'true'
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+
+  // Dev auth bypass — skip all auth checks
+  if (DEV_AUTH_BYPASS) {
+    return NextResponse.next({ request: { headers: request.headers } })
+  }
 
   let response = NextResponse.next({
     request: { headers: request.headers },

@@ -30,10 +30,10 @@ const DEFAULT_SETTINGS = {
   delayBetweenProducts: 5000,
   selectors: {
     rufusButton: '[data-action="rufus-open"], #rufus-entry-point, .rufus-launcher, [aria-label*="Rufus"], [data-testid*="rufus"]',
-    questionChip: 'li.rufus-carousel-card button',
+    questionChip: 'button.rufus-pill, .rufus-related-question-pill, span.rufus-color-pacific, li.rufus-carousel-card button',
     chatContainer: '#nav-flyout-rufus',
-    questionBubble: '.rufus-customer-text',
-    answerBubble: '[id^="section_groupId_text_template_"]',
+    questionBubble: '[data-section-class="CustomerText"], .rufus-customer-text, .dialog-customer',
+    answerBubble: 'div[data-csa-c-group-id^="markdownSection"], [id^="section_groupId_text_template_"]',
     loadingIndicator: '.a-spinner, .rufus-loading',
   },
 }

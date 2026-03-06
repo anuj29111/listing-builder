@@ -8,7 +8,7 @@
 | **Styling** | Tailwind CSS + shadcn/ui (HSL variables, `darkMode: ['class']`) |
 | **State** | Zustand (`use<Name>Store`) |
 | **Database** | Supabase PostgreSQL (project `yawaopfqkkvdqtsagmng`, shared DB) |
-| **Auth** | Google OAuth via Supabase Auth (`@chalkola.com` only) |
+| **Auth** | Google OAuth via Supabase Auth (`@chalkola.com` only). Dev bypass: `NEXT_PUBLIC_DEV_AUTH_BYPASS=true` in `.env.local` |
 | **Deployment** | Railway (`railway up` CLI — auto-deploy unreliable) |
 | **Production URL** | `https://listing-builder-production.up.railway.app` |
 | **GitHub** | `anuj29111/listing-builder` |

@@ -1,6 +1,9 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import type { LbUser } from '@/types'
 
+// Dev auth bypass — local development only, never set in production
+const DEV_AUTH_BYPASS = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === 'true'
+
 export interface AuthenticatedUser {
   authUser: { id: string; email: string }
   lbUser: LbUser
@@ -12,6 +15,22 @@ export interface AuthenticatedUser {
  * Throws if not authenticated or lb_users row not found.
  */
 export async function getAuthenticatedUser(): Promise<AuthenticatedUser> {
+  if (DEV_AUTH_BYPASS) {
+    return {
+      authUser: { id: 'dev-bypass-user', email: 'reports@chalkola.com' },
+      lbUser: {
+        id: 'dev-bypass-user',
+        auth_id: 'dev-bypass-user',
+        email: 'reports@chalkola.com',
+        full_name: 'Reports (Dev)',
+        role: 'admin',
+        avatar_url: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    }
+  }
+
   const supabase = createClient()
   const { data: { user }, error } = await supabase.auth.getUser()
 

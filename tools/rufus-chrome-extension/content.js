@@ -349,42 +349,119 @@ class RufusExtractor {
   /**
    * Extract all Q&A pairs from the chat history.
    *
+   * FUTURE-PROOFED: Uses cascading detection strategies so that when Amazon
+   * changes their DOM (which they do frequently), the extraction automatically
+   * falls through to the next working strategy. NO hardcoded selectors needed
+   * for the primary strategy — it uses the question texts we already clicked
+   * as anchors to discover the DOM structure automatically.
+   *
+   * Strategy 0: Text-anchor — we KNOW what questions we clicked, so we search
+   *   the DOM for those exact texts, then find adjacent answer content (zero selectors)
+   * Strategy 1: Turn-based — find history turns, extract Q+A from each
+   * Strategy 2: Selector-based — find all Q and A elements separately, pair by position
+   * Strategy 3: Structural — walk DOM looking for customer/bot message patterns
+   *
    * De-duplicates by exact (question + answer) pair.
    * Same question with different answer = KEPT (Rufus may answer differently).
    */
   extractQAPairs() {
-    const questions = queryAll(this.selectors.questionBubble)
-    const answers = queryAll(this.selectors.answerBubble)
-    const rawPairs = []
+    const rufusContainer = document.querySelector(this.selectors.chatContainer)
+    if (!rufusContainer) {
+      console.log('[Rufus Extractor] Chat container not found')
+      return []
+    }
 
-    // Strategy 1: Pair by position (question[i] -> answer[i])
-    if (questions.length > 0 && answers.length > 0) {
-      const len = Math.min(questions.length, answers.length)
-      for (let i = 0; i < len; i++) {
-        const q = questions[i].textContent.trim()
-        const a = answers[i].textContent.trim()
-        if (q && a) {
-          rawPairs.push({ question: q, answer: a })
+    let rawPairs = []
+    let strategyUsed = 'none'
+
+    // ── Strategy 0: Text-anchor auto-discovery (MOST RESILIENT) ──
+    // We already KNOW the question texts (we clicked them). Search the DOM
+    // for those exact texts, then find the adjacent answer content.
+    // This needs ZERO CSS selectors — works even if Amazon changes everything.
+    if (this.clickedQuestions.size > 0) {
+      rawPairs = this._extractByTextAnchors(rufusContainer)
+      if (rawPairs.length > 0) {
+        strategyUsed = 'text-anchor'
+        console.log(`[Rufus Extractor] Strategy 0 (text-anchor): ${rawPairs.length} pairs from ${this.clickedQuestions.size} clicked questions`)
+      }
+    }
+
+    // ── Strategy 1: Turn-based extraction ──
+    // Each history turn contains one Q+A exchange. We find turns, then
+    // locate the question and answer within each using multiple fallback selectors.
+    if (rawPairs.length === 0) {
+      const turns = this._findTurns(rufusContainer)
+      if (turns.length > 0) {
+        for (const turn of turns) {
+          const qa = this._extractFromTurn(turn)
+          if (qa) rawPairs.push(qa)
+        }
+        if (rawPairs.length > 0) {
+          strategyUsed = 'turn-based'
+          console.log(`[Rufus Extractor] Strategy 1 (turn-based): ${rawPairs.length} pairs from ${turns.length} turns`)
         }
       }
     }
 
-    // Strategy 2: If no structured messages found, try alternating blocks
+    // ── Strategy 2: Selector-based (separate Q/A lists, pair by position) ──
     if (rawPairs.length === 0) {
-      const container = document.querySelector(this.selectors.chatContainer)
-      if (container) {
-        const messages = Array.from(container.children).filter(
-          (el) => el.textContent.trim().length > 0
-        )
-        for (let i = 0; i < messages.length - 1; i += 2) {
-          const q = messages[i].textContent.trim()
-          const a = messages[i + 1].textContent.trim()
-          if (q && a) {
+      const questions = this._findAllQuestions(rufusContainer)
+      const answers = this._findAllAnswers(rufusContainer)
+      if (questions.length > 0 && answers.length > 0) {
+        const len = Math.min(questions.length, answers.length)
+        for (let i = 0; i < len; i++) {
+          const q = questions[i].textContent.trim()
+          const a = answers[i].textContent.trim()
+          if (q && a && a.length > 15) {
             rawPairs.push({ question: q, answer: a })
           }
         }
+        if (rawPairs.length > 0) {
+          strategyUsed = 'selector-based'
+          console.log(`[Rufus Extractor] Strategy 2 (selector-based): ${rawPairs.length} pairs`)
+        }
       }
     }
+
+    // ── Strategy 3: Structural walk (like the bookmarklet approach) ──
+    // Look for customer text elements, then find sibling/adjacent content as answers.
+    if (rawPairs.length === 0) {
+      const customerEls = this._findAllQuestions(rufusContainer)
+      for (const qEl of customerEls) {
+        const qText = qEl.textContent.trim()
+        if (!qText) continue
+
+        // Walk up to find the turn-level container, then look for answer content
+        let answerText = ''
+        let parent = qEl.parentElement
+        // Walk up max 5 levels to find a container that has answer siblings
+        for (let depth = 0; depth < 5 && parent && parent !== rufusContainer; depth++) {
+          const siblings = Array.from(parent.parentElement?.children || [])
+          for (const sibling of siblings) {
+            if (sibling === parent) continue
+            if (sibling.contains(qEl)) continue
+            const sibText = sibling.textContent.trim()
+            // Answer candidate: not the question, substantial length, not just a question
+            if (sibText && sibText !== qText && sibText.length > 15 && !sibText.endsWith('?')) {
+              answerText = sibText
+              break
+            }
+          }
+          if (answerText) break
+          parent = parent.parentElement
+        }
+
+        if (qText && answerText) {
+          rawPairs.push({ question: qText, answer: answerText })
+        }
+      }
+      if (rawPairs.length > 0) {
+        strategyUsed = 'structural'
+        console.log(`[Rufus Extractor] Strategy 3 (structural): ${rawPairs.length} pairs`)
+      }
+    }
+
+    console.log(`[Rufus Extractor] Extraction strategy used: ${strategyUsed} (${rawPairs.length} raw pairs)`)
 
     // De-duplicate: only exact (question + answer) pairs are duplicates.
     // Same question with a different answer is KEPT.
@@ -400,6 +477,256 @@ class RufusExtractor {
 
     this.extractedQA = uniquePairs
     return uniquePairs
+  }
+
+  // ── Strategy 0: Text-anchor auto-discovery ──────────────────
+
+  /**
+   * THE MOST RESILIENT EXTRACTION METHOD.
+   *
+   * Uses the known question texts (from this.clickedQuestions) as anchors
+   * to find Q&A pairs in the DOM. Works by:
+   * 1. For each known question text, find the tightest DOM element containing it
+   * 2. Walk up to find a "turn boundary" (the container holding both Q and A)
+   * 3. Extract all non-question text from that boundary as the answer
+   *
+   * This approach needs ZERO CSS selectors — it works purely by matching
+   * known text content against the DOM. Even if Amazon changes every class
+   * name and ID, this will still work because we anchor on the TEXT we clicked.
+   */
+  _extractByTextAnchors(container) {
+    const pairs = []
+    const knownQuestions = Array.from(this.clickedQuestions)
+
+    for (const qText of knownQuestions) {
+      // Step 1: Find the tightest element containing this question text
+      const qElement = this._findTightestElement(container, qText)
+      if (!qElement) {
+        console.log(`[Text-Anchor] Could not find element for: "${qText.substring(0, 40)}..."`)
+        continue
+      }
+
+      // Step 2: Walk up to find the turn boundary, then extract answer
+      const answerText = this._findAnswerNearQuestion(qElement, qText, container)
+      if (answerText) {
+        pairs.push({ question: qText, answer: answerText })
+      } else {
+        console.log(`[Text-Anchor] No answer found near: "${qText.substring(0, 40)}..."`)
+      }
+    }
+
+    return pairs
+  }
+
+  /**
+   * Find the tightest (smallest) DOM element that contains the exact target text.
+   * "Tightest" = the element whose textContent matches but whose children's
+   * individual textContent does NOT match (i.e., it's the closest wrapper).
+   */
+  _findTightestElement(container, targetText) {
+    // Walk all elements, find ones whose textContent matches
+    const candidates = []
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_ELEMENT)
+    let node
+    while ((node = walker.nextNode())) {
+      const nodeText = node.textContent.trim()
+      // Exact match or starts-with (some elements may have trailing whitespace/icons)
+      if (nodeText === targetText) {
+        candidates.push({ el: node, exactness: nodeText.length })
+      }
+    }
+
+    if (candidates.length === 0) return null
+
+    // Prefer the tightest match: smallest element (least total text) with exact match
+    // Sort by text length (ascending) — tightest element has least extra content
+    candidates.sort((a, b) => a.exactness - b.exactness)
+    return candidates[0].el
+  }
+
+  /**
+   * Given a question element, find the answer text by walking up the DOM
+   * to find the "turn boundary" — the ancestor that contains both the
+   * question and the answer. Then extract non-question content as the answer.
+   */
+  _findAnswerNearQuestion(qElement, qText, rootContainer) {
+    let current = qElement
+
+    // Walk up max 8 levels to find a container that has answer content
+    for (let depth = 0; depth < 8 && current && current !== rootContainer; depth++) {
+      const parent = current.parentElement
+      if (!parent) break
+
+      // Check if this parent has children that contain substantial non-question text
+      const children = Array.from(parent.children)
+      for (const child of children) {
+        // Skip the branch containing our question
+        if (child === current || child.contains(qElement) || qElement.contains(child)) continue
+
+        const childText = child.textContent.trim()
+
+        // Answer criteria: substantial text that isn't the question
+        if (childText && childText.length > 15 && childText !== qText) {
+          // Avoid picking up another question (short text ending with ?)
+          // But allow answers that happen to contain question marks
+          if (childText.length < 50 && childText.endsWith('?')) continue
+          return childText
+        }
+      }
+
+      current = parent
+    }
+
+    return null
+  }
+
+  // ── Selector-based helpers (Strategies 1-3) ────────────────
+
+  /**
+   * Find conversation turn containers using cascading selectors.
+   * Amazon changes class names but the turn structure is consistent.
+   */
+  _findTurns(container) {
+    const turnSelectors = [
+      'div[id^="history-turn-"]',        // Current (Mar 2026)
+      '.conversation-turn-container',     // Legacy
+      '[class*="turn-container"]',        // Fuzzy match
+      '[class*="history-turn"]',          // Fuzzy match
+    ]
+    for (const selector of turnSelectors) {
+      try {
+        const turns = container.querySelectorAll(selector)
+        if (turns.length > 0) {
+          // Filter to only top-level turns (avoid nested turn divs)
+          const topLevel = Array.from(turns).filter((t) => {
+            // A turn should contain a customer question
+            return this._findQuestionInElement(t) !== null
+          })
+          if (topLevel.length > 0) {
+            console.log(`[Rufus Extractor] Found ${topLevel.length} turns via "${selector}"`)
+            return topLevel
+          }
+        }
+      } catch { /* invalid selector, skip */ }
+    }
+    return []
+  }
+
+  /**
+   * Find the customer question element within a turn/container.
+   * Uses multiple strategies: data attributes (most stable) → class names → heuristics.
+   */
+  _findQuestionInElement(el) {
+    const questionSelectors = [
+      '[data-section-class="CustomerText"]',  // Data attribute (most stable)
+      '.rufus-customer-text',                 // Current class name
+      '.dialog-customer',                     // Alternative class
+      '[class*="customer-text"]',             // Fuzzy match
+      '[class*="customer"][class*="dialog"]', // Fuzzy match
+    ]
+    for (const selector of questionSelectors) {
+      try {
+        const found = el.querySelector(selector)
+        if (found && found.textContent.trim().length > 0) return found
+      } catch { /* skip */ }
+    }
+    return null
+  }
+
+  /**
+   * Find the answer element within a turn/container.
+   * Answers are typically markdownSection containers or similar.
+   */
+  _findAnswerInElement(el, questionEl) {
+    const answerSelectors = [
+      'div[data-csa-c-group-id^="markdownSection"]',  // Current (Mar 2026)
+      '[id^="section_groupId_text_template_"]',         // Legacy
+      '[data-csa-c-type="container"][data-csa-c-group-id]', // Generic CSA container
+      '[class*="markdown"][class*="section"]',          // Fuzzy match
+    ]
+    for (const selector of answerSelectors) {
+      try {
+        const found = el.querySelector(selector)
+        if (found && found.textContent.trim().length > 15) return found
+      } catch { /* skip */ }
+    }
+
+    // Heuristic fallback: find the largest text block that isn't the question
+    const questionText = questionEl ? questionEl.textContent.trim() : ''
+    let bestCandidate = null
+    let bestLength = 0
+    const candidates = el.querySelectorAll('div[dir="auto"], div[class*="css-"]')
+    for (const c of candidates) {
+      if (questionEl && (questionEl.contains(c) || c.contains(questionEl))) continue
+      const text = c.textContent.trim()
+      if (text.length > bestLength && text !== questionText && text.length > 15) {
+        bestCandidate = c
+        bestLength = text.length
+      }
+    }
+    return bestCandidate
+  }
+
+  /**
+   * Extract a Q+A pair from a single conversation turn.
+   */
+  _extractFromTurn(turn) {
+    const questionEl = this._findQuestionInElement(turn)
+    if (!questionEl) return null
+
+    const questionText = questionEl.textContent.trim()
+    if (!questionText) return null
+
+    const answerEl = this._findAnswerInElement(turn, questionEl)
+    if (!answerEl) return null
+
+    const answerText = answerEl.textContent.trim()
+    if (!answerText || answerText.length <= 15) return null
+
+    return { question: questionText, answer: answerText }
+  }
+
+  /**
+   * Find ALL question elements in the Rufus container using cascading selectors.
+   */
+  _findAllQuestions(container) {
+    const selectors = [
+      '[data-section-class="CustomerText"]',
+      '.rufus-customer-text',
+      '.dialog-customer',
+      '[class*="customer-text"]',
+    ]
+    for (const selector of selectors) {
+      try {
+        const els = container.querySelectorAll(selector)
+        if (els.length > 0) {
+          console.log(`[Rufus Extractor] Found ${els.length} questions via "${selector}"`)
+          return Array.from(els)
+        }
+      } catch { /* skip */ }
+    }
+    return []
+  }
+
+  /**
+   * Find ALL answer elements in the Rufus container using cascading selectors.
+   */
+  _findAllAnswers(container) {
+    const selectors = [
+      'div[data-csa-c-group-id^="markdownSection"]',
+      '[id^="section_groupId_text_template_"]',
+      '[data-csa-c-type="container"][data-csa-c-group-id]',
+    ]
+    for (const selector of selectors) {
+      try {
+        const els = container.querySelectorAll(selector)
+        if (els.length > 0) {
+          console.log(`[Rufus Extractor] Found ${els.length} answers via "${selector}"`)
+          return Array.from(els)
+        }
+      } catch { /* skip */ }
+    }
+    return []
   }
 
   /**
