@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { LbListingSection, LbListing, LbProductType, LbCategory, LbCountry, GenerationPhase, KeywordCoverage, BulletPlanningMatrixEntry } from '@/types/database'
 import type { ListingStatus } from '@/types'
+import type { ProductPhotoDescription } from '@/types/api'
 
 interface ProductAttribute {
   key: string
@@ -58,6 +59,12 @@ interface ListingWizardState {
   productTypeId: string | null
   optimizationMode: 'new' | 'optimize_existing' | 'based_on_existing'
   existingListingText: { title: string; bullets: string[]; description: string; reference_asin?: string } | null
+
+  // Product photos (optional, before generation)
+  productPhotos: string[]
+  productPhotoDescriptions: Record<string, ProductPhotoDescription> | null
+  isUploadingPhotos: boolean
+  isAnalyzingPhotos: boolean
 
   // Step 3: Generation result
   listingId: string | null
@@ -124,6 +131,12 @@ interface ListingWizardState {
   setFetchingAsin: (loading: boolean) => void
   setFetchAsinError: (error: string | null) => void
   proceedFromScrape: () => void
+  setProductPhotos: (photos: string[]) => void
+  addProductPhotos: (urls: string[]) => void
+  removeProductPhoto: (url: string) => void
+  setProductPhotoDescriptions: (descs: Record<string, ProductPhotoDescription> | null) => void
+  setIsUploadingPhotos: (v: boolean) => void
+  setIsAnalyzingPhotos: (v: boolean) => void
   addVariation: (sectionId: string, newText: string, newIndex: number) => void
   setSections: (sections: LbListingSection[]) => void
   loadEditListing: (
@@ -190,6 +203,10 @@ const initialState = {
   fetchAsinError: null as string | null,
   optimizationMode: 'new' as 'new' | 'optimize_existing' | 'based_on_existing',
   existingListingText: null as { title: string; bullets: string[]; description: string; reference_asin?: string } | null,
+  productPhotos: [] as string[],
+  productPhotoDescriptions: null as Record<string, ProductPhotoDescription> | null,
+  isUploadingPhotos: false,
+  isAnalyzingPhotos: false,
   listingId: null as string | null,
   isGenerating: false,
   generationError: null as string | null,
@@ -329,8 +346,22 @@ export const useListingStore = create<ListingWizardState>((set) => ({
         // For "optimize_existing" keep ASIN, for "based_on_existing" clear it (user's new product)
         asin: state.optimizationMode === 'optimize_existing' ? state.scrapedData.asin : '',
         existingListingText,
+        // Auto-populate product photos from scraped images (max 7)
+        productPhotos: (state.scrapedData.images || []).slice(0, 7),
       }
     }),
+
+  setProductPhotos: (photos) => set({ productPhotos: photos }),
+  addProductPhotos: (urls) => set((state) => ({ productPhotos: [...state.productPhotos, ...urls] })),
+  removeProductPhoto: (url) => set((state) => ({
+    productPhotos: state.productPhotos.filter((u) => u !== url),
+    productPhotoDescriptions: state.productPhotoDescriptions
+      ? Object.fromEntries(Object.entries(state.productPhotoDescriptions).filter(([k]) => k !== url))
+      : null,
+  })),
+  setProductPhotoDescriptions: (descs) => set({ productPhotoDescriptions: descs }),
+  setIsUploadingPhotos: (v) => set({ isUploadingPhotos: v }),
+  setIsAnalyzingPhotos: (v) => set({ isAnalyzingPhotos: v }),
 
   addVariation: (sectionId, newText, newIndex) =>
     set((state) => ({
@@ -367,6 +398,8 @@ export const useListingStore = create<ListingWizardState>((set) => ({
       listingStatus: listing.status,
       modelUsed: listing.model_used,
       tokensUsed: listing.tokens_used,
+      productPhotos: listing.product_photos || [],
+      productPhotoDescriptions: listing.product_photo_descriptions || null,
     }),
 
   // Phased generation actions

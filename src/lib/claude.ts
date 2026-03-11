@@ -635,6 +635,7 @@ export interface ListingGenerationInput {
   marketIntelligence?: import('@/types/market-intelligence').MarketIntelligenceResult | null
   optimizationMode?: 'new' | 'optimize_existing' | 'based_on_existing'
   existingListingText?: { title: string; bullets: string[]; description: string; reference_asin?: string } | null
+  productPhotoDescriptions?: Record<string, import('@/types/api').ProductPhotoDescription> | null
 }
 
 export interface ListingGenerationResult {
@@ -1112,7 +1113,7 @@ function buildSharedContext(input: ListingGenerationInput): string {
   const {
     productName, brand, asin, attributes, categoryName, countryName, language,
     charLimits, keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
-    marketIntelligence, optimizationMode, existingListingText,
+    marketIntelligence, optimizationMode, existingListingText, productPhotoDescriptions,
   } = input
 
   const attrStr = Object.entries(attributes)
@@ -1294,6 +1295,22 @@ ADAPTATION INSTRUCTIONS:
 6. If the products are similar (e.g., different size/color/pack count), adapt specifics while preserving proven phrasing patterns`
   }
 
+  let productAppearanceSection = ''
+  if (productPhotoDescriptions && Object.keys(productPhotoDescriptions).length > 0) {
+    const photoLines = Object.entries(productPhotoDescriptions).map(([, desc], i) => {
+      const features = desc.detected_features?.length ? `  Features: ${desc.detected_features.join(', ')}` : ''
+      const colors = desc.dominant_colors?.length ? `  Colors: ${desc.dominant_colors.join(', ')}` : ''
+      return `Photo ${i + 1} (${desc.photo_type || 'unknown'}): ${desc.description}${features ? '\n' + features : ''}${colors ? '\n' + colors : ''}`
+    }).join('\n')
+
+    productAppearanceSection = `
+
+=== PRODUCT APPEARANCE (from actual product photos) ===
+The following descriptions are from real product photos analyzed by AI vision. Use this visual information to write more specific, accurate product descriptions that reference actual product colors, design elements, and physical features.
+
+${photoLines}`
+  }
+
   return `=== PRODUCT INFO ===
 Product: ${productName}
 Brand: ${brand}
@@ -1308,7 +1325,7 @@ ${attrStr}
 Title: ${charLimits.title} characters max
 Each Bullet Point: ${charLimits.bullet} characters max (${charLimits.bulletCount} bullets)
 Description: ${charLimits.description} characters max
-Search Terms: ${charLimits.searchTerms} characters max (backend only, not visible to customers)
+Search Terms: ${charLimits.searchTerms} characters max (backend only, not visible to customers)${productAppearanceSection}
 
 === KEYWORD INTELLIGENCE ===
 ${keywordSection}

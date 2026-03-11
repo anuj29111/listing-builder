@@ -38,6 +38,7 @@ async function buildGenerationInput(
   categoryName: string,
   optimizationMode?: string,
   existingListingText?: { title: string; bullets: string[]; description: string } | null,
+  productPhotoDescriptions?: Record<string, import('@/types/api').ProductPhotoDescription> | null,
 ): Promise<ListingGenerationInput> {
   const categoryId = generationContext.categoryId as string
   const countryId = generationContext.countryId as string
@@ -106,6 +107,7 @@ async function buildGenerationInput(
     marketIntelligence: marketIntelligence as import('@/types/market-intelligence').MarketIntelligenceResult | null,
     optimizationMode: (optimizationMode as 'new' | 'optimize_existing' | 'based_on_existing') || 'new',
     existingListingText: existingListingText || null,
+    productPhotoDescriptions: productPhotoDescriptions || null,
   }
 }
 
@@ -124,7 +126,7 @@ export async function POST(request: Request) {
 
     // ==================== TITLE PHASE ====================
     if (phase === 'title') {
-      const { category_id, country_id, product_name, asin, brand, attributes, product_type_name, optimization_mode, existing_listing_text } = body
+      const { category_id, country_id, product_name, asin, brand, attributes, product_type_name, optimization_mode, existing_listing_text, product_photos, product_photo_descriptions } = body
 
       if (!category_id || !country_id || !product_name || !brand) {
         return NextResponse.json({ error: 'category_id, country_id, product_name, and brand are required' }, { status: 400 })
@@ -184,7 +186,7 @@ export async function POST(request: Request) {
 
       const input = await buildGenerationInput(
         supabase, generationContext, country, category.name,
-        optimization_mode, existing_listing_text
+        optimization_mode, existing_listing_text, product_photo_descriptions
       )
 
       // Generate titles
@@ -210,6 +212,8 @@ export async function POST(request: Request) {
           backend_keywords: null,
           optimization_mode: optimization_mode || 'new',
           existing_listing_text: existing_listing_text || null,
+          product_photos: product_photos || [],
+          product_photo_descriptions: product_photo_descriptions || null,
           status: 'draft',
           generation_phase: 'title',
           keyword_coverage: result.keywordCoverage,
@@ -303,7 +307,7 @@ export async function POST(request: Request) {
 
       const input = await buildGenerationInput(
         supabase, listing.generation_context, country, cat?.name || 'Unknown',
-        listing.optimization_mode, listing.existing_listing_text
+        listing.optimization_mode, listing.existing_listing_text, listing.product_photo_descriptions
       )
 
       const existingCoverage: KeywordCoverage = listing.keyword_coverage || { placed: [], remaining: [], coverageScore: 0 }
@@ -416,7 +420,7 @@ export async function POST(request: Request) {
 
       const input = await buildGenerationInput(
         supabase, listing.generation_context, country, cat?.name || 'Unknown',
-        listing.optimization_mode, listing.existing_listing_text
+        listing.optimization_mode, listing.existing_listing_text, listing.product_photo_descriptions
       )
 
       const existingCoverage: KeywordCoverage = listing.keyword_coverage || { placed: [], remaining: [], coverageScore: 0 }
@@ -523,7 +527,7 @@ export async function POST(request: Request) {
 
       const input = await buildGenerationInput(
         supabase, listing.generation_context, country, cat?.name || 'Unknown',
-        listing.optimization_mode, listing.existing_listing_text
+        listing.optimization_mode, listing.existing_listing_text, listing.product_photo_descriptions
       )
 
       const existingCoverage: KeywordCoverage = listing.keyword_coverage || { placed: [], remaining: [], coverageScore: 0 }

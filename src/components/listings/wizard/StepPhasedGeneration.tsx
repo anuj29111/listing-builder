@@ -244,6 +244,8 @@ export function StepPhasedGeneration() {
       product_type_name: productTypeName || undefined,
       optimization_mode: optimizationMode,
       existing_listing_text: optimizationMode === 'optimize_existing' ? existingListingText : undefined,
+      product_photos: store.productPhotos.length > 0 ? store.productPhotos : undefined,
+      product_photo_descriptions: store.productPhotoDescriptions || undefined,
     })
 
     if (data) {

@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2, MapPin, Tag, Info } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import type { LbCategory } from '@/types/database'
+import { ProductPhotosSection } from './ProductPhotosSection'
 
 interface StepProductDetailsProps {
   categories: LbCategory[]
@@ -239,6 +240,9 @@ export function StepProductDetails({ categories }: StepProductDetailsProps) {
           ))}
         </div>
       </div>
+
+      {/* Product Photos (Optional - analyzed before generation) */}
+      <ProductPhotosSection />
     </div>
   )
 }

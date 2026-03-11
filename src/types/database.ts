@@ -119,6 +119,8 @@ export interface LbListing {
   existing_listing_text: ExistingListingText | null
   generation_phase: GenerationPhase
   keyword_coverage: KeywordCoverage | null
+  product_photos: string[]
+  product_photo_descriptions: Record<string, import('@/types/api').ProductPhotoDescription> | null
   created_at: string
   updated_at: string
 }
