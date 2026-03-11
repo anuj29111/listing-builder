@@ -124,6 +124,19 @@ async function getModel(): Promise<string> {
   return DEFAULT_CLAUDE_MODEL
 }
 
+/**
+ * Returns a display-friendly model string including thinking status.
+ * e.g., "claude-sonnet-4-20250514 (Extended Thinking: 10K)"
+ */
+export async function getModelDisplay(): Promise<string> {
+  const model = await getModel()
+  const thinking = await getThinkingConfig()
+  if (thinking.enabled) {
+    return `${model} (Extended Thinking: ${Math.round(thinking.budgetTokens / 1000)}K)`
+  }
+  return model
+}
+
 interface ThinkingConfig {
   enabled: boolean
   budgetTokens: number
@@ -1095,7 +1108,7 @@ export async function generateListing(
   const result = JSON.parse(jsonText) as ListingGenerationResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Phased Generation (Cascading Keyword Waterfall) ---
@@ -1493,7 +1506,7 @@ export async function generateTitlePhase(
     if (shortTitles.length === 0 || attempt === 1) {
       // Also enforce max length by trimming
       result.titles = result.titles.map((t) => t.length > maxChars ? t.slice(0, maxChars) : t)
-      return { result, model, tokensUsed: totalTokens }
+      return { result, model: await getModelDisplay(), tokensUsed: totalTokens }
     }
 
     // Titles too short — send a follow-up asking to lengthen them
@@ -1658,7 +1671,7 @@ export async function generateBulletsPhase(
       result.bullets = result.bullets.map((variations) =>
         variations.map((v) => v.length > maxChars ? v.slice(0, maxChars) : v)
       )
-      return { result, model, tokensUsed: totalTokens }
+      return { result, model: await getModelDisplay(), tokensUsed: totalTokens }
     }
 
     // Bullets over limit — send follow-up asking to shorten
@@ -1791,7 +1804,7 @@ export async function generateDescriptionPhase(
   const result = JSON.parse(jsonText) as DescriptionPhaseResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Phase 4: Backend (Subject Matter + Backend Attributes) ---
@@ -1924,7 +1937,7 @@ export async function generateBackendPhase(
   const result = JSON.parse(jsonText) as BackendPhaseResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Section Refinement (Phase 5: Modular Chats) ---
@@ -2025,7 +2038,7 @@ export async function refineSection(
 
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { refinedText: text, model, tokensUsed }
+  return { refinedText: text, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Competitor Analysis ---
@@ -2109,7 +2122,7 @@ export async function analyzeCompetitors(
   const result = JSON.parse(stripMarkdownFences(text)) as import('@/types/api').CompetitorAnalysisResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Q&A Coverage Verification ---
@@ -2203,7 +2216,7 @@ export async function verifyQnACoverage(
   const result = JSON.parse(stripMarkdownFences(text)) as import('@/types/api').QnACoverageResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Image Stack Recommendations ---
@@ -2288,7 +2301,7 @@ export async function generateImageStackRecommendations(
   const result = JSON.parse(stripMarkdownFences(text)) as import('@/types/api').ImageStackRecommendationsResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Analysis Functions ---
@@ -2316,7 +2329,7 @@ export async function analyzeKeywords(
   const result = JSON.parse(stripMarkdownFences(text)) as KeywordAnalysisResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 export async function analyzeReviews(
@@ -2342,7 +2355,7 @@ export async function analyzeReviews(
   const result = JSON.parse(stripMarkdownFences(text)) as ReviewAnalysisResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 export async function analyzeQnA(
@@ -2370,7 +2383,7 @@ export async function analyzeQnA(
   const result = JSON.parse(stripMarkdownFences(text)) as QnAAnalysisResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Market Intelligence Analysis (Standalone POC) ---
@@ -2758,7 +2771,8 @@ async function runMIPhase(
         console.log(`[MI] ${phaseLabel} succeeded on attempt ${attempt + 1}`)
       }
 
-      return { result, model, tokensUsed, inputTokens }
+      const modelDisplay = await getModelDisplay()
+      return { result, model: modelDisplay, tokensUsed, inputTokens }
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
 
@@ -2945,7 +2959,7 @@ Return ONLY valid JSON, no markdown fences or explanation.`
   const result = JSON.parse(stripMarkdownFences(text)) as Record<string, unknown>
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 /**
@@ -3001,7 +3015,7 @@ Return ONLY valid JSON, no markdown fences or explanation.`
   const result = JSON.parse(stripMarkdownFences(text)) as Record<string, unknown>
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Phase 10: A+ Content Generation ---
@@ -3097,7 +3111,7 @@ Return ONLY the JSON object, no markdown, no explanation.`
   const content = JSON.parse(stripMarkdownFences(text)) as Record<string, unknown>
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { content, model, tokensUsed }
+  return { content, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- A+ Content Strategy (Full Visual Direction + Strategic Flow) ---
@@ -3256,7 +3270,7 @@ export async function generateAPlusStrategy(
   const result = JSON.parse(stripMarkdownFences(text)) as APlusStrategyResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Video Storyboard Generation ---
@@ -3394,7 +3408,7 @@ export async function generateVideoStoryboard(
   const result = JSON.parse(stripMarkdownFences(text)) as VideoStoryboardResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Video Script Generation ---
@@ -3529,7 +3543,7 @@ export async function generateVideoScript(
   const result = JSON.parse(stripMarkdownFences(text)) as VideoScriptResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Creative Brief Generation ---
@@ -3799,7 +3813,7 @@ export async function generateCreativeBrief(input: CreativeBriefInput): Promise<
   const result = JSON.parse(stripMarkdownFences(text)) as import('@/types/api').CreativeBrief
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Product Photo Analysis (Claude Vision) ---
@@ -3911,7 +3925,7 @@ Respond with ONLY valid JSON (no markdown fences):
 
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { descriptions, model, tokensUsed }
+  return { descriptions, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Workshop: AI Image Prompt Generation ---
@@ -4472,7 +4486,7 @@ export async function generateSecondaryImagePrompts(
   const result = JSON.parse(stripMarkdownFences(text)) as SecondaryConceptResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Video Thumbnail Prompt Generation ---
@@ -4598,7 +4612,7 @@ export async function generateVideoThumbnailPrompts(
   const result = JSON.parse(stripMarkdownFences(text)) as ThumbnailConceptResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 // --- Swatch Image Prompt Generation ---
@@ -4711,7 +4725,7 @@ export async function generateSwatchPrompts(
   const result = JSON.parse(stripMarkdownFences(text)) as SwatchConceptResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
 
 export async function generateImagePrompts(
@@ -4735,5 +4749,5 @@ export async function generateImagePrompts(
   const result = JSON.parse(stripMarkdownFences(text)) as WorkshopPromptResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model, tokensUsed }
+  return { result, model: await getModelDisplay(), tokensUsed }
 }
