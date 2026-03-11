@@ -9,6 +9,7 @@ import { Settings, Plus, Save, Eye, EyeOff, Check, Key } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbAdminSetting } from '@/types'
 import { AIModelConfig } from '@/components/settings/AIModelConfig'
+import { ThinkingConfig } from '@/components/settings/ThinkingConfig'
 import { ImageProviderSettings } from '@/components/settings/ImageProviderSettings'
 import { SellerIdsSettings } from '@/components/settings/SellerIdsSettings'
 
@@ -59,6 +60,8 @@ const API_KEY_SLOTS = [
 // Keys managed by dedicated UI components (not shown in generic grid)
 const MANAGED_KEYS = new Set([
   'claude_model',
+  'thinking_enabled',
+  'thinking_budget',
   'image_provider_visibility',
   'seller_ids',
   ...API_KEY_SLOTS.map((s) => s.key),
@@ -81,6 +84,8 @@ export function AdminSettingsTab({ initialSettings }: AdminSettingsTabProps) {
 
   // Separate managed settings from generic ones
   const modelSetting = settings.find((s) => s.key === 'claude_model')
+  const thinkingEnabledSetting = settings.find((s) => s.key === 'thinking_enabled')
+  const thinkingBudgetSetting = settings.find((s) => s.key === 'thinking_budget')
   const genericSettings = settings.filter((s) => !MANAGED_KEYS.has(s.key))
 
   function getSettingValue(key: string): string {
@@ -197,6 +202,11 @@ export function AdminSettingsTab({ initialSettings }: AdminSettingsTabProps) {
   return (
     <div className="space-y-6">
       <AIModelConfig currentModel={modelSetting?.value || ''} />
+
+      <ThinkingConfig
+        currentEnabled={thinkingEnabledSetting ? thinkingEnabledSetting.value === 'true' : null}
+        currentBudget={thinkingBudgetSetting ? parseInt(thinkingBudgetSetting.value, 10) : null}
+      />
 
       <ImageProviderSettings />
 

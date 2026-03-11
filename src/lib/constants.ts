@@ -233,6 +233,12 @@ export const CLAUDE_MODELS: ClaudeModelConfig[] = [
 
 export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6'
 
+// --- Extended Thinking ---
+export const DEFAULT_THINKING_ENABLED = true
+export const DEFAULT_THINKING_BUDGET = 10000 // tokens for Claude's internal reasoning
+export const MIN_THINKING_BUDGET = 1024
+export const MAX_THINKING_BUDGET = 50000
+
 // --- Phased Generation ---
 
 export const GENERATION_PHASES = ['title', 'bullets', 'description', 'backend'] as const

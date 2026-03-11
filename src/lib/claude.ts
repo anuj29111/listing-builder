@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createAdminClient } from '@/lib/supabase/server'
-import { DEFAULT_CLAUDE_MODEL } from '@/lib/constants'
+import { DEFAULT_CLAUDE_MODEL, DEFAULT_THINKING_ENABLED, DEFAULT_THINKING_BUDGET, MIN_THINKING_BUDGET } from '@/lib/constants'
+import type { MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/messages'
 
 const MAX_TOKENS = 32768
 
@@ -121,6 +122,51 @@ async function getModel(): Promise<string> {
     // DB lookup failed, fall through to default
   }
   return DEFAULT_CLAUDE_MODEL
+}
+
+interface ThinkingConfig {
+  enabled: boolean
+  budgetTokens: number
+}
+
+async function getThinkingConfig(): Promise<ThinkingConfig> {
+  try {
+    const adminClient = createAdminClient()
+    const { data } = await adminClient
+      .from('lb_admin_settings')
+      .select('key, value')
+      .in('key', ['thinking_enabled', 'thinking_budget'])
+    const map = new Map(data?.map((d) => [d.key, d.value]) ?? [])
+    return {
+      enabled: map.has('thinking_enabled') ? map.get('thinking_enabled') === 'true' : DEFAULT_THINKING_ENABLED,
+      budgetTokens: map.has('thinking_budget') ? Math.max(MIN_THINKING_BUDGET, parseInt(map.get('thinking_budget')!, 10)) : DEFAULT_THINKING_BUDGET,
+    }
+  } catch {
+    return { enabled: DEFAULT_THINKING_ENABLED, budgetTokens: DEFAULT_THINKING_BUDGET }
+  }
+}
+
+/**
+ * Wrapper around client.messages.create() that injects extended thinking config.
+ * When thinking is enabled, max_tokens is bumped to accommodate budget + output tokens.
+ */
+async function createMessage(
+  client: Anthropic,
+  params: MessageCreateParamsNonStreaming
+): Promise<Anthropic.Message> {
+  const thinking = await getThinkingConfig()
+  if (thinking.enabled) {
+    // budget_tokens must be < max_tokens; bump max_tokens to fit both
+    const outputTokens = params.max_tokens
+    const totalTokens = thinking.budgetTokens + outputTokens
+    return client.messages.create({
+      ...params,
+      max_tokens: totalTokens,
+      thinking: { type: 'enabled', budget_tokens: thinking.budgetTokens },
+      temperature: 1, // required when thinking is enabled
+    })
+  }
+  return client.messages.create(params)
 }
 
 // --- Analysis Result Types ---
@@ -1023,7 +1069,7 @@ export async function generateListing(
   const model = await getModel()
   const prompt = buildListingGenerationPrompt(input)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -1399,7 +1445,7 @@ export async function generateTitlePhase(
 
   // Try up to 2 rounds: initial generation + 1 retry for short titles
   for (let attempt = 0; attempt < 2; attempt++) {
-    const response = await client.messages.create({
+    const response = await createMessage(client, {
       model,
       max_tokens: 16384,
       messages,
@@ -1550,7 +1596,7 @@ export async function generateBulletsPhase(
 
   // Try up to 2 rounds: initial generation + 1 retry for over-limit bullets
   for (let attempt = 0; attempt < 2; attempt++) {
-    const response = await client.messages.create({
+    const response = await createMessage(client, {
       model,
       max_tokens: 32768,
       messages,
@@ -1706,7 +1752,7 @@ export async function generateDescriptionPhase(
   const model = await getModel()
   const prompt = buildDescriptionPhasePrompt(input, confirmedTitle, confirmedBullets, keywordCoverage)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: 16384,
     messages: [{ role: 'user', content: prompt }],
@@ -1839,7 +1885,7 @@ export async function generateBackendPhase(
   const model = await getModel()
   const prompt = buildBackendPhasePrompt(input, confirmedTitle, confirmedBullets, confirmedDescription, confirmedSearchTerms, keywordCoverage)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: 8192,
     messages: [{ role: 'user', content: prompt }],
@@ -1945,7 +1991,7 @@ export async function refineSection(
   const model = await getModel()
   const prompt = buildSectionRefinementPrompt(input)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: 4096,
     messages: [{ role: 'user', content: prompt }],
@@ -2029,7 +2075,7 @@ export async function analyzeCompetitors(
   const model = await getModel()
   const prompt = buildCompetitorAnalysisPrompt(competitors, categoryName, countryName)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -2123,7 +2169,7 @@ export async function verifyQnACoverage(
   const model = await getModel()
   const prompt = buildQnAVerificationPrompt(listingText, qnaAnalysis)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -2208,7 +2254,7 @@ export async function generateImageStackRecommendations(
   const model = await getModel()
   const prompt = buildImageStackRecommendationPrompt(categoryName, keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis, marketIntelligence)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -2236,7 +2282,7 @@ export async function analyzeKeywords(
   const model = await getModel()
   const prompt = buildKeywordAnalysisPrompt(csvContent, categoryName, countryName)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -2262,7 +2308,7 @@ export async function analyzeReviews(
   const model = await getModel()
   const prompt = buildReviewAnalysisPrompt(csvContent, categoryName, countryName)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -2290,7 +2336,7 @@ export async function analyzeQnA(
   const model = await getModel()
   const prompt = buildQnAAnalysisPrompt(csvContent, categoryName, countryName, isRufus, hasSpPrompts)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -2673,7 +2719,7 @@ async function runMIPhase(
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const response = await client.messages.create({
+      const response = await createMessage(client, {
         model,
         max_tokens: 16384,
         messages: [{ role: 'user', content: prompt }],
@@ -2865,7 +2911,7 @@ ${truncatedContent}
 
 Return ONLY valid JSON, no markdown fences or explanation.`
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -2921,7 +2967,7 @@ ${schema}
 
 Return ONLY valid JSON, no markdown fences or explanation.`
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -3017,7 +3063,7 @@ ${templateSchema}
 
 Return ONLY the JSON object, no markdown, no explanation.`
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: 4096,
     messages: [{ role: 'user', content: prompt }],
@@ -3176,7 +3222,7 @@ export async function generateAPlusStrategy(
   const model = await getModel()
   const prompt = buildAPlusStrategyPrompt(input)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -3314,7 +3360,7 @@ export async function generateVideoStoryboard(
   const model = await getModel()
   const prompt = buildVideoStoryboardPrompt(input)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -3449,7 +3495,7 @@ export async function generateVideoScript(
   const model = await getModel()
   const prompt = buildVideoScriptPrompt(input)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -3719,7 +3765,7 @@ export async function generateCreativeBrief(input: CreativeBriefInput): Promise<
   const model = await getModel()
   const prompt = buildCreativeBriefPrompt(input)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -3806,7 +3852,7 @@ Respond with ONLY valid JSON (no markdown fences):
 
   const content: (Anthropic.ImageBlockParam | Anthropic.TextBlockParam)[] = [...imageBlocks, textBlock]
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content }],
@@ -4392,7 +4438,7 @@ export async function generateSecondaryImagePrompts(
   const model = await getModel()
   const prompt = buildSecondaryPromptsPrompt(input)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -4518,7 +4564,7 @@ export async function generateVideoThumbnailPrompts(
   const model = await getModel()
   const prompt = buildThumbnailPromptsPrompt(input)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -4631,7 +4677,7 @@ export async function generateSwatchPrompts(
   const model = await getModel()
   const prompt = buildSwatchPromptsPrompt(input)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
@@ -4655,7 +4701,7 @@ export async function generateImagePrompts(
   const model = await getModel()
   const prompt = buildWorkshopPromptsPrompt(input)
 
-  const response = await client.messages.create({
+  const response = await createMessage(client, {
     model,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
