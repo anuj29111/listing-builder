@@ -159,12 +159,15 @@ async function createMessage(
     // budget_tokens must be < max_tokens; bump max_tokens to fit both
     const outputTokens = params.max_tokens
     const totalTokens = thinking.budgetTokens + outputTokens
-    return client.messages.create({
+    // Extended thinking calls can exceed 10 min — must use streaming
+    // .stream() collects into a final Message so callers don't change
+    const stream = client.messages.stream({
       ...params,
       max_tokens: totalTokens,
       thinking: { type: 'enabled', budget_tokens: thinking.budgetTokens },
       temperature: 1, // required when thinking is enabled
     })
+    return stream.finalMessage()
   }
   return client.messages.create(params)
 }
