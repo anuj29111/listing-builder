@@ -5,11 +5,10 @@ import { useRouter } from 'next/navigation'
 import { LogOut, User as UserIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import type { User } from '@supabase/supabase-js'
 import type { LbUser } from '@/types'
 
 interface HeaderProps {
-  user: User
+  user: { id: string; email?: string; user_metadata?: Record<string, unknown> }
   lbUser: LbUser
 }
 
