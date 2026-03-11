@@ -359,13 +359,14 @@ export async function startApifyReviewRun(
     const token = await getApifyToken()
     const productUrl = `https://www.${amazonDomain}/dp/${asin}`
 
+    // NOTE: Do NOT use multi-filter arrays here (filter_by_ratings, filter_by_verified_purchase_only,
+    // filter_by_mediaType). Those cause the actor to scrape each combo separately (5×2×2 = 20 combos),
+    // spreading max_reviews across all combos. After dedup you'd get ~8 unique reviews instead of 200.
+    // Multi-filter is only for the Reviews tab deep-dive (single ASIN). MI needs simple fast fetches.
     const input: Record<string, unknown> = {
       ASIN_or_URL: [productUrl],
       sortBy: sortBy === 'helpful' ? 'helpful' : 'recent',
       filterByRating: 'allStars',
-      filter_by_ratings: ['five_star', 'four_star', 'three_star', 'two_star', 'one_star'],
-      filter_by_verified_purchase_only: ['all_reviews', 'avp_only_reviews'],
-      filter_by_mediaType: ['all_contents', 'media_reviews_only'],
       get_customers_say: true,
       max_reviews: maxReviews,
     }
