@@ -7,6 +7,7 @@ import type {
   ReviewAnalysisResult,
   QnAAnalysisResult,
 } from '@/lib/claude'
+import { generateResearchReportHTML, downloadResearchReport } from '@/lib/research-pdf'
 
 interface AnalysisViewerProps {
   analyses: Array<{
@@ -1244,6 +1245,21 @@ function AnalysisContent({ analysisType, result }: { analysisType: string; resul
 
 // Metadata footer for each analysis
 function AnalysisMeta({ record }: { record: AnalysisViewerProps['analyses'][number] }) {
+  const handleDownload = () => {
+    const html = generateResearchReportHTML(
+      record.analysis_type,
+      record.analysis_result,
+      {
+        analysisType: record.analysis_type,
+        source: normalizeSource(record.source),
+        modelUsed: record.model_used || undefined,
+        tokensUsed: record.tokens_used || undefined,
+        date: new Date(record.updated_at).toLocaleDateString(),
+      }
+    )
+    downloadResearchReport(html)
+  }
+
   return (
     <div className="mb-3 flex items-center gap-3 text-xs text-muted-foreground">
       <span>Model: {record.model_used || 'unknown'}</span>
@@ -1251,6 +1267,13 @@ function AnalysisMeta({ record }: { record: AnalysisViewerProps['analyses'][numb
         <span>Tokens: {record.tokens_used.toLocaleString()}</span>
       )}
       <span>Analyzed: {new Date(record.updated_at).toLocaleDateString()}</span>
+      <button
+        onClick={handleDownload}
+        className="ml-auto inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs font-medium hover:bg-muted transition-colors"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download PDF
+      </button>
     </div>
   )
 }
