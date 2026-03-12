@@ -359,14 +359,19 @@ export async function startApifyReviewRun(
     const token = await getApifyToken()
     const productUrl = `https://www.${amazonDomain}/dp/${asin}`
 
-    // Must explicitly send ALL filter arrays — actor defaults filter_by_ratings to ["five_star"] only
+    // Actor spreads max_reviews across ALL filter combos. With multi-filter arrays:
+    //   2 sorts × 2 verified × 2 media × 5 ratings = 40 combos → max_reviews/40 = 5 per combo → ~8 unique
+    // Fix: use single values for sort/verified/media, keep all 5 ratings.
+    //   1 sort × 1 verified × 1 media × 5 ratings = 5 combos → max_reviews/5 = 40 per combo → ~150+ unique
+    // Must explicitly send all arrays to override actor defaults (which default to five_star only).
     const input: Record<string, unknown> = {
       ASIN_or_URL: [productUrl],
       sortBy: sortBy === 'helpful' ? 'helpful' : 'recent',
       filterByRating: 'allStars',
+      sort_reviews_by: [sortBy === 'helpful' ? 'helpful' : 'recent'],
       filter_by_ratings: ['five_star', 'four_star', 'three_star', 'two_star', 'one_star'],
-      filter_by_verified_purchase_only: ['all_reviews', 'avp_only_reviews'],
-      filter_by_mediaType: ['all_contents', 'media_reviews_only'],
+      filter_by_verified_purchase_only: ['all_reviews'],
+      filter_by_mediaType: ['all_contents'],
       get_customers_say: true,
       max_reviews: maxReviews,
     }
