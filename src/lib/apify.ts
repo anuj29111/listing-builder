@@ -359,21 +359,14 @@ export async function startApifyReviewRun(
     const token = await getApifyToken()
     const productUrl = `https://www.${amazonDomain}/dp/${asin}`
 
-    // IMPORTANT: The actor fills in multi-filter defaults if we don't send them:
-    //   sort_reviews_by: ["helpful","recent"], filter_by_verified_purchase_only: ["all_reviews","avp_only_reviews"],
-    //   filter_by_ratings: ["five_star"], filter_by_mediaType: ["all_contents","media_reviews_only"]
-    // This creates 2×2×1×2 = 8 combos, spreading max_reviews across all. Result: ~8 unique reviews.
-    // Fix: explicitly set SINGLE values for sort/verified/media, ALL 5 ratings, and unique_only: true.
-    // Combos: 1×1×5×1 = 5. With max_reviews=200 → 40/combo → plenty of unique reviews after dedup.
+    // Must explicitly send ALL filter arrays — actor defaults filter_by_ratings to ["five_star"] only
     const input: Record<string, unknown> = {
       ASIN_or_URL: [productUrl],
       sortBy: sortBy === 'helpful' ? 'helpful' : 'recent',
       filterByRating: 'allStars',
-      sort_reviews_by: [sortBy === 'helpful' ? 'helpful' : 'recent'],
       filter_by_ratings: ['five_star', 'four_star', 'three_star', 'two_star', 'one_star'],
-      filter_by_verified_purchase_only: ['all_reviews'],
-      filter_by_mediaType: ['all_contents'],
-      unique_only: true,
+      filter_by_verified_purchase_only: ['all_reviews', 'avp_only_reviews'],
+      filter_by_mediaType: ['all_contents', 'media_reviews_only'],
       get_customers_say: true,
       max_reviews: maxReviews,
     }
