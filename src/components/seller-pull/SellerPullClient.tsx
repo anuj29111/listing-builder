@@ -71,6 +71,9 @@ function createDefaultJobState(): CountryJobState {
 const POLL_INTERVAL = 3000
 const BACKGROUND_STATES = ['pulling', 'scraping', 'discovering_variations', 'importing', 'importing_variations']
 
+// Fixed display order for country tabs
+const COUNTRY_ORDER = ['US', 'CA', 'UK', 'DE', 'FR', 'AE', 'AU']
+
 interface SellerPullClientProps {
   countries: Country[]
 }
@@ -80,6 +83,7 @@ interface SellerPullClientProps {
 export function SellerPullClient({ countries }: SellerPullClientProps) {
   // Config
   const [configuredCountries, setConfiguredCountries] = useState<ConfiguredCountry[]>([])
+  const [sellerIdMap, setSellerIdMap] = useState<Record<string, string>>({})
   const [loadingConfig, setLoadingConfig] = useState(true)
   const [activeCountryId, setActiveCountryId] = useState<string>('')
 
@@ -97,6 +101,11 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
 
   // Loading flag for quick actions (import)
   const [actionLoading, setActionLoading] = useState(false)
+
+  // Pull All state
+  const [pullAllRunning, setPullAllRunning] = useState(false)
+  const [pullAllProgress, setPullAllProgress] = useState<{ current: number; total: number; currentCountry: string }>({ current: 0, total: 0, currentCountry: '' })
+  const pullAllAbortRef = useRef(false)
 
   // Polling
   const pollRef = useRef<NodeJS.Timeout | null>(null)
@@ -146,6 +155,21 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
     if (activeJob?.selected_variations) return new Set(activeJob.selected_variations)
     return new Set<string>()
   }, [activeJobState.localSelectedVariations, activeJob?.selected_variations])
+
+  // All countries to display in tabs (ordered by COUNTRY_ORDER)
+  const displayCountries = useMemo(() => {
+    const ordered = COUNTRY_ORDER
+      .map((code) => countries.find((c) => c.code === code))
+      .filter(Boolean) as Country[]
+    // Append any active countries not in COUNTRY_ORDER
+    const remainingCodes = new Set(COUNTRY_ORDER)
+    for (const c of countries) {
+      if (!remainingCodes.has(c.code) && !ordered.find((o) => o.id === c.id)) {
+        ordered.push(c)
+      }
+    }
+    return ordered
+  }, [countries])
 
   // Derived data from job
   const products: SellerPullProduct[] = activeJob?.pull_result?.products || []
@@ -240,8 +264,10 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
           (s: { key: string }) => s.key === 'seller_ids'
         )
 
-        if (setting?.value) {
-          const parsed = JSON.parse(setting.value) as Record<string, string>
+        const parsed = setting?.value ? JSON.parse(setting.value) as Record<string, string> : {}
+        setSellerIdMap(parsed)
+
+        {
           const configured = Object.entries(parsed)
             .map(([countryId, sellerId]) => {
               const country = countries.find((c) => c.id === countryId)
@@ -301,7 +327,12 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
           }
 
           setCountryJobs(restoredJobs)
-          const initialCountry = firstActiveCountry || configured[0]?.country_id || ''
+
+          // Pick initial tab: first active job, or first country in display order
+          const orderedCountries = COUNTRY_ORDER
+            .map((code) => countries.find((c) => c.code === code))
+            .filter(Boolean) as Country[]
+          const initialCountry = firstActiveCountry || orderedCountries[0]?.id || configured[0]?.country_id || ''
           setActiveCountryId(initialCountry)
         }
       } catch {
@@ -381,6 +412,127 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
       toast.error(err instanceof Error ? err.message : 'Pull failed')
     }
   }, [activeCountryId, updateCountryJob, countryJobs, startPolling])
+
+  // ─── PULL ALL (SEQUENTIAL) ─────────────────────────
+
+  const handlePullAll = useCallback(async () => {
+    const countriesToPull = configuredCountries.filter((cc) => {
+      const job = countryJobs[cc.country_id]?.job
+      // Skip countries that already have an active background job
+      return !job || !BACKGROUND_STATES.includes(job.status)
+    })
+
+    if (countriesToPull.length === 0) {
+      toast.error('All countries already have active jobs running')
+      return
+    }
+
+    setPullAllRunning(true)
+    pullAllAbortRef.current = false
+    setPullAllProgress({ current: 0, total: countriesToPull.length, currentCountry: '' })
+
+    for (let i = 0; i < countriesToPull.length; i++) {
+      if (pullAllAbortRef.current) {
+        toast('Pull All stopped')
+        break
+      }
+
+      const cc = countriesToPull[i]
+      setPullAllProgress({ current: i + 1, total: countriesToPull.length, currentCountry: cc.country.name })
+      setActiveCountryId(cc.country_id)
+      setSearchFilter('')
+
+      try {
+        // Start pull job
+        const res = await fetch('/api/seller-pull/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ country_id: cc.country_id }),
+        })
+        const json = await res.json()
+        if (!res.ok) {
+          toast.error(`${cc.country.name}: ${json.error || 'Failed to start pull'}`)
+          continue
+        }
+
+        const jobId = json.job_id
+
+        updateCountryJob(cc.country_id, () => ({
+          jobId,
+          job: json.existing
+            ? countryJobs[cc.country_id]?.job || null
+            : {
+                id: jobId,
+                country_id: cc.country_id,
+                seller_id: cc.seller_id,
+                status: 'pulling' as const,
+                pull_result: null,
+                selected_asins: [],
+                product_categories: {},
+                import_result: null,
+                scrape_results: [],
+                scrape_progress: { current: 0, total: 0 },
+                variation_results: [],
+                selected_variations: [],
+                variation_import_result: null,
+                error: null,
+                created_by: null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+          localSelectedAsins: null,
+          localProductCategories: null,
+          localSelectedVariations: null,
+        }))
+
+        // Poll until this job completes before moving to next country
+        await new Promise<void>((resolve) => {
+          const poll = async () => {
+            try {
+              const pollRes = await fetch(`/api/seller-pull/jobs/${jobId}`)
+              if (!pollRes.ok) return
+              const job: LbSellerPullJob = await pollRes.json()
+
+              updateCountryJob(cc.country_id, (prev) => ({ ...prev, job }))
+
+              if (job.pull_result?.categories) {
+                setCategories((prev) => {
+                  const merged = new Set([...prev, ...job.pull_result!.categories])
+                  return Array.from(merged).sort()
+                })
+              }
+
+              if (!BACKGROUND_STATES.includes(job.status)) {
+                if (job.status === 'pulled') {
+                  toast.success(`${cc.country.name}: ${job.pull_result?.summary.total || 0} products (${job.pull_result?.summary.new || 0} new)`)
+                } else if (job.status === 'failed') {
+                  toast.error(`${cc.country.name}: ${job.error || 'Pull failed'}`)
+                }
+                resolve()
+                return
+              }
+            } catch {
+              // Network error, keep polling
+            }
+
+            if (pullAllAbortRef.current) {
+              resolve()
+              return
+            }
+            setTimeout(poll, POLL_INTERVAL)
+          }
+          poll()
+        })
+      } catch (err) {
+        toast.error(`${cc.country.name}: ${err instanceof Error ? err.message : 'Pull failed'}`)
+      }
+    }
+
+    setPullAllRunning(false)
+    if (!pullAllAbortRef.current) {
+      toast.success('Pull All complete!')
+    }
+  }, [configuredCountries, countryJobs, updateCountryJob])
 
   // ─── IMPORT ───────────────────────────────────────
 
@@ -535,56 +687,97 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
     )
   }
 
-  if (configuredCountries.length === 0) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">Seller Product Pull</h1>
-          <p className="text-muted-foreground mt-1">
-            Pull your product catalog from Amazon.
-          </p>
-        </div>
-        <div className="rounded-lg border bg-card p-8 text-center">
-          <Store className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-          <h3 className="font-semibold">No Seller IDs Configured</h3>
-          <p className="text-sm text-muted-foreground mt-1">
-            Go to{' '}
-            <a href="/settings" className="text-primary underline">
-              Settings &rarr; Admin &rarr; Amazon Seller IDs
-            </a>{' '}
-            to configure your seller IDs per marketplace.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
   const activeConfig = configuredCountries.find((c) => c.country_id === activeCountryId)
+  const activeDisplayCountry = displayCountries.find((c) => c.id === activeCountryId)
+  const hasSellerIdForActive = !!sellerIdMap[activeCountryId]
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">Seller Product Pull</h1>
-        <p className="text-muted-foreground mt-1">
-          Pull your product catalog from Amazon, filter out bundles, and import to your system.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Seller Product Pull</h1>
+          <p className="text-muted-foreground mt-1">
+            Pull your full product catalog directly from Amazon Seller Central using your Merchant ID. This tool fetches all
+            active listings per marketplace, detects bundles, auto-categorizes products, and imports them into the system.
+            After import, it scrapes detailed product data and discovers variation siblings automatically.
+          </p>
+        </div>
+        <div className="flex-shrink-0">
+          {pullAllRunning ? (
+            <div className="flex items-center gap-2">
+              <div className="text-right">
+                <span className="text-xs text-muted-foreground block">
+                  Pulling {pullAllProgress.current}/{pullAllProgress.total}
+                </span>
+                <span className="text-xs font-medium">{pullAllProgress.currentCountry}</span>
+              </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => { pullAllAbortRef.current = true }}
+                className="gap-2"
+              >
+                <X className="h-4 w-4" />
+                Stop
+              </Button>
+            </div>
+          ) : (
+            <Button
+              onClick={handlePullAll}
+              disabled={configuredCountries.length === 0 || actionLoading}
+              className="gap-2"
+              variant="outline"
+            >
+              <Globe className="h-4 w-4" />
+              Pull All Countries
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* How it works */}
+      <div className="rounded-lg border bg-muted/30 p-4">
+        <h3 className="text-sm font-semibold mb-2">How it works</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 text-xs text-muted-foreground">
+          <div className="flex items-start gap-2">
+            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">1</span>
+            <span><span className="font-medium text-foreground">Pull</span> — Fetches all products from your Amazon seller page across multiple pages</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">2</span>
+            <span><span className="font-medium text-foreground">Review</span> — Filter bundles, assign categories, and select products to import</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">3</span>
+            <span><span className="font-medium text-foreground">Import</span> — Selected products are added to your product database</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">4</span>
+            <span><span className="font-medium text-foreground">Scrape</span> — Detailed product data is fetched automatically in the background</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">5</span>
+            <span><span className="font-medium text-foreground">Variations</span> — Sibling ASINs under same parent are discovered and offered for import</span>
+          </div>
+        </div>
       </div>
 
       {/* Country Tabs */}
       <div className="border-b">
         <div className="flex gap-1 overflow-x-auto">
-          {configuredCountries.map((cc) => {
-            const isActive = cc.country_id === activeCountryId
-            const jobState = countryJobs[cc.country_id]
+          {displayCountries.map((country) => {
+            const isActive = country.id === activeCountryId
+            const hasSellerId = !!sellerIdMap[country.id]
+            const jobState = countryJobs[country.id]
             const job = jobState?.job
             const hasPulled = !!job?.pull_result?.products.length
             const isRunning = job && BACKGROUND_STATES.includes(job.status)
             return (
               <button
-                key={cc.country_id}
+                key={country.id}
                 onClick={() => {
-                  setActiveCountryId(cc.country_id)
+                  setActiveCountryId(country.id)
                   setSearchFilter('')
                 }}
                 disabled={actionLoading}
@@ -594,8 +787,13 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
                     : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30'
                 }`}
               >
-                <span>{cc.country.flag_emoji}</span>
-                <span>{cc.country.name}</span>
+                <span>{country.flag_emoji}</span>
+                <span>{country.name}</span>
+                {!hasSellerId && (
+                  <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded bg-orange-100 dark:bg-orange-900 text-orange-600 dark:text-orange-400 text-[10px] font-medium">
+                    !
+                  </span>
+                )}
                 {isRunning && (
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
                 )}
@@ -610,16 +808,31 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
         </div>
       </div>
 
+      {/* No Seller ID configured for this country */}
+      {!hasSellerIdForActive && activeDisplayCountry && (
+        <div className="rounded-lg border bg-card p-8 text-center">
+          <Store className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+          <h3 className="font-semibold">No Seller ID for {activeDisplayCountry.flag_emoji} {activeDisplayCountry.name}</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Configure your Amazon Seller ID for this marketplace in{' '}
+            <a href="/settings" className="text-primary underline">
+              Settings &rarr; Admin &rarr; Amazon Seller IDs
+            </a>{' '}
+            to start pulling products.
+          </p>
+        </div>
+      )}
+
       {/* Pull Controls + Status */}
-      <div className="rounded-lg border bg-card p-4">
+      {hasSellerIdForActive && <div className="rounded-lg border bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <span className="text-sm">
               <span className="font-medium">
-                {activeConfig?.country.flag_emoji} {activeConfig?.country.name}
+                {activeDisplayCountry?.flag_emoji} {activeDisplayCountry?.name}
               </span>
               <span className="text-muted-foreground ml-2 font-mono text-xs">
-                Seller: {activeConfig?.seller_id}
+                Seller: {sellerIdMap[activeCountryId]}
               </span>
             </span>
             {jobStatus && (
@@ -641,7 +854,7 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
           </div>
           <Button
             onClick={handlePull}
-            disabled={isBackgroundRunning || actionLoading}
+            disabled={isBackgroundRunning || actionLoading || pullAllRunning}
             className="gap-2"
           >
             {jobStatus === 'pulling' ? (
@@ -661,7 +874,7 @@ export function SellerPullClient({ countries }: SellerPullClientProps) {
             {activeJob.error}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Summary Cards */}
       {summary && (
