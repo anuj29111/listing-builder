@@ -303,6 +303,7 @@ export interface LbProduct {
   category: string
   brand: string | null
   display_order: number
+  is_optimised: boolean
   created_at: string
   updated_at: string
 }

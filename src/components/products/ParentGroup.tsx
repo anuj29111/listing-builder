@@ -12,6 +12,7 @@ interface ParentGroupProps {
   lookupsByAsin: Record<string, AsinLookupSummary>
   countryId: string
   defaultExpanded?: boolean
+  onToggleOptimised: (productId: string, currentValue: boolean) => void
 }
 
 export function ParentGroup({
@@ -20,10 +21,12 @@ export function ParentGroup({
   lookupsByAsin,
   countryId,
   defaultExpanded = false,
+  onToggleOptimised,
 }: ParentGroupProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
 
   const category = products[0]?.category || ''
+  const optimisedCount = products.filter((p) => p.is_optimised).length
 
   return (
     <div className="border rounded-lg overflow-hidden bg-zinc-50 dark:bg-zinc-950">
@@ -47,6 +50,11 @@ export function ParentGroup({
             {category}
           </Badge>
         )}
+        {optimisedCount > 0 && (
+          <Badge className="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 border-0">
+            {optimisedCount}/{products.length} done
+          </Badge>
+        )}
       </button>
 
       {expanded && (
@@ -57,6 +65,7 @@ export function ParentGroup({
               product={product}
               lookupData={lookupsByAsin[product.asin] || null}
               countryId={countryId}
+              onToggleOptimised={onToggleOptimised}
             />
           ))}
         </div>

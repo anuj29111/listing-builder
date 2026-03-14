@@ -19,7 +19,7 @@ export function ProductCatalogPage({
   const [view, setView] = useState<'catalog' | 'manage'>('catalog')
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-4">
+    <div className="w-full px-6 py-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Products</h1>
         <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1">

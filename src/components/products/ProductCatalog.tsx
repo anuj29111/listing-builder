@@ -14,72 +14,60 @@ interface ProductCatalogProps {
 }
 
 export function ProductCatalog({ initialProducts, countries }: ProductCatalogProps) {
-  const [products] = useState(initialProducts)
+  const [products, setProducts] = useState(initialProducts)
   const [activeCountryId, setActiveCountryId] = useState<string | null>(null)
-  const [availableCountryIds, setAvailableCountryIds] = useState<string[]>([])
   const [lookupsByAsin, setLookupsByAsin] = useState<Record<string, AsinLookupSummary>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
 
-  // Sort countries by COUNTRY_ORDER
+  // Show ALL countries sorted by COUNTRY_ORDER
   const sortedCountries = useMemo(() => {
-    return countries
-      .filter((c) => availableCountryIds.includes(c.id))
-      .sort((a, b) => {
-        const aIdx = COUNTRY_ORDER.indexOf(a.code)
-        const bIdx = COUNTRY_ORDER.indexOf(b.code)
-        const aOrder = aIdx === -1 ? 999 : aIdx
-        const bOrder = bIdx === -1 ? 999 : bIdx
-        return aOrder - bOrder
-      })
-  }, [countries, availableCountryIds])
+    return [...countries].sort((a, b) => {
+      const aIdx = COUNTRY_ORDER.indexOf(a.code)
+      const bIdx = COUNTRY_ORDER.indexOf(b.code)
+      const aOrder = aIdx === -1 ? 999 : aIdx
+      const bOrder = bIdx === -1 ? 999 : bIdx
+      return aOrder - bOrder
+    })
+  }, [countries])
 
-  const fetchCatalog = useCallback(async (countryId?: string) => {
+  const fetchCatalog = useCallback(async (countryId: string) => {
     setLoading(true)
     try {
-      const url = countryId
-        ? `/api/products/catalog?country_id=${countryId}`
-        : '/api/products/catalog'
-      const res = await fetch(url)
+      const res = await fetch(`/api/products/catalog?country_id=${countryId}`)
       const data = await res.json()
-
-      if (data.availableCountryIds) {
-        setAvailableCountryIds(data.availableCountryIds)
-      }
-      if (data.lookupsByAsin) {
-        setLookupsByAsin(data.lookupsByAsin)
-      }
+      if (data.products) setProducts(data.products)
+      if (data.lookupsByAsin) setLookupsByAsin(data.lookupsByAsin)
     } finally {
       setLoading(false)
     }
   }, [])
 
-  // Initial fetch to get available countries
+  // Set default tab to first country on mount
   useEffect(() => {
-    fetchCatalog().then(() => {})
-  }, [fetchCatalog])
-
-  // Once we have available countries, set default tab and fetch data
-  useEffect(() => {
-    if (availableCountryIds.length > 0 && !activeCountryId) {
-      // Pick first country by COUNTRY_ORDER
-      const sorted = countries
-        .filter((c) => availableCountryIds.includes(c.id))
-        .sort((a, b) => {
-          const aIdx = COUNTRY_ORDER.indexOf(a.code)
-          const bIdx = COUNTRY_ORDER.indexOf(b.code)
-          return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx)
-        })
-      if (sorted.length > 0) {
-        setActiveCountryId(sorted[0].id)
-        fetchCatalog(sorted[0].id)
-      }
+    if (sortedCountries.length > 0 && !activeCountryId) {
+      const firstId = sortedCountries[0].id
+      setActiveCountryId(firstId)
+      fetchCatalog(firstId)
     }
-  }, [availableCountryIds, activeCountryId, countries, fetchCatalog])
+  }, [sortedCountries, activeCountryId, fetchCatalog])
 
   const handleCountryChange = (countryId: string) => {
     setActiveCountryId(countryId)
     fetchCatalog(countryId)
+  }
+
+  const handleToggleOptimised = async (productId: string, currentValue: boolean) => {
+    const newValue = !currentValue
+    // Optimistic update
+    setProducts((prev) =>
+      prev.map((p) => (p.id === productId ? { ...p, is_optimised: newValue } : p))
+    )
+    await fetch(`/api/products/${productId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_optimised: newValue }),
+    })
   }
 
   // Filter products by search
@@ -103,7 +91,6 @@ export function ProductCatalog({ initialProducts, countries }: ProductCatalogPro
       arr.push(p)
       map.set(key, arr)
     }
-    // Sort groups by minimum display_order within each group
     return Array.from(map.entries()).sort(([, a], [, b]) => {
       const minA = Math.min(...a.map((p) => p.display_order))
       const minB = Math.min(...b.map((p) => p.display_order))
@@ -169,6 +156,7 @@ export function ProductCatalog({ initialProducts, countries }: ProductCatalogPro
                   lookupsByAsin={lookupsByAsin}
                   countryId={activeCountryId || ''}
                   defaultExpanded={groups.length <= 5}
+                  onToggleOptimised={handleToggleOptimised}
                 />
               ))}
             </>

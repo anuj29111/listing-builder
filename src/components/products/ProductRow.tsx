@@ -1,15 +1,15 @@
 'use client'
 
-import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { LbProduct, AsinLookupSummary } from '@/types/database'
 import { Button } from '@/components/ui/button'
-import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
+import { ExternalLink, CheckCircle2, Circle } from 'lucide-react'
 
 interface ProductRowProps {
   product: LbProduct
   lookupData: AsinLookupSummary | null
   countryId: string
+  onToggleOptimised: (productId: string, currentValue: boolean) => void
 }
 
 function parseBulletPoints(raw: string | null): string[] {
@@ -17,13 +17,10 @@ function parseBulletPoints(raw: string | null): string[] {
   return raw.split('\n').map((b) => b.trim()).filter(Boolean)
 }
 
-export function ProductRow({ product, lookupData, countryId }: ProductRowProps) {
+export function ProductRow({ product, lookupData, countryId, onToggleOptimised }: ProductRowProps) {
   const router = useRouter()
-  const [showAllBullets, setShowAllBullets] = useState(false)
 
   const bullets = parseBulletPoints(lookupData?.bullet_points ?? null)
-  const visibleBullets = showAllBullets ? bullets : bullets.slice(0, 3)
-  const hasMoreBullets = bullets.length > 3
 
   const handleOptimize = () => {
     const params = new URLSearchParams({
@@ -49,6 +46,11 @@ export function ProductRow({ product, lookupData, countryId }: ProductRowProps) 
             <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">
               {product.product_name}
             </span>
+            {product.is_optimised && (
+              <span className="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded-full shrink-0">
+                Optimised
+              </span>
+            )}
           </div>
 
           {/* Title from lookup */}
@@ -60,26 +62,14 @@ export function ProductRow({ product, lookupData, countryId }: ProductRowProps) 
             <p className="text-xs text-zinc-400 italic mb-2">No listing data for this country</p>
           )}
 
-          {/* Bullet points */}
+          {/* Bullet points — show all */}
           {bullets.length > 0 && (
             <div className="space-y-1 mb-2">
-              {visibleBullets.map((bullet, idx) => (
+              {bullets.map((bullet, idx) => (
                 <p key={idx} className="text-xs text-zinc-600 dark:text-zinc-400 pl-3 relative before:content-['•'] before:absolute before:left-0 before:text-zinc-400">
                   {bullet}
                 </p>
               ))}
-              {hasMoreBullets && (
-                <button
-                  onClick={() => setShowAllBullets(!showAllBullets)}
-                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 pl-3"
-                >
-                  {showAllBullets ? (
-                    <>Show less <ChevronUp className="w-3 h-3" /></>
-                  ) : (
-                    <>+{bullets.length - 3} more <ChevronDown className="w-3 h-3" /></>
-                  )}
-                </button>
-              )}
             </div>
           )}
 
@@ -99,15 +89,31 @@ export function ProductRow({ product, lookupData, countryId }: ProductRowProps) 
           )}
         </div>
 
-        {/* Optimize button */}
-        <Button
-          size="sm"
-          onClick={handleOptimize}
-          className="shrink-0"
-        >
-          <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-          Optimize
-        </Button>
+        {/* Action buttons */}
+        <div className="flex flex-col gap-2 shrink-0">
+          <Button
+            size="sm"
+            onClick={handleOptimize}
+          >
+            <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+            Optimize
+          </Button>
+          <button
+            onClick={() => onToggleOptimised(product.id, product.is_optimised)}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border transition-colors ${
+              product.is_optimised
+                ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-700 dark:bg-green-950 dark:text-green-300'
+                : 'border-zinc-200 text-zinc-500 hover:border-zinc-300 dark:border-zinc-700 dark:text-zinc-400'
+            }`}
+          >
+            {product.is_optimised ? (
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            ) : (
+              <Circle className="w-3.5 h-3.5" />
+            )}
+            {product.is_optimised ? 'Done' : 'Mark done'}
+          </button>
+        </div>
       </div>
     </div>
   )

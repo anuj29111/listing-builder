@@ -49,6 +49,41 @@ export async function PUT(
   }
 }
 
+export async function PATCH(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    await getAuthenticatedUser()
+    const supabase = createClient()
+    const body = await request.json()
+
+    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    if (typeof body.is_optimised === 'boolean') {
+      updates.is_optimised = body.is_optimised
+    }
+
+    const { data, error } = await supabase
+      .from('lb_products')
+      .update(updates)
+      .eq('id', params.id)
+      .select()
+      .single()
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ data })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Internal server error'
+    if (message === 'Not authenticated') {
+      return NextResponse.json({ error: message }, { status: 401 })
+    }
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}
+
 export async function DELETE(
   _request: Request,
   { params }: { params: { id: string } }
