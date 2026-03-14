@@ -317,6 +317,17 @@ export interface AsinLookupSummary {
   reviews_count: number | null
 }
 
+export interface CatalogProductData {
+  title: string | null
+  bullet_points: string | null
+  price: number | null
+  currency: string | null
+  rating: number | null
+  reviews_count: number | null
+  image_url: string | null
+  source: 'lookup' | 'pull'
+}
+
 export interface LbAsinLookup {
   id: string
   asin: string

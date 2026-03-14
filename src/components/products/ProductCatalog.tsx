@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { LbProduct, LbCountry, AsinLookupSummary } from '@/types/database'
+import { LbProduct, LbCountry, CatalogProductData } from '@/types/database'
 import { ParentGroup } from './ParentGroup'
 import { Input } from '@/components/ui/input'
 import { Search, Loader2 } from 'lucide-react'
@@ -16,7 +16,7 @@ interface ProductCatalogProps {
 export function ProductCatalog({ initialProducts, countries }: ProductCatalogProps) {
   const [products, setProducts] = useState(initialProducts)
   const [activeCountryId, setActiveCountryId] = useState<string | null>(null)
-  const [lookupsByAsin, setLookupsByAsin] = useState<Record<string, AsinLookupSummary>>({})
+  const [lookupsByAsin, setLookupsByAsin] = useState<Record<string, CatalogProductData>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
 

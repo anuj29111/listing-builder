@@ -1,15 +1,22 @@
 'use client'
 
 import { useState } from 'react'
-import { LbProduct, AsinLookupSummary } from '@/types/database'
+import { LbProduct, CatalogProductData } from '@/types/database'
 import { ProductRow } from './ProductRow'
 import { Badge } from '@/components/ui/badge'
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+} from '@/components/ui/table'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
 interface ParentGroupProps {
   parentName: string
   products: LbProduct[]
-  lookupsByAsin: Record<string, AsinLookupSummary>
+  lookupsByAsin: Record<string, CatalogProductData>
   countryId: string
   defaultExpanded?: boolean
   onToggleOptimised: (productId: string, currentValue: boolean) => void
@@ -58,16 +65,31 @@ export function ParentGroup({
       </button>
 
       {expanded && (
-        <div className="px-4 pb-4 space-y-2">
-          {products.map((product) => (
-            <ProductRow
-              key={product.id}
-              product={product}
-              lookupData={lookupsByAsin[product.asin] || null}
-              countryId={countryId}
-              onToggleOptimised={onToggleOptimised}
-            />
-          ))}
+        <div className="px-2 pb-3 overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[50px]">Img</TableHead>
+                <TableHead className="w-[200px]">Product</TableHead>
+                <TableHead className="min-w-[250px]">Current Title</TableHead>
+                <TableHead className="min-w-[300px]">Current Bullets</TableHead>
+                <TableHead className="w-[100px]">Category</TableHead>
+                <TableHead className="w-[90px]">Price</TableHead>
+                <TableHead className="w-[150px]">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {products.map((product) => (
+                <ProductRow
+                  key={product.id}
+                  product={product}
+                  lookupData={lookupsByAsin[product.asin] || null}
+                  countryId={countryId}
+                  onToggleOptimised={onToggleOptimised}
+                />
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>
