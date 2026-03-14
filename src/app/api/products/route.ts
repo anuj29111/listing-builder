@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from('lb_products')
       .select('*', { count: 'exact' })
-      .order('category')
+      .order('display_order', { ascending: true })
       .order('parent_name', { ascending: true, nullsFirst: false })
       .order('product_name')
 

@@ -302,8 +302,18 @@ export interface LbProduct {
   parent_asin: string | null
   category: string
   brand: string | null
+  display_order: number
   created_at: string
   updated_at: string
+}
+
+export interface AsinLookupSummary {
+  title: string | null
+  bullet_points: string | null
+  price: number | null
+  currency: string | null
+  rating: number | null
+  reviews_count: number | null
 }
 
 export interface LbAsinLookup {

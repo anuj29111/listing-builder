@@ -4,7 +4,7 @@ import { ListingWizard } from '@/components/listings/wizard/ListingWizard'
 export default async function NewListingPage({
   searchParams,
 }: {
-  searchParams: { edit?: string }
+  searchParams: { edit?: string; prefill?: string; asin?: string; product_name?: string; brand?: string; category?: string; country_id?: string }
 }) {
   const supabase = createClient()
 
@@ -64,11 +64,21 @@ export default async function NewListingPage({
     }
   }
 
+  // Build prefill data from query params
+  const prefillData = searchParams.prefill === 'true' ? {
+    asin: searchParams.asin || undefined,
+    productName: searchParams.product_name || undefined,
+    brand: searchParams.brand || undefined,
+    categoryName: searchParams.category || undefined,
+    countryId: searchParams.country_id || undefined,
+  } : undefined
+
   return (
     <ListingWizard
       categories={categories}
       countries={countries}
       editData={editData}
+      prefillData={prefillData}
     />
   )
 }

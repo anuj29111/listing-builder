@@ -9,6 +9,7 @@ interface ProductRow {
   parent_asin: string | null
   category: string
   brand: string | null
+  display_order: number
 }
 
 /**
@@ -89,6 +90,7 @@ export async function POST(request: Request) {
         parent_asin: getCol(row, 'parent asin') || null,
         category,
         brand: getCol(row, 'brand') || null,
+        display_order: i + 1,
       })
     }
 

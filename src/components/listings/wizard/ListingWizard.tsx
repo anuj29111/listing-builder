@@ -19,6 +19,14 @@ const STEPS = [
   { label: 'Review & Export', shortLabel: 'Review' },
 ]
 
+interface PrefillData {
+  asin?: string
+  productName?: string
+  brand?: string
+  categoryName?: string
+  countryId?: string
+}
+
 interface ListingWizardProps {
   categories: LbCategory[]
   countries: LbCountry[]
@@ -29,9 +37,10 @@ interface ListingWizardProps {
     country: LbCountry | null
     productType: Record<string, unknown> | null
   } | null
+  prefillData?: PrefillData
 }
 
-export function ListingWizard({ categories, countries, editData }: ListingWizardProps) {
+export function ListingWizard({ categories, countries, editData, prefillData }: ListingWizardProps) {
   const currentStep = useListingStore((s) => s.currentStep)
   const setStep = useListingStore((s) => s.setStep)
   const resetWizard = useListingStore((s) => s.resetWizard)
@@ -41,6 +50,10 @@ export function ListingWizard({ categories, countries, editData }: ListingWizard
   const listingId = useListingStore((s) => s.listingId)
   const generationPhase = useListingStore((s) => s.generationPhase)
   const modeSelected = useListingStore((s) => s.modeSelected)
+
+  const setCategoryCountry = useListingStore((s) => s.setCategoryCountry)
+  const setProductDetails = useListingStore((s) => s.setProductDetails)
+  const setModeSelected = useListingStore((s) => s.setModeSelected)
 
   // Load edit data on mount
   useEffect(() => {
@@ -52,6 +65,54 @@ export function ListingWizard({ categories, countries, editData }: ListingWizard
         editData.country,
         editData.productType as never
       )
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Prefill from catalog "Optimize" button
+  useEffect(() => {
+    if (!prefillData || editData) return
+
+    resetWizard()
+
+    // Match category by name
+    const matchedCategory = prefillData.categoryName
+      ? categories.find((c) => c.name.toLowerCase() === prefillData.categoryName!.toLowerCase())
+      : null
+
+    // Match country by ID
+    const matchedCountry = prefillData.countryId
+      ? countries.find((c) => c.id === prefillData.countryId)
+      : null
+
+    if (matchedCategory && matchedCountry) {
+      setCategoryCountry(
+        matchedCategory.id,
+        matchedCountry.id,
+        matchedCategory.name,
+        matchedCountry.name,
+        matchedCountry.language,
+        {
+          title: matchedCountry.title_limit,
+          bullet: matchedCountry.bullet_limit,
+          bulletCount: matchedCountry.bullet_count,
+          description: matchedCountry.description_limit,
+          searchTerms: matchedCountry.search_terms_limit,
+        }
+      )
+    }
+
+    // Set product details
+    setProductDetails({
+      productName: prefillData.productName,
+      asin: prefillData.asin,
+      brand: prefillData.brand,
+    })
+
+    // Auto-select "optimize existing" mode and advance to step 1
+    if (matchedCategory && matchedCountry) {
+      setModeSelected(true)
+      setStep(1)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
