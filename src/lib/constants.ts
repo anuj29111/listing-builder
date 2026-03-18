@@ -239,6 +239,10 @@ export const DEFAULT_THINKING_BUDGET = 10000 // tokens for Claude's internal rea
 export const MIN_THINKING_BUDGET = 1024
 export const MAX_THINKING_BUDGET = 50000
 
+// --- Web Search (Research Mode) ---
+export const DEFAULT_WEB_SEARCH_ENABLED = true
+export const DEFAULT_WEB_SEARCH_MAX_USES = 5 // max searches per API call
+
 // --- Phased Generation ---
 
 export const GENERATION_PHASES = ['title', 'bullets', 'description', 'backend'] as const

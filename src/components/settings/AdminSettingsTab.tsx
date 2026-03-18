@@ -10,6 +10,7 @@ import toast from 'react-hot-toast'
 import type { LbAdminSetting } from '@/types'
 import { AIModelConfig } from '@/components/settings/AIModelConfig'
 import { ThinkingConfig } from '@/components/settings/ThinkingConfig'
+import { WebSearchConfig } from '@/components/settings/WebSearchConfig'
 import { ImageProviderSettings } from '@/components/settings/ImageProviderSettings'
 import { SellerIdsSettings } from '@/components/settings/SellerIdsSettings'
 
@@ -206,6 +207,11 @@ export function AdminSettingsTab({ initialSettings }: AdminSettingsTabProps) {
       <ThinkingConfig
         currentEnabled={thinkingEnabledSetting ? thinkingEnabledSetting.value === 'true' : null}
         currentBudget={thinkingBudgetSetting ? parseInt(thinkingBudgetSetting.value, 10) : null}
+      />
+
+      <WebSearchConfig
+        currentEnabled={settings.find((s) => s.key === 'web_search_enabled') ? settings.find((s) => s.key === 'web_search_enabled')!.value === 'true' : null}
+        currentMaxUses={settings.find((s) => s.key === 'web_search_max_uses') ? parseInt(settings.find((s) => s.key === 'web_search_max_uses')!.value, 10) : null}
       />
 
       <ImageProviderSettings />

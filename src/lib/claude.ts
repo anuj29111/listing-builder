@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createAdminClient } from '@/lib/supabase/server'
-import { DEFAULT_CLAUDE_MODEL, DEFAULT_THINKING_ENABLED, DEFAULT_THINKING_BUDGET, MIN_THINKING_BUDGET } from '@/lib/constants'
+import { DEFAULT_CLAUDE_MODEL, DEFAULT_THINKING_ENABLED, DEFAULT_THINKING_BUDGET, MIN_THINKING_BUDGET, DEFAULT_WEB_SEARCH_ENABLED, DEFAULT_WEB_SEARCH_MAX_USES } from '@/lib/constants'
 import type { MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/messages'
 
 const MAX_TOKENS = 32768
@@ -128,12 +128,14 @@ async function getModel(): Promise<string> {
  * Returns a display-friendly model string including thinking status.
  * e.g., "claude-sonnet-4-20250514 (Extended Thinking: 10K)"
  */
-export async function getModelDisplay(): Promise<string> {
+export async function getModelDisplay(includeWebSearch?: boolean): Promise<string> {
   const model = await getModel()
   const thinking = await getThinkingConfig()
-  if (thinking.enabled) {
-    return `${model} (Extended Thinking: ${Math.round(thinking.budgetTokens / 1000)}K)`
-  }
+  const webSearch = includeWebSearch ? await getWebSearchConfig() : null
+  const parts: string[] = []
+  if (thinking.enabled) parts.push(`Extended Thinking: ${Math.round(thinking.budgetTokens / 1000)}K`)
+  if (webSearch?.enabled) parts.push('Research')
+  if (parts.length > 0) return `${model} (${parts.join(' + ')})`
   return model
 }
 
@@ -159,30 +161,69 @@ async function getThinkingConfig(): Promise<ThinkingConfig> {
   }
 }
 
+interface WebSearchConfig {
+  enabled: boolean
+  maxUses: number
+}
+
+async function getWebSearchConfig(): Promise<WebSearchConfig> {
+  try {
+    const adminClient = createAdminClient()
+    const { data } = await adminClient
+      .from('lb_admin_settings')
+      .select('key, value')
+      .in('key', ['web_search_enabled', 'web_search_max_uses'])
+    const map = new Map(data?.map((d) => [d.key, d.value]) ?? [])
+    return {
+      enabled: map.has('web_search_enabled') ? map.get('web_search_enabled') === 'true' : DEFAULT_WEB_SEARCH_ENABLED,
+      maxUses: map.has('web_search_max_uses') ? parseInt(map.get('web_search_max_uses')!, 10) : DEFAULT_WEB_SEARCH_MAX_USES,
+    }
+  } catch {
+    return { enabled: DEFAULT_WEB_SEARCH_ENABLED, maxUses: DEFAULT_WEB_SEARCH_MAX_USES }
+  }
+}
+
 /**
- * Wrapper around client.messages.create() that injects extended thinking config.
+ * Wrapper around client.messages.create() that injects extended thinking + web search.
  * When thinking is enabled, max_tokens is bumped to accommodate budget + output tokens.
+ * When webSearch is true, adds the web_search tool for real-time research.
  */
 async function createMessage(
   client: Anthropic,
-  params: MessageCreateParamsNonStreaming
+  params: MessageCreateParamsNonStreaming,
+  options?: { webSearch?: boolean }
 ): Promise<Anthropic.Message> {
   const thinking = await getThinkingConfig()
+  const webSearchConfig = options?.webSearch ? await getWebSearchConfig() : null
+
+  // Build tools array if web search is requested and enabled
+  const tools = webSearchConfig?.enabled
+    ? [
+        ...(params.tools ?? []),
+        {
+          type: 'web_search_20250305' as const,
+          name: 'web_search' as const,
+          max_uses: webSearchConfig.maxUses,
+        },
+      ]
+    : params.tools
+
   if (thinking.enabled) {
-    // budget_tokens must be < max_tokens; bump max_tokens to fit both
     const outputTokens = params.max_tokens
     const totalTokens = thinking.budgetTokens + outputTokens
-    // Extended thinking calls can exceed 10 min — must use streaming
-    // .stream() collects into a final Message so callers don't change
     const stream = client.messages.stream({
       ...params,
+      ...(tools ? { tools } : {}),
       max_tokens: totalTokens,
       thinking: { type: 'enabled', budget_tokens: thinking.budgetTokens },
-      temperature: 1, // required when thinking is enabled
+      temperature: 1,
     })
     return stream.finalMessage()
   }
-  return client.messages.create(params)
+  return client.messages.create({
+    ...params,
+    ...(tools ? { tools } : {}),
+  })
 }
 
 // --- Analysis Result Types ---
@@ -1482,7 +1523,7 @@ export async function generateTitlePhase(
       model,
       max_tokens: 16384,
       messages,
-    })
+    }, { webSearch: true })
 
     if (response.stop_reason === 'max_tokens') {
       throw new Error('Title generation was cut off due to token limit. This should not happen — please report this issue.')
@@ -1506,7 +1547,7 @@ export async function generateTitlePhase(
     if (shortTitles.length === 0 || attempt === 1) {
       // Also enforce max length by trimming
       result.titles = result.titles.map((t) => t.length > maxChars ? t.slice(0, maxChars) : t)
-      return { result, model: await getModelDisplay(), tokensUsed: totalTokens }
+      return { result, model: await getModelDisplay(true), tokensUsed: totalTokens }
     }
 
     // Titles too short — send a follow-up asking to lengthen them
@@ -1633,7 +1674,7 @@ export async function generateBulletsPhase(
       model,
       max_tokens: 32768,
       messages,
-    })
+    }, { webSearch: true })
 
     if (response.stop_reason === 'max_tokens') {
       throw new Error('Bullet generation was cut off due to token limit. Please report this issue.')
@@ -1671,7 +1712,7 @@ export async function generateBulletsPhase(
       result.bullets = result.bullets.map((variations) =>
         variations.map((v) => v.length > maxChars ? v.slice(0, maxChars) : v)
       )
-      return { result, model: await getModelDisplay(), tokensUsed: totalTokens }
+      return { result, model: await getModelDisplay(true), tokensUsed: totalTokens }
     }
 
     // Bullets over limit — send follow-up asking to shorten
@@ -1789,7 +1830,7 @@ export async function generateDescriptionPhase(
     model,
     max_tokens: 16384,
     messages: [{ role: 'user', content: prompt }],
-  })
+  }, { webSearch: true })
 
   if (response.stop_reason === 'max_tokens') {
     throw new Error('Description generation was cut off due to token limit. Please report this issue.')
@@ -1804,7 +1845,7 @@ export async function generateDescriptionPhase(
   const result = JSON.parse(jsonText) as DescriptionPhaseResult
   const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  return { result, model: await getModelDisplay(), tokensUsed }
+  return { result, model: await getModelDisplay(true), tokensUsed }
 }
 
 // --- Phase 4: Backend (Subject Matter + Backend Attributes) ---

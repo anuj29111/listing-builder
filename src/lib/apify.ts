@@ -359,9 +359,10 @@ export async function startApifyReviewRun(
     const token = await getApifyToken()
     const productUrl = `https://www.${amazonDomain}/dp/${asin}`
 
-    // Match fetchReviews() input exactly — that function reliably gets 200+ unique reviews.
-    // Key: do NOT set sort_reviews_by (advanced filter that creates combos).
-    // Only use legacy sortBy field + explicit filter arrays to override actor defaults.
+    // Original working params (matched Feb 23 run that got 1857 reviews).
+    // Actor creates combos from multi-value arrays (2×5×2×2 = 40 combos).
+    // NOTE: Actor pagination broke ~Mar 12 (only returns 8 unique reviews).
+    // When actor is fixed, these params should work again.
     const input: Record<string, unknown> = {
       ASIN_or_URL: [productUrl],
       sortBy: sortBy === 'helpful' ? 'helpful' : 'recent',
