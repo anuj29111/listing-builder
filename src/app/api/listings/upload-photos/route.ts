@@ -17,9 +17,9 @@ export async function POST(request: Request) {
       )
     }
 
-    if (files.length > 10) {
+    if (files.length > 15) {
       return NextResponse.json(
-        { error: 'Maximum 10 photos allowed' },
+        { error: 'Maximum 15 photos allowed' },
         { status: 400 }
       )
     }

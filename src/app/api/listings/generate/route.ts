@@ -111,6 +111,9 @@ async function buildGenerationInput(
   }
 }
 
+// Extended thinking + web search can take 2-5 minutes per phase
+export const maxDuration = 540 // 9 minutes
+
 export async function POST(request: Request) {
   try {
     const { lbUser } = await getAuthenticatedUser()

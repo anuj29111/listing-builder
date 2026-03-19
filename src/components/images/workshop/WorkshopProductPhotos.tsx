@@ -146,7 +146,7 @@ export function WorkshopProductPhotos() {
       </div>
 
       {/* Drop Zone */}
-      {productPhotos.length < 10 && (
+      {productPhotos.length < 15 && (
         <div
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
@@ -173,7 +173,7 @@ export function WorkshopProductPhotos() {
                 Drag & drop product photos here, or click to browse
               </span>
               <span className="text-xs text-muted-foreground">
-                3-10 photos recommended (supplier shots, packaging, labels)
+                3-15 photos recommended (supplier shots, packaging, labels)
               </span>
             </div>
           )}

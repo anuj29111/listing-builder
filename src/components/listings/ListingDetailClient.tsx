@@ -17,7 +17,7 @@ import { SwatchImageSection } from '@/components/listings/images/SwatchImageSect
 import { VideoScriptStoryboardSection } from '@/components/listings/video/VideoScriptStoryboardSection'
 import { ListingAPlusSection } from '@/components/listings/ListingAPlusSection'
 import { SECTION_TYPES, SECTION_TYPE_LABELS, SECTION_CHAR_LIMIT_MAP } from '@/lib/constants'
-import { Pencil, Save, Loader2, CheckCircle2, Tag, MapPin, ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react'
+import { Pencil, Save, Loader2, CheckCircle2, Tag, MapPin, ArrowLeft, ArrowRight, ChevronDown, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { LbListingSection, LbCategory, LbImageWorkshop, LbImageGeneration, LbVideoProject, LbAPlusModule } from '@/types/database'
 
@@ -275,15 +275,27 @@ export function ListingDetailClient({
             <StatusBadge status={listing.status} />
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => router.push(`/listings/new?edit=${listing.id}`)}
-          className="gap-2"
-        >
-          <Pencil className="h-4 w-4" />
-          Edit in Wizard
-        </Button>
+        <div className="flex gap-2">
+          {(listing as Record<string, unknown>).generation_phase !== 'complete' && (
+            <Button
+              size="sm"
+              onClick={() => router.push(`/listings/new?edit=${listing.id}`)}
+              className="gap-2"
+            >
+              <ArrowRight className="h-4 w-4" />
+              Continue Generation
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => router.push(`/listings/new?edit=${listing.id}`)}
+            className="gap-2"
+          >
+            <Pencil className="h-4 w-4" />
+            Edit in Wizard
+          </Button>
+        </div>
       </div>
 
       {/* Primary Tabs */}

@@ -375,9 +375,22 @@ export const useListingStore = create<ListingWizardState>((set) => ({
 
   setSections: (sections) => set({ sections }),
 
-  loadEditListing: (listing, sections, category, country, productType) =>
-    set({
-      currentStep: 3,
+  loadEditListing: (listing, sections, category, country, productType) => {
+    // If generation is incomplete, go to step 2 (generation) to continue
+    // If complete, go to step 3 (review & export)
+    const phase = (listing as unknown as Record<string, unknown>).generation_phase as string | undefined
+    const step = phase && phase !== 'complete' ? 2 : 3
+    // Map DB generation_phase to store's generationPhase
+    const generationPhase = phase === 'complete' ? 'complete'
+      : phase === 'description' ? 'description'
+      : phase === 'bullets' ? 'bullets'
+      : phase === 'title' ? 'title'
+      : 'pending'
+
+    return set({
+      currentStep: step,
+      generationPhase,
+      modeSelected: true,
       categoryId: category.id,
       countryId: country.id,
       categoryName: category.name,
@@ -400,7 +413,8 @@ export const useListingStore = create<ListingWizardState>((set) => ({
       tokensUsed: listing.tokens_used,
       productPhotos: listing.product_photos || [],
       productPhotoDescriptions: listing.product_photo_descriptions || null,
-    }),
+    })
+  },
 
   // Phased generation actions
   setActivePhaseLoading: (phase) => set({ activePhaseLoading: phase, generationError: phase ? null : undefined }),

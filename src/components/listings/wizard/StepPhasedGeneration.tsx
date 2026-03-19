@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import {
   Loader2, Sparkles, AlertCircle, CheckCircle2, ChevronDown, ChevronRight,
-  RotateCcw, Tag, MapPin, Package, ArrowRight, Zap,
+  RotateCcw, Tag, MapPin, Package, ArrowRight, Zap, ImageIcon,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { formatNumber } from '@/lib/utils'
@@ -183,6 +183,7 @@ export function StepPhasedGeneration() {
   const backendAttributes = store.backendAttributes
 
   const [allBulletsExpanded, setAllBulletsExpanded] = useState(true)
+  const [photoAnalysisExpanded, setPhotoAnalysisExpanded] = useState(false)
 
   // Auto-advance to Review & Export when generation completes
   useEffect(() => {
@@ -190,6 +191,41 @@ export function StepPhasedGeneration() {
       useListingStore.getState().setStep(3)
     }
   }, [generationPhase])
+
+  // Auto-analyze photos if uploaded but not yet analyzed
+  useEffect(() => {
+    const s = useListingStore.getState()
+    if (
+      s.productPhotos.length > 0 &&
+      !s.productPhotoDescriptions &&
+      !s.isAnalyzingPhotos &&
+      productName
+    ) {
+      ;(async () => {
+        s.setIsAnalyzingPhotos(true)
+        try {
+          const res = await fetch('/api/listings/analyze-photos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              photo_urls: s.productPhotos,
+              product_name: productName,
+              brand,
+            }),
+          })
+          const json = await res.json()
+          if (res.ok && json.data?.descriptions) {
+            s.setProductPhotoDescriptions(json.data.descriptions)
+          }
+        } catch {
+          // Silent fail — photos are optional context
+        } finally {
+          s.setIsAnalyzingPhotos(false)
+        }
+      })()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const filledAttributes = attributes.filter((a) => a.key && a.value)
   const completedAnalysis = Object.entries(analysisAvailability)
@@ -455,8 +491,66 @@ export function StepPhasedGeneration() {
                     No research data — using general best practices
                   </Badge>
                 )}
+                {/* Images badge */}
+                {store.productPhotos.length > 0 && (
+                  store.isAnalyzingPhotos ? (
+                    <Badge variant="secondary" className="text-xs">
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      Analyzing {store.productPhotos.length} photos...
+                    </Badge>
+                  ) : store.productPhotoDescriptions ? (
+                    <Badge variant="default" className="text-xs">
+                      <ImageIcon className="h-3 w-3 mr-1" />
+                      {store.productPhotos.length} photos analyzed
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-xs">
+                      <ImageIcon className="h-3 w-3 mr-1" />
+                      {store.productPhotos.length} photos (not analyzed)
+                    </Badge>
+                  )
+                )}
               </div>
             </div>
+
+            {/* Photo Analysis Results */}
+            {store.productPhotos.length > 0 && store.productPhotoDescriptions && (
+              <div>
+                <button
+                  onClick={() => setPhotoAnalysisExpanded(!photoAnalysisExpanded)}
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {photoAnalysisExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  <ImageIcon className="h-4 w-4" />
+                  Product Photos Analysis
+                </button>
+                {photoAnalysisExpanded && (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mt-2">
+                    {store.productPhotos.map((url, i) => {
+                      const desc = store.productPhotoDescriptions?.[url]
+                      return (
+                        <div key={i} className="rounded-lg border p-2 space-y-1">
+                          <img src={url} alt={`Photo ${i + 1}`} className="w-full h-24 object-cover rounded" />
+                          {desc && (
+                            <>
+                              <Badge variant="secondary" className="text-[10px]">{desc.photo_type}</Badge>
+                              <p className="text-[11px] text-muted-foreground line-clamp-2">{desc.description}</p>
+                              {desc.detected_features?.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {desc.detected_features.slice(0, 3).map((f, j) => (
+                                    <span key={j} className="text-[10px] bg-muted px-1 rounded">{f}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </>
       )}
@@ -497,7 +591,12 @@ export function StepPhasedGeneration() {
                 <div className="space-y-4">
                   <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary" />
                   <p className="font-medium">Generating 5 title variations...</p>
-                  <p className="text-sm text-muted-foreground">Analyzing keywords and research data</p>
+                  <p className="text-sm text-muted-foreground">Analyzing keywords and research data{store.productPhotoDescriptions ? ' + product photos' : ''}</p>
+                </div>
+              ) : store.isAnalyzingPhotos ? (
+                <div className="space-y-3">
+                  <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">Analyzing product photos before generation...</p>
                 </div>
               ) : (
                 <Button size="lg" onClick={handleGenerateTitle} className="gap-2">

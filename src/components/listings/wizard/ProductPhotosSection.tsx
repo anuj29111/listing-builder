@@ -185,7 +185,7 @@ export function ProductPhotosSection() {
           )}
 
           {/* Drop Zone */}
-          {productPhotos.length < 10 && (
+          {productPhotos.length < 15 && (
             <div
               onDrop={handleDrop}
               onDragOver={(e) => e.preventDefault()}
