@@ -927,9 +927,15 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
         toast.error('No analysis data to export')
         return
       }
+      // Filter to selected ASINs only
+      const allCompetitors = (reportData.competitors_data || []) as unknown as Array<Record<string, unknown>>
+      const selectedSet = new Set(reportData.selected_asins || [])
+      const filteredCompetitors = selectedSet.size > 0
+        ? allCompetitors.filter(c => selectedSet.has(c.asin as string))
+        : allCompetitors
       const html = generateMIReportHTML(
         analysisResult,
-        (reportData.competitors_data || []) as unknown as Array<Record<string, unknown>>,
+        filteredCompetitors,
         {
           keyword: displayKeyword,
           marketplace: country?.name || 'Unknown',
@@ -939,6 +945,7 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
           modelUsed: reportData.model_used || undefined,
           tokensUsed: reportData.tokens_used || undefined,
           marketplaceDomain: reportData.marketplace_domain,
+          reviewsData: ((reportData as unknown as Record<string, unknown>).reviews_data || undefined) as Record<string, Array<Record<string, unknown>>> | undefined,
         },
       )
       downloadMIReport(html)

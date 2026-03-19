@@ -11,6 +11,7 @@ interface MIPdfOptions {
   modelUsed?: string
   tokensUsed?: number
   marketplaceDomain?: string
+  reviewsData?: Record<string, Array<Record<string, unknown>>>
 }
 
 const esc = (s: string | undefined | null): string =>
@@ -537,6 +538,51 @@ function buildCompetitorPatterns(r: MarketIntelligenceResult): string {
   return html
 }
 
+function buildReviewsSummary(
+  reviewsData?: Record<string, Array<Record<string, unknown>>>,
+  competitorsData?: Array<Record<string, unknown>>,
+): string {
+  if (!reviewsData) return ''
+  const entries = Object.entries(reviewsData).filter(([, reviews]) => reviews?.length > 0)
+  if (!entries.length) return ''
+
+  const totalReviews = entries.reduce((sum, [, reviews]) => sum + reviews.length, 0)
+
+  return `
+${sectionHeader(`Reviews Summary (${totalReviews.toLocaleString()} reviews across ${entries.length} products)`)}
+<table style="width:100%;border-collapse:collapse;font-size:12px;">
+  <thead>
+    <tr style="background:#f9fafb;">
+      <th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">ASIN</th>
+      <th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">Product</th>
+      <th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">Reviews</th>
+      <th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">Avg Rating</th>
+      <th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">Rating Distribution</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${entries.map(([asin, reviews]) => {
+      const comp = competitorsData?.find(c => (c.asin as string) === asin)
+      const title = ((comp?.title as string) || '').slice(0, 60)
+      const avgRating = reviews.reduce((sum, r) => sum + ((r.rating as number) || 0), 0) / reviews.length
+      const dist: Record<number, number> = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 }
+      for (const r of reviews) {
+        const star = Math.round((r.rating as number) || 0)
+        if (star >= 1 && star <= 5) dist[star]++
+      }
+      const distStr = [5, 4, 3, 2, 1].map(s => `${s}★:${dist[s]}`).join(' ')
+      return `<tr>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;font-family:monospace;font-size:11px;">${asin}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;">${esc(title)}${title.length >= 60 ? '...' : ''}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;text-align:right;font-weight:600;">${reviews.length}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;text-align:right;">${avgRating.toFixed(1)} ${stars(avgRating)}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;font-size:10px;color:#6b7280;">${distStr}</td>
+      </tr>`
+    }).join('')}
+  </tbody>
+</table>`
+}
+
 // ─── Main generator ────────────────────────────────────────────
 
 export function generateMIReportHTML(
@@ -553,6 +599,7 @@ export function generateMIReportHTML(
     buildBuyingFactors(r),
     buildCustomerSegments(r),
     buildCompetitorProducts(competitorsData, options.marketplaceDomain),
+    buildReviewsSummary(options.reviewsData, competitorsData),
     buildQnASection(r),
     buildImageRecommendations(r),
     buildCompetitiveLandscape(r),
