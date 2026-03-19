@@ -384,6 +384,7 @@ export async function startApifyReviewRun(
       ],
       get_customers_say: true,
       max_reviews: maxReviews,
+      unique_only: true,
     }
 
     const run = await startActorRun(token, input)
