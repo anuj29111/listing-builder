@@ -249,6 +249,48 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
     }
   }
 
+  const handleDownloadBrief = async (record: Partial<LbMarketIntelligence>) => {
+    if (!record.id) return
+    const toastId = toast.loading('Preparing PDF...')
+    try {
+      const res = await fetch(`/api/market-intelligence/${record.id}`)
+      if (!res.ok) throw new Error('Failed to fetch report')
+      const data = await res.json()
+      const analysisResult = data.analysis_result as unknown as MarketIntelligenceResult
+      if (!analysisResult) {
+        toast.error('No analysis data to export', { id: toastId })
+        return
+      }
+      const allCompetitors = (data.competitors_data || []) as unknown as Array<Record<string, unknown>>
+      const selectedSet = new Set(data.selected_asins || [])
+      const filteredCompetitors = selectedSet.size > 0
+        ? allCompetitors.filter((c: Record<string, unknown>) => selectedSet.has(c.asin as string))
+        : allCompetitors
+      const country = countries.find(c => c.id === data.country_id)
+      const keywords = (data as Record<string, unknown>).keywords as string[] | undefined
+      const displayKeyword = keywords && keywords.length > 1 ? keywords.join(', ') : data.keyword
+      const html = generateMIReportHTML(
+        analysisResult,
+        filteredCompetitors,
+        {
+          keyword: displayKeyword,
+          marketplace: country?.name || 'Unknown',
+          flagEmoji: country?.flag_emoji || undefined,
+          date: new Date(data.created_at).toLocaleDateString(),
+          competitorCount: data.selected_asins?.length || data.top_asins?.length || 0,
+          modelUsed: data.model_used || undefined,
+          tokensUsed: data.tokens_used || undefined,
+          marketplaceDomain: data.marketplace_domain,
+          reviewsData: (data.reviews_data || undefined) as Record<string, Array<Record<string, unknown>>> | undefined,
+        },
+      )
+      toast.dismiss(toastId)
+      downloadMIReport(html)
+    } catch {
+      toast.error('Failed to download PDF', { id: toastId })
+    }
+  }
+
   const handleBack = () => {
     stopPolling()
     setView('search')
@@ -597,9 +639,14 @@ export function MarketIntelligenceClient({ countries, initialIntelligence }: Mar
                           />
                         )}
                         {record.status === 'completed' && (
-                          <Button size="sm" variant="outline" onClick={() => handleViewBrief(record)} className="text-xs">
-                            View Brief <ChevronRight className="h-3 w-3 ml-1" />
-                          </Button>
+                          <>
+                            <Button size="sm" variant="outline" onClick={() => handleDownloadBrief(record)} className="text-xs" title="Download PDF">
+                              <FileDown className="h-3 w-3" />
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => handleViewBrief(record)} className="text-xs">
+                              View Brief <ChevronRight className="h-3 w-3 ml-1" />
+                            </Button>
+                          </>
                         )}
                         {record.status === 'awaiting_selection' && (
                           <Button size="sm" variant="outline" onClick={() => handleViewBrief(record)} className="text-xs">
