@@ -1149,18 +1149,22 @@ export async function backgroundAnalyze(
     }
 
     // Phase 4: Customer Intelligence & Strategy (no delay after — last phase)
-    await updateMI(id, {
-      progress: { step: 'phase_4', current: 3, total: 4, message: 'Phase 4: Building customer intelligence & strategy...', completed_phases: ['phase_1', 'phase_2', 'phase_3'] },
-    })
-    const phase4 = await analyzeMarketIntelligencePhase4Strategy(
-      data,
-      mergedResult,
-      mergedResult,
-      mergedResult
-    )
-    totalTokens += phase4.tokensUsed
-    if (!modelUsed) modelUsed = phase4.model
-    mergedResult = { ...mergedResult, ...phase4.result }
+    if (completedPhases.includes('phase_4')) {
+      console.log(`[MI ${id}] Phase 4 already complete, skipping`)
+    } else {
+      await updateMI(id, {
+        progress: { step: 'phase_4', current: 3, total: 4, message: 'Phase 4: Building customer intelligence & strategy...', completed_phases: ['phase_1', 'phase_2', 'phase_3'] },
+      })
+      const phase4 = await analyzeMarketIntelligencePhase4Strategy(
+        data,
+        mergedResult,
+        mergedResult,
+        mergedResult
+      )
+      totalTokens += phase4.tokensUsed
+      if (!modelUsed) modelUsed = phase4.model
+      mergedResult = { ...mergedResult, ...phase4.result }
+    }
 
     // Final merge and mark complete
     await updateMI(id, {

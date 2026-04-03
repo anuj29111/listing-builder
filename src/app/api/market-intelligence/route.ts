@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
+
+const BACKGROUND_STATES = ['pending', 'collecting', 'analyzing']
+const STALE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 
 // POST: Create a new market intelligence record
 export async function POST(request: Request) {
@@ -105,6 +108,29 @@ export async function GET(request: Request) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    // Auto-fail stale background runs on page load
+    if (data) {
+      const now = Date.now()
+      const staleIds = data
+        .filter(r => BACKGROUND_STATES.includes(r.status) && r.updated_at && new Date(r.updated_at).getTime() < now - STALE_TIMEOUT_MS)
+        .map(r => r.id)
+
+      if (staleIds.length > 0) {
+        const admin = createAdminClient()
+        for (const id of staleIds) {
+          const record = data.find(r => r.id === id)!
+          const step = (record.progress as Record<string, unknown>)?.step || 'unknown'
+          await admin.from('lb_market_intelligence').update({
+            status: 'failed',
+            error_message: `Timed out — stuck at "${step}" for 30+ minutes`,
+            updated_at: new Date().toISOString(),
+          }).eq('id', id)
+          record.status = 'failed'
+          record.error_message = `Timed out — stuck at "${step}" for 30+ minutes`
+        }
+      }
     }
 
     return NextResponse.json(data || [])

@@ -3,7 +3,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
 
 const BACKGROUND_STATES = ['pending', 'collecting', 'analyzing']
-const STALE_TIMEOUT_MS = 90 * 60 * 1000 // 90 minutes — covers Apify review fetching (2-5 min/product × 10+)
+const STALE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes — any single step shouldn't take longer
 
 // GET: Fetch full record (for polling + report viewing)
 export async function GET(
@@ -31,14 +31,15 @@ export async function GET(
       new Date(data.updated_at).getTime() < Date.now() - STALE_TIMEOUT_MS
     ) {
       const admin = createAdminClient()
+      const staleMsg = `Timed out — stuck at "${(data.progress as Record<string, unknown>)?.step || 'unknown'}" for 30+ minutes`
       await admin.from('lb_market_intelligence').update({
         status: 'failed',
-        error_message: 'Timed out after 90 minutes',
+        error_message: staleMsg,
         updated_at: new Date().toISOString(),
       }).eq('id', params.id)
 
       data.status = 'failed'
-      data.error_message = 'Timed out after 30 minutes'
+      data.error_message = staleMsg
     }
 
     return NextResponse.json(data)
