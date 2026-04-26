@@ -46,13 +46,34 @@
       </div>
 
       <div class="field">
+        <label>Mode</label>
+        <div class="mode-row">
+          <label class="mode-option">
+            <input type="radio" name="mode" value="auto" id="modeAuto" checked>
+            <span><strong>Auto chips</strong> — clicks Rufus's suggested questions until exhausted</span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="mode" value="manual" id="modeManual">
+            <span><strong>Manual questions</strong> — types your own questions into Rufus</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="field">
         <label for="asinInput">ASINs (one per line)</label>
         <textarea id="asinInput" placeholder="B0XXXXXXXXX&#10;B0YYYYYYYYY&#10;B0ZZZZZZZZZ" rows="5"></textarea>
       </div>
 
-      <div class="note">
-        Runs until Rufus stops producing new questions per product.
-        Products are processed one at a time with a page refresh between each.
+      <div class="field" id="customQuestionsField" style="display:none;">
+        <label for="customQuestions">Custom questions (one per line)</label>
+        <textarea id="customQuestions" placeholder="What is this product for?&#10;What do people like about this product?&#10;What don't people like about this product?&#10;What are people buying instead?&#10;Why do people choose this over alternatives?" rows="6"></textarea>
+        <div class="note" style="margin-top:4px;">
+          One Rufus session per ASIN, no page refresh. Each question typed and submitted, answer captured.
+        </div>
+      </div>
+
+      <div class="note" id="autoModeNote">
+        Runs until Rufus stops producing new suggestions. Page refreshes between batches to reset Rufus state.
       </div>
 
       <button id="addBtn" class="btn btn-primary">Add to Queue</button>

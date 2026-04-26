@@ -48,8 +48,11 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Skip auth redirects for public paths
-  const isPublicPath = pathname.startsWith('/login') || pathname.startsWith('/auth/callback') || pathname.startsWith('/api/health')
+  // Skip auth redirects for public paths.
+  // /api/rufus-qna* validates its own Bearer token (rufus_extension_api_key)
+  // instead of Supabase session cookies — without this exclusion, curl/scripts
+  // hit 307 → /login before the route handler ever runs.
+  const isPublicPath = pathname.startsWith('/login') || pathname.startsWith('/auth/callback') || pathname.startsWith('/api/health') || pathname.startsWith('/api/rufus-qna')
   if (isPublicPath) {
     // Logged in + on login page → redirect to dashboard
     if (user && pathname === '/login') {

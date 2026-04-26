@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Bot, Plus, Download, Loader2, CheckCircle2, XCircle, Clock, AlertTriangle, Copy } from 'lucide-react'
 import type { LbRufusJob, LbRufusJobItem } from '@/types'
 import { QnADetailPanel } from './QnADetailPanel'
+import { AmyLoopRunner } from './AmyLoopRunner'
 
 interface Country {
   id: string
@@ -222,6 +223,11 @@ export function RufusQnAPageClient({ countries, miRecords }: RufusQnAPageClientP
             Queue ASINs for Rufus Q&A extraction. Enable &quot;Auto-process&quot; in the Chrome extension to start.
           </p>
         </div>
+      </div>
+
+      {/* Full Amy Loop runner — primary new flow */}
+      <div className="mb-6">
+        <AmyLoopRunner countries={countries} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -1,6 +1,20 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS })
+}
+
+function corsJson(body: object, status = 200): NextResponse {
+  return NextResponse.json(body, { status, headers: CORS_HEADERS })
+}
+
 /**
  * Validate the Rufus extension API key from the Authorization header.
  * Key is stored in lb_admin_settings with key 'rufus_extension_api_key'.
@@ -80,42 +94,27 @@ export async function POST(request: Request) {
   try {
     const isValid = await validateApiKey(request)
     if (!isValid) {
-      return NextResponse.json(
-        { error: 'Invalid or missing API key' },
-        { status: 401 }
-      )
+      return corsJson({ error: 'Invalid or missing API key' }, 401)
     }
 
     const body = (await request.json()) as RufusQAPayload
     const { asin, marketplace, questions } = body
 
     if (!asin || !/^[A-Z0-9]{10}$/.test(asin.trim().toUpperCase())) {
-      return NextResponse.json(
-        { error: 'Invalid ASIN format (must be 10 alphanumeric characters)' },
-        { status: 400 }
-      )
+      return corsJson({ error: 'Invalid ASIN format (must be 10 alphanumeric characters)' }, 400)
     }
 
     if (!marketplace) {
-      return NextResponse.json(
-        { error: 'marketplace is required (e.g. "amazon.com")' },
-        { status: 400 }
-      )
+      return corsJson({ error: 'marketplace is required (e.g. "amazon.com")' }, 400)
     }
 
     if (!Array.isArray(questions) || questions.length === 0) {
-      return NextResponse.json(
-        { error: 'questions array is required and must not be empty' },
-        { status: 400 }
-      )
+      return corsJson({ error: 'questions array is required and must not be empty' }, 400)
     }
 
     const country = await resolveCountry(marketplace)
     if (!country) {
-      return NextResponse.json(
-        { error: `Unknown marketplace: ${marketplace}` },
-        { status: 400 }
-      )
+      return corsJson({ error: `Unknown marketplace: ${marketplace}` }, 400)
     }
 
     const cleanedAsin = asin.trim().toUpperCase()
@@ -210,13 +209,10 @@ export async function POST(request: Request) {
 
     if (saveErr) {
       console.error('Failed to save Rufus Q&A:', saveErr)
-      return NextResponse.json(
-        { error: `Database error: ${saveErr.message}` },
-        { status: 500 }
-      )
+      return corsJson({ error: `Database error: ${saveErr.message}` }, 500)
     }
 
-    return NextResponse.json({
+    return corsJson({
       success: true,
       id: saved?.id,
       asin: cleanedAsin,
@@ -228,7 +224,7 @@ export async function POST(request: Request) {
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Internal server error'
     console.error('Rufus Q&A API error:', e)
-    return NextResponse.json({ error: message }, { status: 500 })
+    return corsJson({ error: message }, 500)
   }
 }
 

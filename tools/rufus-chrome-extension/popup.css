@@ -88,6 +88,38 @@ textarea {
   line-height: 1.4;
 }
 
+/* Mode radio group */
+.mode-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  background: white;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+}
+
+.mode-option {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  color: #333 !important;
+  margin-bottom: 0 !important;
+  cursor: pointer;
+}
+
+.mode-option input[type="radio"] {
+  width: auto;
+  margin: 0;
+}
+
+.mode-option span strong {
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
 /* Buttons */
 .btn {
   padding: 6px 12px;

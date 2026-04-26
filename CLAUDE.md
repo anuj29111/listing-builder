@@ -151,18 +151,44 @@ npm run lint         # ESLint
 55. **Reviews history** — page.tsx MUST include `status, error_message` in SELECT. `refreshHistory()` on mount. Expanded view: full ReviewCards, 25/page pagination, no "+X more".
 56. **`maxReviewsRequested`** — Stored in `raw_response` JSONB. Displayed as "(requested: X)" in results header and expanded view.
 
-57. **Rufus Q&A Chrome Extension** — `tools/rufus-chrome-extension/` (MV3). Opens Rufus sidebar on Amazon product pages, clicks suggested questions, extracts Q&A pairs. Sequential processing (one ASIN at a time). State persisted via `chrome.storage.local`. API key in `chrome.storage.local` (not synced). Settings in `chrome.storage.sync`. API endpoint: `POST /api/rufus-qna` with bearer token `rufus_extension_api_key` from `lb_admin_settings`. Upserts to `lb_asin_questions` with `onConflict: 'asin,country_id'`.
-58. **Rufus off-topic detection** — Extracts keywords from product title + first 8 questions to build topic profile. After seed phase, questions sharing no keywords with profile = off-topic. 5 consecutive off-topic → stop. On-topic questions keep enriching profile.
-59. **Rufus partial results** — On timeout, sends `EXTRACT_QA_ONLY` to salvage DOM Q&A. Errored items with Q&A show count + exportable in CSV. `ABORT_EXTRACTION` stops clicking.
-60. **Rufus between-product refresh** — Must force-refresh between products to reset Rufus chat state. `about:blank` → product URL navigation. Known issue: Rufus sometimes retains previous session Q&A if page not fully reset.
-61. **Rufus DOM selectors** — `questionChip: 'li.rufus-carousel-card button'`, `chatContainer: '#nav-flyout-rufus'`, `questionBubble: '.rufus-customer-text'`, `answerBubble: '[id^="section_groupId_text_template_"]'`. Configurable in extension Settings.
+57. **Rufus Q&A Chrome Extension** — `tools/rufus-chrome-extension/` (MV3, **v1.13.0**). Two modes: **Auto-chips** (click Rufus's suggested chips until exhausted) and **Manual questions** (type your own — Amy Wees Rufus loop). Sequential, one ASIN at a time. POST `/api/rufus-qna` with bearer `rufus_extension_api_key`. Upserts to `lb_asin_questions` (`onConflict: asin,country_id`). **See [rufus.md](rufus.md) for the full playbook + DOM selectors + gotchas.**
+58. **Rufus chat memory persists across page navigation** — server-side per user. v1.13.0 fix: `askCustomQuestions` clicks `#rufus-panel-header-new-chat` after opening Rufus, before typing. Even after that, Rufus dedup-shortens repeat questions across sessions — vary phrasing per ASIN if running across many products.
+59. **Rufus active-turn class trap** — completed turns: `.rufus-papyrus-turn`. **Currently streaming turn: `.rufus-papyrus-active-turn` only** (NOT also tagged `.rufus-papyrus-turn`). Always query both. Wait-for-streaming heuristic: poll markdown-section text length, "done" when stable for 2.5s past 50 chars (loader classes change too often to rely on).
+60. **Rufus typing requires React-friendly value setter** — `textarea.value = '...'` leaves submit button disabled. Use `Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, text)` then dispatch `input` + `change` events.
+61. **Rufus telemetry** — Every extraction ships to `lb_rufus_extraction_logs` via `POST /api/rufus-qna/telemetry`. Row includes status, questions_found, batches_run, duration_ms, error_phase, `telemetry` JSONB (per-batch + selectors_hit), `dom_snapshot` TEXT (failures only, ≤300KB). Query: `SELECT asin,status,questions_found,error_phase FROM lb_rufus_extraction_logs ORDER BY created_at DESC LIMIT 20;`
+
+62. **Research PDF download** — `src/lib/research-pdf.ts`. Print-to-PDF for keyword, review, Q&A analyses. Button in `AnalysisMeta` bar. Same pattern as `mi-pdf.ts`.
 
 ---
 
 ## Pending Tasks
 
+- **Pre-listing data intake step:** Before listing generation, add an optional "Product Info" step that collects all available data upfront (images, existing listing details, competitor info). For new products: optional but presented first. For existing products: auto-pull current listing data. Listings engine should see everything before generation starts.
 - **e2e Testing:** All modules — Listings, Image Builder, ASIN Lookup, Keyword Search, Reviews, Market Intelligence, Seller Pull
 - **Seller Pull — Automated Periodic Pulls:** Automate regular pulls at intervals (not yet built)
-- **Rufus Extension — Force Refresh:** Rufus retains old Q&A between products. Need harder page reset (clear Rufus state fully before next ASIN)
-- **Rufus Q&A Page:** New `/rufus-qna` page — manual ASIN input OR auto-feed from Market Intelligence selected ASINs. Displays extraction status, results, integrates with research phase
-- **MI → Rufus Pipeline:** Flow selected MI ASINs into Rufus Q&A module for automated extraction
+- **🔴 RUFUS FULL AUTOMATION (next session):** 6-ASIN pilot done 2026-04-26 (144 Q&A in `lb_asin_questions`). To get to "Run Full Amy Loop from website" zero-touch: **see [RUFUS_AUTOMATION_PLAN.md](RUFUS_AUTOMATION_PLAN.md)** — 6-phase build (DB migration → API endpoints → extension v1.14 → /rufus-qna page → listing-gen integration → always-on Chrome runner). Est. 1-2 dev days. Has all DOM selectors, prompt templates, and gotchas pre-documented so the next session doesn't relearn.
+- **Rufus extension v1.13.0:** Manual-questions mode works (`tools/rufus-chrome-extension/`). Reload in chrome://extensions, paste ASIN + 20 questions, click Start — extension runs Rufus end-to-end + auto-saves to DB via `/api/rufus-qna` (CORS deployed).
+- **MI → Rufus Pipeline:** Flow selected MI ASINs into Rufus Q&A module for automated extraction (depends on Phase 4 of automation plan)
+
+---
+
+## ⚠️ Shared Supabase DB Pressure (Crash Prevention)
+
+This repo connects to shared Supabase `yawaopfqkkvdqtsagmng` (ap-south-1, **Medium 4 GB RAM**) used by all Chalkola systems. Hot working set (~13-14 GB) exceeds RAM → crashes at peak IST (12-2 PM) recurring.
+
+**This repo's role:** Listing automation, keyword research, Market Intelligence, Seller Pull, Rufus extraction. Reads from `products`/`product_variants` + keyword/review data. Lower write volume than Ads-API or Sp-API, but MI/Seller-Pull can trigger large reads against hot tables.
+
+**Hot tables — always filter marketplace+date, never full-scan:** `ads_export_targets` (3.6 GB), `ads_sb_keyword_daily` (3.4 GB), `si_daily_ranks` (3.1 GB, 2.3M rows), `pop_sp_search_term_data` (1.2 GB, 85% cache hit), `pop_sp_search_term_data_daily` (1 GB), `sp_settlement_transactions` (598 MB), `si_keywords` (276 MB).
+
+**Crash signature:** 5-min keepalive gap + clean `pg_postmaster_start_time` = Supabase platform OOM respawn. Find windows via `hf-token-keepalive` gaps >90s in `cron.job_run_details`.
+
+**Coding rules for this repo:**
+- Never `SELECT * FROM <hot_table>` without marketplace+date filters
+- Avoid heavy reads during 12-2 PM IST peak window
+- Batch operations (2000+ per batch) if writing
+- pg_cron: no `cron.alter_job`, `current_setting('app.*')` = NULL, `VACUUM` can't run in pg_cron, `REFRESH MV CONCURRENTLY` needs unique index on COLUMNS not expressions
+- Cache Sonnet/Haiku responses where possible (prompt caching enabled)
+
+**Permanent fix:** upgrade Medium→Large ($110/mo, 8 GB RAM). Until then, minimize cross-repo DB reads.
+
+*Last Updated: April 21, 2026 (Supabase compute ceiling — crash prevention rules added)*

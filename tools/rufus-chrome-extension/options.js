@@ -5,25 +5,31 @@
  * API key stored in chrome.storage.local (not synced to Google servers).
  */
 
+// ⚠ Keep in sync with DEFAULT_SETTINGS.selectors in background.js.
+// Out-of-sync defaults make "Reset Defaults" silently break the extension.
 const DEFAULTS = {
-  apiUrl: 'http://localhost:3000',
+  apiUrl: 'https://listing-builder-production.up.railway.app',
   apiKey: '',
   maxQuestions: 50,
   delayBetweenClicks: 3000,
   delayBetweenProducts: 5000,
   selectors: {
     rufusButton:
-      '[data-action="rufus-open"], #rufus-entry-point, .rufus-launcher, [aria-label*="Rufus"], [data-testid*="rufus"]',
+      '#nav-rufus-disco, [aria-label="Open Rufus panel"], [aria-label*="Rufus"], [data-action="rufus-open"], #rufus-entry-point, .rufus-launcher, [data-testid*="rufus"]',
     questionChip:
-      'button.rufus-pill, .rufus-related-question-pill, span.rufus-color-pacific, li.rufus-carousel-card button',
+      'button.rufus-pill, .rufus-related-question-pill, li.rufus-carousel-card button',
     chatContainer:
       '#nav-flyout-rufus',
     questionBubble:
-      '[data-section-class="CustomerText"], .rufus-customer-text, .dialog-customer',
+      '.rufus-customer-text',
     answerBubble:
-      'div[data-csa-c-group-id^="markdownSection"], [id^="section_groupId_text_template_"]',
+      'div[data-csa-c-group-id^="markdownSection"]',
     loadingIndicator:
-      '.a-spinner, .rufus-loading',
+      '.rufus-loading-message-template, .rufus-loading-messages, .rufus-loading-title',
+    rufusInput:
+      '#rufus-text-area, #nav-flyout-rufus textarea[placeholder*="Ask Rufus" i]',
+    rufusSubmit:
+      '#rufus-submit-button, #nav-flyout-rufus button[aria-label="Submit"]',
   },
 }
 
@@ -40,6 +46,8 @@ const fields = {
   selQuestionBubble: document.getElementById('selQuestionBubble'),
   selAnswerBubble: document.getElementById('selAnswerBubble'),
   selLoading: document.getElementById('selLoading'),
+  selRufusInput: document.getElementById('selRufusInput'),
+  selRufusSubmit: document.getElementById('selRufusSubmit'),
 }
 
 function populateFields(settings, apiKey) {
@@ -56,6 +64,8 @@ function populateFields(settings, apiKey) {
   fields.selQuestionBubble.value = sel.questionBubble || DEFAULTS.selectors.questionBubble
   fields.selAnswerBubble.value = sel.answerBubble || DEFAULTS.selectors.answerBubble
   fields.selLoading.value = sel.loadingIndicator || DEFAULTS.selectors.loadingIndicator
+  fields.selRufusInput.value = sel.rufusInput || DEFAULTS.selectors.rufusInput
+  fields.selRufusSubmit.value = sel.rufusSubmit || DEFAULTS.selectors.rufusSubmit
 }
 
 function readFields() {
@@ -74,6 +84,8 @@ function readFields() {
         questionBubble: fields.selQuestionBubble.value.trim() || DEFAULTS.selectors.questionBubble,
         answerBubble: fields.selAnswerBubble.value.trim() || DEFAULTS.selectors.answerBubble,
         loadingIndicator: fields.selLoading.value.trim() || DEFAULTS.selectors.loadingIndicator,
+        rufusInput: fields.selRufusInput.value.trim() || DEFAULTS.selectors.rufusInput,
+        rufusSubmit: fields.selRufusSubmit.value.trim() || DEFAULTS.selectors.rufusSubmit,
       },
     },
     apiKey: fields.apiKey.value.trim(),

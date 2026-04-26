@@ -267,6 +267,8 @@ class RufusExtractor {
     this._previouslyCompleted = new Set(completedQuestions)
     // Questions clicked in THIS batch only (for text-anchor DOM extraction)
     this._batchClicked = []
+    // Live-captured Q&A pairs (captured immediately after each click)
+    this._livePairs = []
     // All handled questions = previous + this batch (prevents re-clicking in SAME batch)
     this._allHandled = new Set(completedQuestions)
 
@@ -278,16 +280,31 @@ class RufusExtractor {
     this._clickedInitials = []
 
     // Off-topic detection
+    // titleKeywords = immutable anchor from product title.
+    // topicKeywords = title keywords + keywords from on-topic clicked questions (may grow).
+    // We gate follow-up clicks on titleKeywords primarily to prevent topic drift.
     this.titleKeywords = new Set(extractKeywords(getProductTitle()))
     this.topicKeywords = new Set([...this.titleKeywords, ...topicKeywords])
-    // Seed phase is based on TOTAL questions across ALL batches
     this.seedPhaseSize = 5
     this.totalQuestionsHandled = completedQuestions.length
     this.consecutiveOffTopic = settings.consecutiveOffTopic || 0
-    this.maxOffTopic = 5
+    // Lowered from 5 → 3. Three consecutive off-topic hits is already drift.
+    this.maxOffTopic = 3
 
     // Harvested pills from this page load
     this.harvestedPills = new Set()
+
+    // Telemetry: which selectors matched what, which strategy won
+    this._strategyUsed = null
+    this._selectorsHit = {}    // e.g. { 'button.rufus-pill': 8, 'div[id^="interaction"]': 2, … }
+  }
+
+  /**
+   * Record how many elements a given selector matched against a container.
+   * Used for telemetry so we can spot when an Amazon selector stops matching.
+   */
+  _recordSelectorHit(selector, count) {
+    if (selector && count !== undefined) this._selectorsHit[selector] = count
   }
 
   /**
@@ -366,23 +383,34 @@ class RufusExtractor {
         if (text) this.harvestedPills.add(text)
       }
 
-      // ── Smart skip logic: initial pills vs follow-ups ──
-      const unclicked = chips.filter((chip) => {
-        const text = chip.textContent.trim()
-        if (!text) return false
+      // ── Smart skip + priority logic: initial pills > follow-ups ──
+      // We SORT so initial pills come first. Within a batch, this means we
+      // click product-anchored seeds before diving into follow-up subtrees
+      // (which is how Rufus drifts off-topic across multi-level follow-up chains).
+      const unclicked = chips
+        .filter((chip) => {
+          const text = chip.textContent.trim()
+          if (!text) return false
 
-        // Already handled in THIS batch? Always skip (prevents re-clicking within same batch)
-        if (this._allHandled.has(text)) return false
+          // Is this an "initial" pill (visible before we clicked anything)?
+          if (this._freshPills.has(text)) {
+            // Initial pills CAN be re-clicked across batches (they're seeds into follow-up trees).
+            // Only skip if: already explored as a seed OR already clicked THIS batch.
+            return !this._skippedSeeds.has(text) && !this._batchClicked.includes(text)
+          }
 
-        // Is this an "initial" pill (visible before we clicked anything)?
-        if (this._freshPills.has(text)) {
-          // Initial pill: only skip if already explored as a seed in a PREVIOUS batch
-          return !this._skippedSeeds.has(text)
-        } else {
-          // Follow-up pill: skip if handled in any previous batch
-          return !this._previouslyCompleted.has(text)
-        }
-      })
+          // Follow-up pill: skip if handled in any batch (previous or current)
+          return !this._allHandled.has(text)
+        })
+        // Sort: initial pills (seeds) FIRST, follow-ups last.
+        // Prevents drift: seed exploration > deep dives into one topic subtree.
+        .sort((a, b) => {
+          const aIsSeed = this._freshPills.has(a.textContent.trim())
+          const bIsSeed = this._freshPills.has(b.textContent.trim())
+          if (aIsSeed && !bIsSeed) return -1
+          if (!aIsSeed && bIsSeed) return 1
+          return 0
+        })
 
       if (unclicked.length === 0) {
         consecutiveEmpty++
@@ -399,21 +427,28 @@ class RufusExtractor {
       const questionText = target.textContent.trim()
 
       // ── Off-topic detection ──
+      // Initial pills (seed) are ALWAYS allowed — Rufus itself anchored them to the product.
+      // Follow-up pills must share a keyword with the product TITLE (or the topic profile,
+      // which is seeded only from title-aligned questions).
       const questionKws = extractKeywords(questionText)
+      const isInitial = this._freshPills.has(questionText)
       if (this.totalQuestionsHandled < this.seedPhaseSize) {
-        // Seed phase: enrich topic profile (only if relevant to product title)
+        // Seed phase: enrich topic profile ONLY from questions relevant to product title.
         const isRelevant = this.titleKeywords.size === 0 ||
           questionKws.some((kw) => this.titleKeywords.has(kw))
         if (isRelevant) {
           for (const kw of questionKws) this.topicKeywords.add(kw)
         }
         this.consecutiveOffTopic = 0
-      } else if (this.topicKeywords.size > 0) {
-        const isOnTopic = questionKws.some((kw) => this.topicKeywords.has(kw))
-        if (!isOnTopic && questionKws.length > 0) {
+      } else if (!isInitial && this.titleKeywords.size > 0 && questionKws.length > 0) {
+        // Post-seed follow-up: must overlap with TITLE keywords OR topic keywords.
+        // TitleKeywords is the stable anchor; topicKeywords may have broadened.
+        const matchesTitle = questionKws.some((kw) => this.titleKeywords.has(kw))
+        const matchesTopic = questionKws.some((kw) => this.topicKeywords.has(kw))
+        if (!matchesTitle && !matchesTopic) {
           this.consecutiveOffTopic++
           console.log(`[Rufus] Off-topic (${this.consecutiveOffTopic}/${this.maxOffTopic}): "${questionText.substring(0, 50)}..."`)
-          // Mark as handled but DON'T click
+          // Mark as handled but DON'T click — skip this chip
           this._allHandled.add(questionText)
           this.totalQuestionsHandled++
           if (this.consecutiveOffTopic >= this.maxOffTopic) {
@@ -423,8 +458,14 @@ class RufusExtractor {
           continue
         } else {
           this.consecutiveOffTopic = 0
-          for (const kw of questionKws) this.topicKeywords.add(kw)
+          // Only grow topic profile from TITLE-matching questions to prevent drift.
+          if (matchesTitle) {
+            for (const kw of questionKws) this.topicKeywords.add(kw)
+          }
         }
+      } else if (isInitial) {
+        // Initial pill — trusted. Reset drift counter.
+        this.consecutiveOffTopic = 0
       }
 
       // ── Click the question ──
@@ -452,6 +493,20 @@ class RufusExtractor {
         await waitForLoadingDone(this.selectors.loadingIndicator, 15000)
       }
       await sleep(this.delayBetweenClicks)
+
+      // ── Live-capture: extract the answer RIGHT NOW ──
+      // The latest answer in the DOM belongs to the question we just clicked.
+      // This eliminates the off-by-one alignment problem.
+      const answerText = this._extractLatestAnswer()
+      if (answerText) {
+        this._livePairs.push({
+          question: cleanExtractedText(questionText),
+          answer: cleanExtractedText(answerText),
+        })
+        console.log(`[Rufus] Live-captured answer for Q${this.totalQuestionsHandled} (${answerText.length} chars)`)
+      } else {
+        console.log(`[Rufus] No answer captured for Q${this.totalQuestionsHandled}`)
+      }
     }
 
     return clicked
@@ -460,52 +515,58 @@ class RufusExtractor {
   /**
    * Extract all Q&A pairs from the chat history.
    *
-   * FUTURE-PROOFED: Uses cascading detection strategies so that when Amazon
-   * changes their DOM, the extraction automatically falls through to the next
-   * working strategy. Strategy 0 needs ZERO CSS selectors — it uses the
-   * question texts we clicked as anchors to discover the DOM automatically.
+   * Amazon's Rufus (as of 2026) uses `.rufus-papyrus-turn` elements (ids
+   * `interaction0`, `interaction1`, …). Each turn contains one `.rufus-customer-text`
+   * (the question) and one or more `div[data-csa-c-group-id^="markdownSection"]`
+   * (answer sections — a single question may generate multiple paragraphs/sections).
    *
-   * Strategy 0: Text-anchor — uses THIS BATCH's clicked question texts as DOM anchors
-   * Strategy 1: Turn-based — find history turns, extract Q+A from each
-   * Strategy 2: Selector-based — find all Q and A elements separately, pair by position
-   * Strategy 3: Structural — walk DOM looking for customer/bot message patterns
+   * Primary strategy: iterate every turn; for each, grab the question + concat all
+   * markdownSections. This is robust and matches what's on screen 1:1. Fallbacks
+   * exist for future DOM changes.
    */
   extractQAPairs() {
     const rufusContainer = document.querySelector(this.selectors.chatContainer)
+    this._recordSelectorHit(this.selectors.chatContainer, rufusContainer ? 1 : 0)
     if (!rufusContainer) {
       console.log('[Rufus] Chat container not found')
+      this._strategyUsed = 'no-container'
       return []
     }
 
     let rawPairs = []
     let strategyUsed = 'none'
 
-    // ── Strategy 0: Text-anchor auto-discovery (MOST RESILIENT) ──
-    // Uses THIS BATCH's clicked questions (only those are in the current DOM)
-    if (this._batchClicked.length > 0) {
-      rawPairs = this._extractByTextAnchors(rufusContainer)
+    // Telemetry: how many questions/answers the primary selectors match overall
+    this._recordSelectorHit(this.selectors.questionBubble, rufusContainer.querySelectorAll(this.selectors.questionBubble).length)
+    this._recordSelectorHit(this.selectors.answerBubble, rufusContainer.querySelectorAll(this.selectors.answerBubble).length)
+
+    // ── Strategy 1 (PRIMARY): Turn-based extraction ──
+    // Walk .rufus-papyrus-turn containers. Each turn = 1 Q + N answer sections.
+    // This is the correct 1:1 mapping between screen and data.
+    const turns = this._findTurns(rufusContainer)
+    if (turns.length > 0) {
+      for (const turn of turns) {
+        const qa = this._extractFromTurn(turn)
+        if (qa) rawPairs.push(qa)
+      }
       if (rawPairs.length > 0) {
-        strategyUsed = 'text-anchor'
-        console.log(`[Rufus] Strategy 0 (text-anchor): ${rawPairs.length} pairs from ${this._batchClicked.length} clicked questions`)
+        strategyUsed = 'turn-based'
+        console.log(`[Rufus] Strategy 1 (turn-based): ${rawPairs.length} pairs from ${turns.length} turns`)
       }
     }
 
-    // ── Strategy 1: Turn-based extraction ──
-    if (rawPairs.length === 0) {
-      const turns = this._findTurns(rufusContainer)
-      if (turns.length > 0) {
-        for (const turn of turns) {
-          const qa = this._extractFromTurn(turn)
-          if (qa) rawPairs.push(qa)
-        }
-        if (rawPairs.length > 0) {
-          strategyUsed = 'turn-based'
-          console.log(`[Rufus] Strategy 1 (turn-based): ${rawPairs.length} pairs from ${turns.length} turns`)
-        }
-      }
+    // ── Strategy 2 (FALLBACK): Live-captured pairs from this batch ──
+    // Only used when turn-based finds nothing (e.g. Amazon changes DOM again).
+    if (rawPairs.length === 0 && this._batchClicked.length > 0) {
+      rawPairs = this._livePairs
+      strategyUsed = this._livePairs.length > 0 ? 'live-capture' : 'live-capture-empty'
+      console.log(`[Rufus] Live-capture fallback: ${rawPairs.length} pairs from ${this._batchClicked.length} clicked questions`)
     }
 
-    // ── Strategy 2: Selector-based (separate Q/A lists, pair by position) ──
+    // ── Strategy 3: Selector-based (separate Q/A lists) ──
+    // WARNING: Cannot pair 1:1 because one turn may have multiple answer sections.
+    // Only used as a last resort if turns can't be found. Pairs sequentially
+    // starting from the last question working backwards.
     if (rawPairs.length === 0) {
       const questions = this._findAllQuestions(rufusContainer)
       const answers = this._findAllAnswers(rufusContainer)
@@ -520,12 +581,12 @@ class RufusExtractor {
         }
         if (rawPairs.length > 0) {
           strategyUsed = 'selector-based'
-          console.log(`[Rufus] Strategy 2 (selector-based): ${rawPairs.length} pairs`)
+          console.log(`[Rufus] Strategy 3 (selector-based): ${rawPairs.length} pairs`)
         }
       }
     }
 
-    // ── Strategy 3: Structural walk ──
+    // ── Strategy 4: Structural walk ──
     if (rawPairs.length === 0) {
       const customerEls = this._findAllQuestions(rufusContainer)
       for (const qEl of customerEls) {
@@ -533,11 +594,13 @@ class RufusExtractor {
         if (!qText) continue
 
         let answerText = ''
-        let parent = qEl.parentElement
-        for (let depth = 0; depth < 5 && parent && parent !== rufusContainer; depth++) {
-          const siblings = Array.from(parent.parentElement?.children || [])
-          for (const sibling of siblings) {
-            if (sibling === parent) continue
+        let current = qEl.parentElement
+        for (let depth = 0; depth < 5 && current && current !== rufusContainer; depth++) {
+          const siblings = Array.from(current.parentElement?.children || [])
+          // Only look at siblings AFTER the question's container (answer follows question)
+          const currentIdx = siblings.indexOf(current)
+          for (let i = currentIdx + 1; i < siblings.length; i++) {
+            const sibling = siblings[i]
             if (sibling.contains(qEl)) continue
             const sibText = sibling.textContent.trim()
             if (sibText && sibText !== qText && sibText.length > 15 && !sibText.endsWith('?')) {
@@ -546,7 +609,7 @@ class RufusExtractor {
             }
           }
           if (answerText) break
-          parent = parent.parentElement
+          current = current.parentElement
         }
 
         if (qText && answerText) {
@@ -555,10 +618,11 @@ class RufusExtractor {
       }
       if (rawPairs.length > 0) {
         strategyUsed = 'structural'
-        console.log(`[Rufus] Strategy 3 (structural): ${rawPairs.length} pairs`)
+        console.log(`[Rufus] Strategy 4 (structural): ${rawPairs.length} pairs`)
       }
     }
 
+    this._strategyUsed = strategyUsed
     console.log(`[Rufus] Extraction strategy: ${strategyUsed} (${rawPairs.length} raw pairs)`)
 
     // De-duplicate by exact (question + answer) pair AND validate quality
@@ -582,89 +646,102 @@ class RufusExtractor {
     return uniquePairs
   }
 
-  // ── Strategy 0: Text-anchor auto-discovery ──────────────────
+  // ── Live-capture: extract latest answer immediately after clicking ──
 
   /**
-   * THE MOST RESILIENT EXTRACTION METHOD.
+   * Find the most recently added answer in the chat DOM.
+   * Called right after clicking a question and waiting for the response.
    *
-   * Uses THIS BATCH's clicked question texts as anchors to find Q&A pairs.
-   * Only searches for questions from the current batch because previous
-   * batch DOM is gone after page refresh.
+   * Correct approach: find the LAST .rufus-papyrus-turn (or .rufus-papyrus-active-turn),
+   * then concatenate ALL markdownSection divs inside it — a single question can
+   * generate multiple answer sections (intro paragraph + list + comparison, etc.).
    */
-  _extractByTextAnchors(container) {
-    const pairs = []
-
-    for (const qText of this._batchClicked) {
-      const qElement = this._findTightestElement(container, qText)
-      if (!qElement) {
-        console.log(`[Text-Anchor] Could not find element for: "${qText.substring(0, 40)}..."`)
-        continue
-      }
-
-      const answerText = this._findAnswerNearQuestion(qElement, qText, container)
-      if (answerText) {
-        pairs.push({ question: cleanExtractedText(qText), answer: cleanExtractedText(answerText) })
-      } else {
-        console.log(`[Text-Anchor] No answer found near: "${qText.substring(0, 40)}..."`)
-      }
+  _extractLatestAnswer() {
+    const container = document.querySelector(this.selectors.chatContainer)
+    if (!container) {
+      console.log('[LiveCapture] Container NOT FOUND:', this.selectors.chatContainer)
+      return null
     }
+    console.log(`[LiveCapture] Container found, textContent: ${container.textContent.trim().length} chars`)
 
-    return pairs
-  }
-
-  /**
-   * Find the tightest (smallest) DOM element that contains the exact target text.
-   */
-  _findTightestElement(container, targetText) {
-    const candidates = []
-    const walker = document.createTreeWalker(container, NodeFilter.SHOW_ELEMENT)
-    let node
-    while ((node = walker.nextNode())) {
-      const nodeText = node.textContent.trim()
-      if (nodeText === targetText) {
-        candidates.push({ el: node, exactness: nodeText.length })
-      }
-    }
-
-    if (candidates.length === 0) return null
-
-    candidates.sort((a, b) => a.exactness - b.exactness)
-    return candidates[0].el
-  }
-
-  /**
-   * Given a question element, find the answer text by walking up the DOM
-   * to find the ancestor that contains both the question and the answer.
-   */
-  _findAnswerNearQuestion(qElement, qText, rootContainer) {
-    let current = qElement
-
-    for (let depth = 0; depth < 8 && current && current !== rootContainer; depth++) {
-      const parent = current.parentElement
-      if (!parent) break
-
-      const children = Array.from(parent.children)
-      for (const child of children) {
-        if (child === current || child.contains(qElement) || qElement.contains(child)) continue
-
-        const childText = child.textContent.trim()
-        if (childText && childText.length > 15 && childText !== qText) {
-          if (childText.length < 50 && childText.endsWith('?')) continue
-          return childText
+    // Preferred: grab the latest turn (active or last history turn) and concat its sections
+    const turnSelectors = ['.rufus-papyrus-active-turn', '.rufus-papyrus-turn']
+    for (const turnSel of turnSelectors) {
+      const turns = container.querySelectorAll(turnSel)
+      if (turns.length === 0) continue
+      const latestTurn = turns[turns.length - 1]
+      const sections = latestTurn.querySelectorAll('div[data-csa-c-group-id^="markdownSection"]')
+      if (sections.length > 0) {
+        const text = Array.from(sections)
+          .map((s) => s.textContent.trim())
+          .filter((t) => t.length > 0)
+          .join('\n\n')
+        if (text && text.length > 15) {
+          console.log(`[LiveCapture] HIT via turn "${turnSel}" (${sections.length} sections, ${text.length} chars): "${text.substring(0, 80)}..."`)
+          return text
         }
       }
-
-      current = parent
     }
 
+    // Fallback: pick the last markdownSection anywhere in the container (legacy behavior)
+    const answerSelectors = [
+      'div[data-csa-c-group-id^="markdownSection"]',
+      '[id^="section_groupId_text_template_"]',
+      '[data-csa-c-type="container"][data-csa-c-group-id]',
+      '[class*="markdown"][class*="section"]',
+    ]
+
+    for (const selector of answerSelectors) {
+      try {
+        const elements = container.querySelectorAll(selector)
+        console.log(`[LiveCapture] Selector "${selector}": ${elements.length} matches`)
+        if (elements.length > 0) {
+          for (let i = elements.length - 1; i >= 0; i--) {
+            const text = elements[i].textContent.trim()
+            if (text && text.length > 15) {
+              console.log(`[LiveCapture] HIT via selector "${selector}" (${text.length} chars): "${text.substring(0, 80)}..."`)
+              return text
+            }
+          }
+        }
+      } catch { /* skip invalid selector */ }
+    }
+
+    // Fallback 1: any div with dir="auto" or CSS-in-JS classes
+    const allBlocks = container.querySelectorAll('div[dir="auto"], div[class*="css-"]')
+    console.log(`[LiveCapture] Fallback 1 (dir=auto / css-*): ${allBlocks.length} elements`)
+    for (let i = allBlocks.length - 1; i >= 0; i--) {
+      const text = allBlocks[i].textContent.trim()
+      if (text && text.length > 20 && !text.endsWith('?')) {
+        console.log(`[LiveCapture] HIT via fallback 1 (${text.length} chars): "${text.substring(0, 80)}..."`)
+        return text
+      }
+    }
+
+    // Fallback 2: broadest — any div with substantial text
+    const allDivs = container.querySelectorAll('div')
+    const containerLen = container.textContent.trim().length
+    console.log(`[LiveCapture] Fallback 2 (all divs): ${allDivs.length} elements, container text: ${containerLen} chars`)
+    for (let i = allDivs.length - 1; i >= 0; i--) {
+      const text = allDivs[i].textContent.trim()
+      if (text && text.length > 30 && !text.endsWith('?') && allDivs[i] !== container) {
+        if (text.length > containerLen * 0.8) continue
+        console.log(`[LiveCapture] HIT via fallback 2 (${text.length} chars): "${text.substring(0, 80)}..."`)
+        return text
+      }
+    }
+
+    console.log('[LiveCapture] ALL METHODS FAILED — returning null')
     return null
   }
 
-  // ── Selector-based helpers (Strategies 1-3) ────────────────
+  // ── Selector-based helpers (Strategies 3-4) ────────────────
 
   _findTurns(container) {
     const turnSelectors = [
-      'div[id^="history-turn-"]',
+      '.rufus-papyrus-turn',            // 2026 Rufus: ids interaction0, interaction1, …
+      'div[id^="interaction"]',          // Same thing via id prefix
+      'div[id^="history-turn-"]',        // Legacy
       '.conversation-turn-container',
       '[class*="turn-container"]',
       '[class*="history-turn"]',
@@ -672,6 +749,7 @@ class RufusExtractor {
     for (const selector of turnSelectors) {
       try {
         const turns = container.querySelectorAll(selector)
+        this._recordSelectorHit(selector, turns.length)
         if (turns.length > 0) {
           const topLevel = Array.from(turns).filter((t) => {
             return this._findQuestionInElement(t) !== null
@@ -687,11 +765,13 @@ class RufusExtractor {
   }
 
   _findQuestionInElement(el) {
+    // Prefer .rufus-customer-text first — gives clean question text without junk.
+    // [data-section-class="CustomerText"] wraps it but includes "Customer question" screen-reader label.
     const questionSelectors = [
-      '[data-section-class="CustomerText"]',
       '.rufus-customer-text',
       '.dialog-customer',
       '[class*="customer-text"]',
+      '[data-section-class="CustomerText"]',
       '[class*="customer"][class*="dialog"]',
     ]
     for (const selector of questionSelectors) {
@@ -703,7 +783,13 @@ class RufusExtractor {
     return null
   }
 
-  _findAnswerInElement(el, questionEl) {
+  /**
+   * Find ALL answer section elements inside a turn.
+   * A single Rufus response can contain multiple markdownSection divs
+   * (e.g. intro paragraph + bullet list + comparison). We return them all
+   * so _extractFromTurn can concatenate them into one answer.
+   */
+  _findAnswerElementsInTurn(el) {
     const answerSelectors = [
       'div[data-csa-c-group-id^="markdownSection"]',
       '[id^="section_groupId_text_template_"]',
@@ -712,25 +798,13 @@ class RufusExtractor {
     ]
     for (const selector of answerSelectors) {
       try {
-        const found = el.querySelector(selector)
-        if (found && found.textContent.trim().length > 15) return found
+        const els = Array.from(el.querySelectorAll(selector)).filter(
+          (e) => e.textContent.trim().length > 5
+        )
+        if (els.length > 0) return els
       } catch { /* skip */ }
     }
-
-    // Heuristic: find the largest text block that isn't the question
-    const questionText = questionEl ? questionEl.textContent.trim() : ''
-    let bestCandidate = null
-    let bestLength = 0
-    const candidates = el.querySelectorAll('div[dir="auto"], div[class*="css-"]')
-    for (const c of candidates) {
-      if (questionEl && (questionEl.contains(c) || c.contains(questionEl))) continue
-      const text = c.textContent.trim()
-      if (text.length > bestLength && text !== questionText && text.length > 15) {
-        bestCandidate = c
-        bestLength = text.length
-      }
-    }
-    return bestCandidate
+    return []
   }
 
   _extractFromTurn(turn) {
@@ -740,10 +814,16 @@ class RufusExtractor {
     const questionText = cleanExtractedText(questionEl.textContent.trim())
     if (!questionText) return null
 
-    const answerEl = this._findAnswerInElement(turn, questionEl)
-    if (!answerEl) return null
+    const answerEls = this._findAnswerElementsInTurn(turn)
+    if (answerEls.length === 0) return null
 
-    const answerText = cleanExtractedText(answerEl.textContent.trim())
+    // Concatenate ALL answer sections into one answer.
+    // A single Q can produce multiple markdown sections (intro + list + comparison).
+    const answerText = answerEls
+      .map((e) => cleanExtractedText(e.textContent.trim()))
+      .filter((t) => t.length > 0)
+      .join('\n\n')
+
     if (!answerText || answerText.length <= 15) return null
 
     return { question: questionText, answer: answerText }
@@ -751,10 +831,10 @@ class RufusExtractor {
 
   _findAllQuestions(container) {
     const selectors = [
-      '[data-section-class="CustomerText"]',
-      '.rufus-customer-text',
+      '.rufus-customer-text',             // Prefer — returns clean question text
       '.dialog-customer',
       '[class*="customer-text"]',
+      '[data-section-class="CustomerText"]',
     ]
     for (const selector of selectors) {
       try {
@@ -784,6 +864,187 @@ class RufusExtractor {
       } catch { /* skip */ }
     }
     return []
+  }
+
+  /**
+   * Type a custom question into the Rufus input, submit, wait for the answer,
+   * and capture (Q, A) live. Used by ASK_CUSTOM_QUESTIONS — bypasses chip-clicking
+   * so callers can ask their own prompts (Amy Wees Rufus loop, etc.).
+   *
+   * Submit strategy: prefer clicking the submit button (Amazon enables it once
+   * text is detected via React state). Fall back to Enter keypress if the button
+   * is disabled or missing.
+   */
+  async askCustomQuestions(questions) {
+    const inputSel = this.selectors.rufusInput
+    const submitSel = this.selectors.rufusSubmit
+
+    if (!inputSel) {
+      return { success: false, error: 'rufusInput selector not configured', pairs: [] }
+    }
+
+    const livePairs = []
+    const askedQuestions = []
+
+    for (let i = 0; i < questions.length; i++) {
+      if (this.aborted) break
+      const question = questions[i].trim()
+      if (!question) continue
+
+      let input
+      try {
+        input = await waitForElement(inputSel, 8000)
+      } catch {
+        return {
+          success: livePairs.length > 0,
+          error: `Could not find Rufus input box (selector: ${inputSel}). Update via Settings.`,
+          pairs: livePairs,
+          askedQuestions,
+        }
+      }
+
+      const beforeTurnCount = this._countAllTurns()
+
+      this._setInputValue(input, question)
+      await sleep(300)
+
+      let submitted = false
+      if (submitSel) {
+        const submitBtn = document.querySelector(submitSel)
+        if (submitBtn && !submitBtn.disabled) {
+          submitBtn.click()
+          submitted = true
+        }
+      }
+      if (!submitted) {
+        input.focus()
+        const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })
+        input.dispatchEvent(enterEvent)
+        const enterUp = new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })
+        input.dispatchEvent(enterUp)
+      }
+
+      askedQuestions.push(question)
+      this._allHandled.add(question)
+      this.totalQuestionsHandled++
+
+      chrome.runtime.sendMessage({
+        type: 'EXTRACTION_PROGRESS',
+        data: { questionsClicked: this.totalQuestionsHandled, lastQuestion: question.substring(0, 60) },
+      }).catch(() => {})
+
+      console.log(`[Rufus] Custom Q${i + 1}/${questions.length}: "${question.substring(0, 60)}..."`)
+
+      const newTurn = await this._waitForNewTurn(beforeTurnCount, 30000)
+      if (!newTurn) {
+        console.log('[Rufus] No new turn appeared after submitting — Rufus may not have accepted the question')
+        continue
+      }
+
+      // Wait for answer to finish streaming. We poll the latest turn's text length
+      // and consider it complete once it stops growing for `stableMs`.
+      // Loader classes (rufus-loader-avatar, rufus-conversation-loader) change between
+      // Amazon UI versions, so length-stability is the most robust signal.
+      await this._waitForAnswerComplete({ maxMs: 60000, stableMs: 2500, minLen: 30 })
+      await sleep(500)
+
+      const answerText = this._extractLatestAnswer()
+      if (answerText) {
+        livePairs.push({
+          question: cleanExtractedText(question),
+          answer: cleanExtractedText(answerText),
+        })
+        this._livePairs.push({
+          question: cleanExtractedText(question),
+          answer: cleanExtractedText(answerText),
+        })
+        console.log(`[Rufus] Custom Q${i + 1} captured (${answerText.length} chars)`)
+      } else {
+        console.log(`[Rufus] No answer captured for custom Q${i + 1}`)
+      }
+    }
+
+    return {
+      success: livePairs.length > 0,
+      pairs: livePairs,
+      askedQuestions,
+      totalAsked: askedQuestions.length,
+    }
+  }
+
+  /**
+   * React-friendly value setter for textarea/input. Setting `.value` directly
+   * bypasses React's synthetic event system; using the prototype's native setter
+   * + dispatching an input event tricks React into picking up the change.
+   */
+  _setInputValue(el, text) {
+    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
+    el.focus()
+    if (setter) {
+      setter.call(el, text)
+    } else {
+      el.value = text
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+  }
+
+  /**
+   * Count ALL turns on the page. Streaming turns are tagged
+   * .rufus-papyrus-active-turn (no .rufus-papyrus-turn) until streaming finishes,
+   * so we have to count both classes to detect that a new question registered.
+   */
+  _countAllTurns() {
+    const container = document.querySelector(this.selectors.chatContainer)
+    const root = container || document
+    return root.querySelectorAll('.rufus-papyrus-turn, .rufus-papyrus-active-turn').length
+  }
+
+  _findLatestTurn() {
+    const container = document.querySelector(this.selectors.chatContainer)
+    const root = container || document
+    const turns = root.querySelectorAll('.rufus-papyrus-active-turn, .rufus-papyrus-turn')
+    return turns[turns.length - 1] || null
+  }
+
+  /**
+   * Wait until total turn count exceeds beforeCount (= Rufus accepted our
+   * question and started a new turn). Returns the latest turn or null on timeout.
+   */
+  async _waitForNewTurn(beforeCount, timeoutMs = 30000) {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      if (this._countAllTurns() > beforeCount) {
+        return this._findLatestTurn()
+      }
+      await sleep(300)
+    }
+    return null
+  }
+
+  /**
+   * Wait until the latest turn's text stops growing — heuristic for "stream done"
+   * that doesn't depend on Amazon's loader class names (they churn across UI versions).
+   * Polls every 500ms; considers complete after `stableMs` of no growth past `minLen`.
+   */
+  async _waitForAnswerComplete({ maxMs = 60000, stableMs = 2500, minLen = 30 }) {
+    const start = Date.now()
+    let lastLen = 0
+    let stableSince = null
+    while (Date.now() - start < maxMs) {
+      const turn = this._findLatestTurn()
+      const len = turn ? turn.textContent.trim().length : 0
+      if (len !== lastLen) {
+        lastLen = len
+        stableSince = null
+      } else if (len >= minLen) {
+        if (stableSince === null) stableSince = Date.now()
+        else if (Date.now() - stableSince >= stableMs) return true
+      }
+      await sleep(500)
+    }
+    return false
   }
 
   /**
@@ -843,6 +1104,9 @@ class RufusExtractor {
       stoppedOffTopic: this.consecutiveOffTopic >= this.maxOffTopic,
       asin: getAsinFromUrl(),
       url: window.location.href,
+      // Telemetry (forwarded to backend via extraction log)
+      strategyUsed: this._strategyUsed,
+      selectorsHit: this._selectorsHit,
     }
   }
 }
@@ -914,6 +1178,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true
   }
 
+  // ── Custom-question mode: type each question into Rufus, capture each answer ──
+  if (message.type === 'ASK_CUSTOM_QUESTIONS') {
+    const extractor = new RufusExtractor(
+      message.settings,
+      message.completedQuestions || [],
+      [],
+      [],
+    )
+    currentExtractor = extractor
+    ;(async () => {
+      try {
+        const loginStatus = checkAmazonLogin()
+        if (loginStatus.loggedIn === false) {
+          sendResponse({ success: false, error: `Not logged into Amazon. ${loginStatus.hint}.`, loginRequired: true, pairs: [] })
+          currentExtractor = null
+          return
+        }
+        const opened = await extractor.openRufus()
+        if (!opened) {
+          sendResponse({ success: false, error: 'Could not open Rufus chat panel.', pairs: [] })
+          currentExtractor = null
+          return
+        }
+        // Click "Start a new chat" so prior product/conversation context doesn't pollute answers.
+        // Rufus retains chat memory across product navigations — without this reset,
+        // questions like "what are people buying instead?" return "already covered earlier".
+        const newChatBtn = document.querySelector('#rufus-panel-header-new-chat, [aria-label="Start a new chat"]')
+        if (newChatBtn) {
+          newChatBtn.click()
+          await sleep(2000)
+        }
+        const result = await extractor.askCustomQuestions(message.questions || [])
+        currentExtractor = null
+        sendResponse({
+          ...result,
+          asin: getAsinFromUrl(),
+          url: window.location.href,
+          mode: 'custom',
+        })
+      } catch (err) {
+        currentExtractor = null
+        const pairs = extractor._livePairs || []
+        sendResponse({ success: pairs.length > 0, error: err.message, pairs })
+      }
+    })()
+    return true
+  }
+
   if (message.type === 'ABORT_EXTRACTION') {
     if (currentExtractor) {
       currentExtractor.aborted = true
@@ -924,15 +1236,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'EXTRACT_QA_ONLY') {
-    // Extract whatever Q&A is currently in the DOM
+    // Extract whatever Q&A is currently in the DOM.
+    // If currentExtractor has live-captured pairs, use those (guaranteed correct).
+    // A temp extractor has no _livePairs so it would use fallback strategies.
     if (currentExtractor) {
       currentExtractor.aborted = true
       const pairs = currentExtractor.extractQAPairs()
       sendResponse({ success: pairs.length > 0, questions: pairs, partialResults: true })
     } else {
-      const tempExtractor = new RufusExtractor(message.settings || {})
-      const pairs = tempExtractor.extractQAPairs()
-      sendResponse({ success: pairs.length > 0, questions: pairs, partialResults: true })
+      // No active extractor — return empty rather than risk shifted data
+      console.log('[Rufus] EXTRACT_QA_ONLY: no active extractor, returning empty')
+      sendResponse({ success: false, questions: [], partialResults: true })
     }
     return true
   }

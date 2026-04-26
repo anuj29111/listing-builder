@@ -8,6 +8,11 @@
 // ─── Elements ────────────────────────────────────────────────────
 const marketplace = document.getElementById('marketplace')
 const asinInput = document.getElementById('asinInput')
+const customQuestionsInput = document.getElementById('customQuestions')
+const customQuestionsField = document.getElementById('customQuestionsField')
+const autoModeNote = document.getElementById('autoModeNote')
+const modeAutoRadio = document.getElementById('modeAuto')
+const modeManualRadio = document.getElementById('modeManual')
 const addBtn = document.getElementById('addBtn')
 const startBtn = document.getElementById('startBtn')
 const stopBtn = document.getElementById('stopBtn')
@@ -26,12 +31,40 @@ const queueModeToggle = document.getElementById('queueModeToggle')
 const queueModeStatus = document.getElementById('queueModeStatus')
 
 // ─── Load saved preferences ─────────────────────────────────────
-chrome.storage.sync.get(['lastMarketplace', 'settings'], (result) => {
+chrome.storage.sync.get(['lastMarketplace', 'settings', 'lastCustomQuestions', 'lastMode'], (result) => {
   if (result.lastMarketplace) marketplace.value = result.lastMarketplace
   // Restore max questions from settings (default 50)
   const saved = result.settings?.maxQuestions
   if (saved && maxQuestionsSelect.querySelector(`option[value="${saved}"]`)) {
     maxQuestionsSelect.value = saved
+  }
+  if (result.lastCustomQuestions && customQuestionsInput) {
+    customQuestionsInput.value = result.lastCustomQuestions
+  }
+  if (result.lastMode === 'manual') {
+    modeManualRadio.checked = true
+  } else {
+    modeAutoRadio.checked = true
+  }
+  applyModeUI()
+})
+
+function applyModeUI() {
+  const isManual = modeManualRadio.checked
+  customQuestionsField.style.display = isManual ? '' : 'none'
+  autoModeNote.style.display = isManual ? 'none' : ''
+}
+
+modeAutoRadio.addEventListener('change', () => {
+  if (modeAutoRadio.checked) {
+    chrome.storage.sync.set({ lastMode: 'auto' })
+    applyModeUI()
+  }
+})
+modeManualRadio.addEventListener('change', () => {
+  if (modeManualRadio.checked) {
+    chrome.storage.sync.set({ lastMode: 'manual' })
+    applyModeUI()
   }
 })
 
@@ -118,6 +151,15 @@ function renderQueue(state) {
     asinSpan.className = 'asin'
     asinSpan.textContent = item.asin
     div.appendChild(asinSpan)
+
+    // Custom-Q indicator
+    if (item.customQuestions?.length > 0) {
+      const modeSpan = document.createElement('span')
+      modeSpan.className = 'qa-count'
+      modeSpan.textContent = `${item.customQuestions.length} custom`
+      modeSpan.title = `Custom questions:\n${item.customQuestions.join('\n')}`
+      div.appendChild(modeSpan)
+    }
 
     // Progress text (while processing)
     if (item.progress) {
@@ -212,11 +254,25 @@ addBtn.addEventListener('click', () => {
 
   if (asins.length === 0) return
 
-  // Save marketplace preference
-  chrome.storage.sync.set({ lastMarketplace: marketplace.value })
+  const isManual = modeManualRadio.checked
+  const customQRaw = customQuestionsInput?.value || ''
+  const customQuestions = isManual
+    ? customQRaw.split(/\n+/).map((s) => s.trim()).filter(Boolean)
+    : []
+
+  if (isManual && customQuestions.length === 0) {
+    alert('Manual mode is selected but no questions are filled in. Add questions or switch to Auto chips.')
+    return
+  }
+
+  // Persist marketplace + custom questions for next popup open.
+  chrome.storage.sync.set({
+    lastMarketplace: marketplace.value,
+    lastCustomQuestions: customQRaw,
+  })
 
   chrome.runtime.sendMessage(
-    { type: 'ADD_TO_QUEUE', data: { asins, marketplace: marketplace.value } },
+    { type: 'ADD_TO_QUEUE', data: { asins, marketplace: marketplace.value, customQuestions } },
     (response) => {
       if (response?.success) {
         asinInput.value = ''
@@ -283,7 +339,16 @@ exportBtn.addEventListener('click', () => {
 })
 
 settingsBtn.addEventListener('click', () => {
-  chrome.runtime.openOptionsPage()
+  // openOptionsPage can fail on some Chromium-based browsers (e.g. Dia) — fall back to direct URL
+  if (chrome.runtime.openOptionsPage) {
+    try {
+      chrome.runtime.openOptionsPage()
+      return
+    } catch {
+      // fall through
+    }
+  }
+  chrome.tabs.create({ url: chrome.runtime.getURL('options.html') })
 })
 
 // Ctrl+Enter in textarea to add

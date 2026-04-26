@@ -4,6 +4,9 @@ Automates the extraction of Q&A from Amazon's Rufus AI shopping assistant and se
 
 ## How It Works
 
+Two modes — pick one per ASIN batch:
+
+**Auto-chips mode** (custom questions field empty):
 1. You paste a list of ASINs and select a marketplace
 2. The extension opens each product page **one at a time** (sequential — never parallel)
 3. It opens the Rufus chat, then auto-clicks suggested questions
@@ -11,6 +14,14 @@ Automates the extraction of Q&A from Amazon's Rufus AI shopping assistant and se
 5. Extracts all Q&A pairs, de-duplicates exact matches
 6. Sends results to the Listing Builder API
 7. **Refreshes the page** before moving to the next product (resets Rufus chat state)
+
+**Custom-questions mode** (custom questions field filled):
+1. You paste ASINs **and** custom questions (one per line) into the popup
+2. The extension opens each product page, opens Rufus
+3. It **types each question** into the Rufus input box, clicks submit, waits for the answer
+4. Same Rufus session for all questions on a product (context builds across the conversation)
+5. Captures (Q, A) pairs, sends to the Listing Builder API
+6. Used for the Amy Wees Rufus loop — your own framing questions instead of Rufus's chips
 
 ## Key Design Decisions
 

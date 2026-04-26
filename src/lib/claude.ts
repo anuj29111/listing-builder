@@ -693,6 +693,16 @@ export interface ListingGenerationInput {
   optimizationMode?: 'new' | 'optimize_existing' | 'based_on_existing'
   existingListingText?: { title: string; bullets: string[]; description: string; reference_asin?: string } | null
   productPhotoDescriptions?: Record<string, import('@/types/api').ProductPhotoDescription> | null
+  /**
+   * Direct Rufus AI Q&A insights for this ASIN (raw Q/A pairs + optional synthesis).
+   * Sourced from lb_asin_questions (source='rufus') and the latest synthesis_md
+   * on lb_rufus_job_items. When present, augments the structured qnaAnalysis with
+   * primary-source Rufus voice.
+   */
+  rufusQnA?: {
+    qaPairs: Array<{ question: string; answer: string }>
+    synthesisMd?: string | null
+  } | null
 }
 
 export interface ListingGenerationResult {
@@ -836,7 +846,7 @@ function buildListingGenerationPrompt(input: ListingGenerationInput): string {
   const {
     productName, brand, asin, attributes, categoryName, countryName, language,
     charLimits, keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
-    marketIntelligence, optimizationMode, existingListingText,
+    marketIntelligence, optimizationMode, existingListingText, rufusQnA,
   } = input
 
   const attrStr = Object.entries(attributes)
@@ -1043,7 +1053,7 @@ ${keywordSection}
 ${reviewSection}
 
 === Q&A / CUSTOMER CONCERNS ===
-${qnaSection}${competitorSection}${existingListingSection}
+${qnaSection}${buildRufusInsightsSection(rufusQnA)}${competitorSection}${existingListingSection}
 
 === PLANNING PHASE ===
 BEFORE writing any content, you MUST first create a planningMatrix. For each bullet (1-${charLimits.bulletCount}), decide:
@@ -1166,11 +1176,38 @@ import type {
  * Extracts the shared context block (product info + research data) used by all 4 phases.
  * This is the full, untruncated research data — no cost optimization.
  */
+function buildRufusInsightsSection(
+  rufusQnA: ListingGenerationInput['rufusQnA']
+): string {
+  if (!rufusQnA) return ''
+  const { qaPairs, synthesisMd } = rufusQnA
+  const hasPairs = Array.isArray(qaPairs) && qaPairs.length > 0
+  if (!hasPairs && !synthesisMd) return ''
+
+  // Cap to first 25 Q&A to keep prompt tight (Pass 1 + Pass 2 + early Oxylabs Q ≈ 20-30)
+  const cappedPairs = hasPairs ? qaPairs.slice(0, 25) : []
+  const pairsBlock = cappedPairs
+    .map((qa, i) => `Q${i + 1}: ${qa.question}\nA${i + 1}: ${qa.answer}`)
+    .join('\n\n')
+
+  const synthBlock = synthesisMd
+    ? `\n\n## Pre-built listing recommendations (synthesized from the Q&A above)\n${synthesisMd.trim()}\n`
+    : ''
+
+  return `
+
+=== DIRECT RUFUS AI INSIGHTS (primary source) ===
+Below are ${cappedPairs.length} Q&A pairs captured directly from Amazon's Rufus AI assistant for THIS specific ASIN. Rufus's answers reflect what real shoppers see when researching this product. These are the most authentic voice-of-customer signals available — use them to drive bullet themes, image briefs, and FAQ content.
+
+${pairsBlock || '(No raw Q&A pairs available — see synthesis below.)'}${synthBlock}`
+}
+
 function buildSharedContext(input: ListingGenerationInput): string {
   const {
     productName, brand, asin, attributes, categoryName, countryName, language,
     charLimits, keywordAnalysis, reviewAnalysis, qnaAnalysis, competitorAnalysis,
     marketIntelligence, optimizationMode, existingListingText, productPhotoDescriptions,
+    rufusQnA,
   } = input
 
   const attrStr = Object.entries(attributes)
@@ -1391,7 +1428,7 @@ ${keywordSection}
 ${reviewSection}
 
 === Q&A / CUSTOMER CONCERNS ===
-${qnaSection}${competitorSection}${existingListingSection}`
+${qnaSection}${buildRufusInsightsSection(rufusQnA)}${competitorSection}${existingListingSection}`
 }
 
 /**

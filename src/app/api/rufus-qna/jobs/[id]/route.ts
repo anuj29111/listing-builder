@@ -24,6 +24,7 @@ export async function GET(
         source,
         market_intelligence_id,
         status,
+        loop_mode,
         total_asins,
         completed_asins,
         failed_asins,
@@ -40,7 +41,9 @@ export async function GET(
 
     const { data: items, error: itemsErr } = await supabase
       .from('lb_rufus_job_items')
-      .select('id, asin, status, questions_found, error_message, started_at, completed_at')
+      .select(
+        'id, asin, status, questions_found, error_message, started_at, completed_at, loop_phase, custom_questions, parent_item_id, synthesis_md, marketplace, max_questions'
+      )
       .eq('job_id', params.id)
       .order('id', { ascending: true })
 

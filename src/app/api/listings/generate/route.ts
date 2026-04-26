@@ -70,6 +70,41 @@ async function buildGenerationInput(
   const qnaRow = pickBest('qna_analysis')
   const competitorRow = pickBest('competitor_analysis')
 
+  // Fetch direct Rufus Q&A insights for this ASIN (raw Q/A pairs + latest synthesis_md)
+  // These are the primary-source voice-of-Rufus signals captured by the Chrome extension.
+  let rufusQnA: { qaPairs: Array<{ question: string; answer: string }>; synthesisMd?: string | null } | null = null
+  const asinForLookup = (generationContext.asin as string | undefined)?.trim().toUpperCase()
+  if (asinForLookup && /^[A-Z0-9]{10}$/.test(asinForLookup)) {
+    const { data: askRow } = await supabase
+      .from('lb_asin_questions')
+      .select('questions')
+      .eq('asin', asinForLookup)
+      .eq('country_id', countryId)
+      .single<{ questions: Array<{ question: string; answer: string; source?: string }> }>()
+
+    const rufusOnly = (askRow?.questions || [])
+      .filter((q) => q.source === 'rufus')
+      .map((q) => ({ question: q.question, answer: q.answer }))
+
+    let synthesisMd: string | null = null
+    if (rufusOnly.length > 0) {
+      // Find most recent synthesis_md across this ASIN's job items (any job)
+      const { data: synthRow } = await supabase
+        .from('lb_rufus_job_items')
+        .select('synthesis_md, completed_at')
+        .eq('asin', asinForLookup)
+        .not('synthesis_md', 'is', null)
+        .order('completed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle<{ synthesis_md: string | null }>()
+      synthesisMd = synthRow?.synthesis_md ?? null
+    }
+
+    if (rufusOnly.length > 0 || synthesisMd) {
+      rufusQnA = { qaPairs: rufusOnly, synthesisMd }
+    }
+  }
+
   // Resolve linked Market Intelligence data
   const miRow = allAnalyses.find((a) => a.analysis_type === 'market_intelligence' && a.source === 'linked')
   let marketIntelligence = null
@@ -108,6 +143,7 @@ async function buildGenerationInput(
     optimizationMode: (optimizationMode as 'new' | 'optimize_existing' | 'based_on_existing') || 'new',
     existingListingText: existingListingText || null,
     productPhotoDescriptions: productPhotoDescriptions || null,
+    rufusQnA,
   }
 }
 
