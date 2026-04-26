@@ -83,7 +83,7 @@ function truncateCSVContent(csvContent: string, maxChars: number = MAX_PROMPT_CH
   }
 }
 
-async function getApiKey(): Promise<string> {
+export async function getApiKey(): Promise<string> {
   // Try lb_admin_settings first (set via Admin Settings UI)
   try {
     const adminClient = createAdminClient()
@@ -104,12 +104,77 @@ async function getApiKey(): Promise<string> {
   throw new Error('ANTHROPIC_API_KEY not found. Set it in Admin Settings or as an environment variable.')
 }
 
-async function getClient(): Promise<Anthropic> {
+export async function getClient(): Promise<Anthropic> {
   const apiKey = await getApiKey()
   return new Anthropic({ apiKey })
 }
 
-async function getModel(): Promise<string> {
+// In-process cache for the auto-resolved model id.
+// Re-resolves at most once per AUTO_MODEL_TTL_MS to avoid hitting /v1/models on every call.
+const AUTO_MODEL_TTL_MS = 24 * 60 * 60 * 1000 // 24h
+const autoModelCache: Record<string, { id: string; resolvedAt: number }> = {}
+
+/**
+ * Resolve a special "auto-<family>" model token to the latest model ID in that family.
+ * Examples: "auto-sonnet" → "claude-sonnet-4-7" (or whatever is newest).
+ *
+ * Strategy:
+ *   1. Check 24h in-memory cache
+ *   2. Call Anthropic /v1/models, filter by family prefix, sort by created_at desc
+ *   3. Cache + persist back to lb_admin_settings.<key>_resolved for visibility
+ *
+ * Falls back to DEFAULT_CLAUDE_MODEL if anything fails.
+ */
+async function resolveAutoModel(token: string): Promise<string> {
+  const family = token.replace(/^auto-/, '').toLowerCase().trim() // 'sonnet' | 'opus' | 'haiku'
+  if (!family) return DEFAULT_CLAUDE_MODEL
+
+  const cached = autoModelCache[family]
+  if (cached && Date.now() - cached.resolvedAt < AUTO_MODEL_TTL_MS) {
+    return cached.id
+  }
+
+  try {
+    const client = await getClient()
+    const list = await client.models.list({ limit: 100 })
+    const matches = (list.data ?? [])
+      .filter((m) => typeof m.id === 'string' && m.id.startsWith(`claude-${family}-`))
+      .sort((a, b) => {
+        const aTs = a.created_at ? Date.parse(a.created_at) : 0
+        const bTs = b.created_at ? Date.parse(b.created_at) : 0
+        return bTs - aTs
+      })
+    const winner = matches[0]?.id
+    if (!winner) return DEFAULT_CLAUDE_MODEL
+
+    autoModelCache[family] = { id: winner, resolvedAt: Date.now() }
+
+    // Persist resolved id back to admin settings for transparency (best-effort)
+    try {
+      const adminClient = createAdminClient()
+      await adminClient
+        .from('lb_admin_settings')
+        .upsert(
+          {
+            key: `claude_model_resolved_${family}`,
+            value: winner,
+            description: `Auto-resolved latest claude-${family}-* (refreshed every 24h)`,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'key' }
+        )
+    } catch {
+      // best-effort; don't fail the call if persistence fails
+    }
+
+    return winner
+  } catch {
+    return DEFAULT_CLAUDE_MODEL
+  }
+}
+
+export async function getModel(): Promise<string> {
+  let raw = ''
   try {
     const adminClient = createAdminClient()
     const { data } = await adminClient
@@ -117,11 +182,20 @@ async function getModel(): Promise<string> {
       .select('value')
       .eq('key', 'claude_model')
       .single()
-    if (data?.value) return data.value
+    raw = (data?.value || '').trim()
   } catch {
     // DB lookup failed, fall through to default
   }
-  return DEFAULT_CLAUDE_MODEL
+
+  if (!raw) return DEFAULT_CLAUDE_MODEL
+
+  // "auto-sonnet" / "auto-opus" / "auto-haiku" → resolve latest in family
+  if (raw.toLowerCase().startsWith('auto-')) {
+    return resolveAutoModel(raw)
+  }
+
+  // Otherwise treat as pinned model id
+  return raw
 }
 
 /**
@@ -144,7 +218,7 @@ interface ThinkingConfig {
   budgetTokens: number
 }
 
-async function getThinkingConfig(): Promise<ThinkingConfig> {
+export async function getThinkingConfig(): Promise<ThinkingConfig> {
   try {
     const adminClient = createAdminClient()
     const { data } = await adminClient
@@ -166,7 +240,7 @@ interface WebSearchConfig {
   maxUses: number
 }
 
-async function getWebSearchConfig(): Promise<WebSearchConfig> {
+export async function getWebSearchConfig(): Promise<WebSearchConfig> {
   try {
     const adminClient = createAdminClient()
     const { data } = await adminClient
@@ -188,7 +262,7 @@ async function getWebSearchConfig(): Promise<WebSearchConfig> {
  * When thinking is enabled, max_tokens is bumped to accommodate budget + output tokens.
  * When webSearch is true, adds the web_search tool for real-time research.
  */
-async function createMessage(
+export async function createMessage(
   client: Anthropic,
   params: MessageCreateParamsNonStreaming,
   options?: { webSearch?: boolean }

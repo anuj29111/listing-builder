@@ -4,48 +4,20 @@
  * Two responsibilities:
  *   1. generatePass2Questions — given Pass 1 answers, produce 15 product-specific follow-ups
  *   2. generateSynthesis — given full Rufus Q&A set, produce a recommendations.md
+ *
+ * Both calls go through the shared `createMessage` helper from `claude.ts`,
+ * so they automatically pick up:
+ *   - Model from lb_admin_settings.claude_model (incl. "auto-sonnet" auto-resolve)
+ *   - Extended thinking budget from lb_admin_settings.thinking_enabled / thinking_budget
+ *   - Web search (research mode) when requested + enabled in admin settings
  */
-import Anthropic from '@anthropic-ai/sdk'
-import { createAdminClient } from '@/lib/supabase/server'
-import { DEFAULT_CLAUDE_MODEL } from '@/lib/constants'
+import { getClient, getModel, createMessage } from '@/lib/claude'
 
 interface QAPair {
   question: string
   answer: string
   source?: string
   votes?: number
-}
-
-async function getApiKey(): Promise<string> {
-  try {
-    const adminClient = createAdminClient()
-    const { data } = await adminClient
-      .from('lb_admin_settings')
-      .select('value')
-      .eq('key', 'anthropic_api_key')
-      .single<{ value: string }>()
-    if (data?.value) return data.value
-  } catch {
-    // fall through
-  }
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (apiKey) return apiKey
-  throw new Error('ANTHROPIC_API_KEY not found')
-}
-
-async function getModel(): Promise<string> {
-  try {
-    const adminClient = createAdminClient()
-    const { data } = await adminClient
-      .from('lb_admin_settings')
-      .select('value')
-      .eq('key', 'claude_model')
-      .single<{ value: string }>()
-    if (data?.value) return data.value
-  } catch {
-    // fall through
-  }
-  return DEFAULT_CLAUDE_MODEL
 }
 
 function stripFences(text: string): string {
@@ -58,18 +30,30 @@ function stripFences(text: string): string {
   return cleaned.trim()
 }
 
+function extractText(message: { content: Array<{ type: string; text?: string }> }): string {
+  // Concatenate all text blocks (skip thinking + tool_use + tool_result blocks)
+  return message.content
+    .filter((c) => c.type === 'text' && typeof c.text === 'string')
+    .map((c) => c.text as string)
+    .join('\n')
+    .trim()
+}
+
 /**
  * Generate 15 product-specific follow-up questions for Pass 2.
  * Returns an array of question strings.
+ *
+ * Uses extended thinking (per admin setting) to reason about question coverage
+ * across the 7 buckets. Web search is OFF — Pass 1 answers are the only context
+ * needed; external research would slow this down without adding value.
  */
 export async function generatePass2Questions(
   asin: string,
   marketplace: string,
   pass1: QAPair[]
 ): Promise<string[]> {
-  const apiKey = await getApiKey()
+  const client = await getClient()
   const model = await getModel()
-  const client = new Anthropic({ apiKey })
 
   const pass1Block = pass1
     .map((qa, i) => `Q${i + 1}: ${qa.question}\nA${i + 1}: ${qa.answer}`)
@@ -102,18 +86,20 @@ Each question MUST:
 Respond with ONLY a JSON object in this exact shape (no prose, no markdown):
 { "questions": ["Q6 text?", "Q7 text?", ..., "Q20 text?"] }`
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: 4000,
-    messages: [{ role: 'user', content: prompt }],
-  })
+  const response = await createMessage(
+    client,
+    {
+      model,
+      max_tokens: 4000,
+      messages: [{ role: 'user', content: prompt }],
+    },
+    { webSearch: false }
+  )
 
-  const textBlock = response.content.find((c) => c.type === 'text')
-  if (!textBlock || textBlock.type !== 'text') {
-    throw new Error('Claude returned no text content')
-  }
+  const text = extractText(response)
+  if (!text) throw new Error('Claude returned no text content')
 
-  const cleaned = stripFences(textBlock.text)
+  const cleaned = stripFences(text)
   let parsed: { questions?: unknown }
   try {
     parsed = JSON.parse(cleaned)
@@ -139,15 +125,19 @@ Respond with ONLY a JSON object in this exact shape (no prose, no markdown):
 /**
  * Generate the synthesis markdown ("listing_recommendations.md") from a full
  * Rufus Q&A set. Returns the markdown content as a string.
+ *
+ * Uses extended thinking (per admin setting) for deeper reasoning across the
+ * full Q&A set, and turns ON web search so the model can verify competitor
+ * claims, look up current category trends, and ground recommendations in
+ * real market data when useful.
  */
 export async function generateSynthesis(
   asin: string,
   marketplace: string,
   qaPairs: QAPair[]
 ): Promise<string> {
-  const apiKey = await getApiKey()
+  const client = await getClient()
   const model = await getModel()
-  const client = new Anthropic({ apiKey })
 
   const qaBlock = qaPairs
     .map((qa, i) => `Q${i + 1}: ${qa.question}\nA${i + 1}: ${qa.answer}`)
@@ -179,18 +169,22 @@ Issues to address proactively in copy/images.
 ## 💪 Moat statement
 End with the single strongest moat statement Rufus surfaced for this product (1-2 sentences, ready to drop into a hero bullet).
 
-Use markdown tables, bullets, and bold formatting. Keep it tight — every sentence must be actionable. Do not add a preamble or postamble; start directly with the first \`##\` heading.`
+Use markdown tables, bullets, and bold formatting. Keep it tight — every sentence must be actionable. Do not add a preamble or postamble; start directly with the first \`##\` heading.
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: 8000,
-    messages: [{ role: 'user', content: prompt }],
-  })
+If web search is available and you spot a specific competitor brand name in the Q&A, you MAY use a small number of searches to verify their pricing, key features, or recent reviews — but only when it materially sharpens a recommendation. Don't burn searches on generic queries.`
 
-  const textBlock = response.content.find((c) => c.type === 'text')
-  if (!textBlock || textBlock.type !== 'text') {
-    throw new Error('Claude returned no text content for synthesis')
-  }
+  const response = await createMessage(
+    client,
+    {
+      model,
+      max_tokens: 8000,
+      messages: [{ role: 'user', content: prompt }],
+    },
+    { webSearch: true }
+  )
 
-  return textBlock.text.trim()
+  const text = extractText(response)
+  if (!text) throw new Error('Claude returned no text content for synthesis')
+
+  return text
 }
