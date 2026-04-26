@@ -13,7 +13,7 @@
  *   - Internal call from orchestrator (handlePass1Completion uses generatePass2Questions directly)
  */
 import { createAdminClient } from '@/lib/supabase/server'
-import { corsJson, corsOptions } from '@/lib/rufus-cors'
+import { corsJson, corsOptions, validateExtensionKey } from '@/lib/rufus-cors'
 import { getAuthenticatedUser } from '@/lib/auth'
 import { generatePass2Questions } from '@/lib/rufus-claude'
 
@@ -38,9 +38,21 @@ export async function OPTIONS() {
 
 export async function POST(request: Request) {
   try {
-    // Auth: website-only endpoint (no extension key path here since extension
-    // doesn't generate Pass 2 — orchestrator does)
-    await getAuthenticatedUser()
+    // Dual auth: session cookie (UI) OR Bearer key (Claude/scripts/cron)
+    let authed = false
+    try {
+      await getAuthenticatedUser()
+      authed = true
+    } catch {
+      const adminCheck = createAdminClient()
+      authed = await validateExtensionKey(request, adminCheck)
+    }
+    if (!authed) {
+      return corsJson(
+        { error: 'Not authenticated (need session cookie or Rufus Bearer key)' },
+        401
+      )
+    }
 
     const body = await request.json()
     const { asin, marketplace = 'amazon.com' } = body as {
@@ -121,9 +133,6 @@ export async function POST(request: Request) {
     })
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Internal server error'
-    if (message === 'Not authenticated') {
-      return corsJson({ error: message }, 401)
-    }
     console.error('generate-pass2 error:', e)
     return corsJson({ error: message }, 500)
   }

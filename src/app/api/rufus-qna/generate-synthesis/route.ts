@@ -11,7 +11,7 @@
  * persist the synthesis next to the loop run that produced it).
  */
 import { createAdminClient } from '@/lib/supabase/server'
-import { corsJson, corsOptions } from '@/lib/rufus-cors'
+import { corsJson, corsOptions, validateExtensionKey } from '@/lib/rufus-cors'
 import { getAuthenticatedUser } from '@/lib/auth'
 import { generateSynthesis } from '@/lib/rufus-claude'
 
@@ -28,7 +28,21 @@ export async function OPTIONS() {
 
 export async function POST(request: Request) {
   try {
-    await getAuthenticatedUser()
+    // Dual auth: session cookie (UI) OR Bearer key (Claude/scripts/cron)
+    let authed = false
+    try {
+      await getAuthenticatedUser()
+      authed = true
+    } catch {
+      const adminCheck = createAdminClient()
+      authed = await validateExtensionKey(request, adminCheck)
+    }
+    if (!authed) {
+      return corsJson(
+        { error: 'Not authenticated (need session cookie or Rufus Bearer key)' },
+        401
+      )
+    }
 
     const body = await request.json()
     const {
@@ -100,9 +114,6 @@ export async function POST(request: Request) {
     })
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Internal server error'
-    if (message === 'Not authenticated') {
-      return corsJson({ error: message }, 401)
-    }
     console.error('generate-synthesis error:', e)
     return corsJson({ error: message }, 500)
   }

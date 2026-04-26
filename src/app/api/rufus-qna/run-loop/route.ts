@@ -15,7 +15,12 @@
  *   - Pass 2 completes → handlePass2Completion → writes synthesis_md
  */
 import { createAdminClient } from '@/lib/supabase/server'
-import { corsJson, corsOptions } from '@/lib/rufus-cors'
+import {
+  corsJson,
+  corsOptions,
+  validateExtensionKey,
+  getSystemUserId,
+} from '@/lib/rufus-cors'
 import { getAuthenticatedUser } from '@/lib/auth'
 import { AMY_PASS1_QUESTIONS } from '@/lib/rufus-orchestrator'
 
@@ -25,7 +30,24 @@ export async function OPTIONS() {
 
 export async function POST(request: Request) {
   try {
-    const { lbUser } = await getAuthenticatedUser()
+    // Dual auth: session cookie (UI) OR Bearer key (Claude/scripts/cron)
+    let createdById: string | null = null
+    try {
+      const { lbUser } = await getAuthenticatedUser()
+      createdById = lbUser.id
+    } catch {
+      const adminCheck = createAdminClient()
+      const isExtKey = await validateExtensionKey(request, adminCheck)
+      if (isExtKey) {
+        createdById = await getSystemUserId()
+      }
+    }
+    if (!createdById) {
+      return corsJson(
+        { error: 'Not authenticated (need session cookie or Rufus Bearer key)' },
+        401
+      )
+    }
 
     const body = await request.json()
     const { asin, country_id, marketplace } = body as {
@@ -67,7 +89,7 @@ export async function POST(request: Request) {
         total_asins: 1, // pass1 only initially; orchestrator bumps to 2 after pass1
         completed_asins: 0,
         failed_asins: 0,
-        created_by: lbUser.id,
+        created_by: createdById,
         loop_mode: 'full_amy_loop',
       })
       .select('id')
@@ -118,9 +140,6 @@ export async function POST(request: Request) {
     })
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Internal server error'
-    if (message === 'Not authenticated') {
-      return corsJson({ error: message }, 401)
-    }
     console.error('run-loop error:', e)
     return corsJson({ error: message }, 500)
   }

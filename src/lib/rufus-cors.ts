@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { createAdminClient } from '@/lib/supabase/server'
 
 /**
  * Shared CORS headers for Rufus extension endpoints.
@@ -46,4 +47,35 @@ export async function validateExtensionKey(
 
   if (!data?.value) return false
   return data.value === providedKey
+}
+
+/**
+ * Look up an admin user UUID to attribute Bearer-authenticated jobs to.
+ * Used by /run-loop when called via Bearer key (Claude / scripts / cron) so
+ * created_by satisfies the NOT NULL UUID constraint on lb_rufus_jobs.
+ *
+ * Falls back to the first user in lb_users if no admin found.
+ */
+export async function getSystemUserId(): Promise<string | null> {
+  const adminClient = createAdminClient()
+
+  const adminLookup = await adminClient
+    .from('lb_users')
+    .select('id')
+    .eq('role', 'admin')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle<{ id: string }>()
+
+  if (adminLookup.data?.id) return adminLookup.data.id
+
+  // Fallback: any user (covers fresh-install state where role='admin' may not exist)
+  const fallback = await adminClient
+    .from('lb_users')
+    .select('id')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle<{ id: string }>()
+
+  return fallback.data?.id ?? null
 }
