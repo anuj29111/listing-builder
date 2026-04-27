@@ -54,7 +54,10 @@ interface AsinReviewRow {
   qa_updated_at: string
 }
 
-const AMY_NORMALIZED = AMY_PASS1_QUESTIONS.map((q) => q.toLowerCase().trim())
+// AMY_NORMALIZED no longer needed — Pass 1 detection is now position-based
+// (first 5 Rufus entries) since legacy data uses varied phrasings.
+// Kept import of AMY_PASS1_QUESTIONS for length reference.
+void AMY_PASS1_QUESTIONS
 
 const ACTIVE_STATUSES = [
   'queued',
@@ -194,9 +197,9 @@ export async function GET(request: Request) {
       const key = `${qa.asin}|${qa.country_id}`
       const rufusQa = (qa.questions || []).filter((q) => q.source === 'rufus')
       const totalQa = (qa.questions || []).length
-      const pass1Count = rufusQa.filter((q) =>
-        AMY_NORMALIZED.includes(q.question.toLowerCase().trim())
-      ).length
+      // Pass 1 = first 5 Rufus entries by position (legacy data uses varied phrasings;
+      // exact-text match is too strict). Cap at AMY_PASS1_QUESTIONS.length.
+      const pass1Count = Math.min(rufusQa.length, AMY_PASS1_QUESTIONS.length)
       const pass2InferredCount = rufusQa.length - pass1Count
 
       const allRunsForAsin = typedRuns.filter(

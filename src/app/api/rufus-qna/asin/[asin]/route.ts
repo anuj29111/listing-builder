@@ -76,12 +76,21 @@ export async function GET(
     const rufusQa = allQa.filter((q) => q.source === 'rufus')
     const nonRufusQa = allQa.filter((q) => q.source !== 'rufus')
 
-    // Pass 1 = the 5 entries matching Amy's framing questions
-    const pass1Qa: QAPair[] = []
+    // Pass 1 = first 5 Rufus entries by capture order (not exact-text match —
+    // playbook rule #2 says vary phrasing per ASIN to dodge Rufus dedup, so
+    // legacy data has rephrased framing questions). Going forward orchestrator
+    // captures Amy's exact 5 verbatim, so this still works.
+    // We also try exact match first as a strict-detection signal for the badge.
+    const exactMatches: QAPair[] = []
     for (const norm of AMY_NORMALIZED) {
       const m = rufusQa.find((q) => q.question.toLowerCase().trim() === norm)
-      if (m) pass1Qa.push(m)
+      if (m) exactMatches.push(m)
     }
+    const pass1Qa: QAPair[] =
+      exactMatches.length === AMY_PASS1_QUESTIONS.length
+        ? exactMatches
+        : rufusQa.slice(0, AMY_PASS1_QUESTIONS.length)
+
     const pass1QuestionSet = new Set(
       pass1Qa.map((q) => q.question.toLowerCase().trim())
     )
