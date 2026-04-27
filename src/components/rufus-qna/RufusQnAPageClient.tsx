@@ -393,7 +393,7 @@ function LegacyJobsTab({
           </button>
 
           <p className="text-[11px] text-gray-500 italic pt-2 border-t">
-            Note: Legacy jobs use auto-chips mode. For full Amy loop with synthesis, use the "Run Single" or "Bulk Run" tabs above.
+            Note: Legacy jobs use auto-chips mode. For full Amy loop with synthesis, use the &ldquo;Run Single&rdquo; or &ldquo;Bulk Run&rdquo; tabs above.
           </p>
         </div>
       </div>

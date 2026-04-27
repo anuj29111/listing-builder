@@ -559,7 +559,7 @@ export function AsinDetailDrawer({ asin, countryId, marketplace, onClose, onMuta
             >
               {data.synthesis_versions.length === 0 ? (
                 <div className="text-xs italic text-gray-500">
-                  No synthesis yet — click "Re-synthesize from current Q&A" above (need {Math.max(0, 5 - data.qa_counts.rufus)} more Rufus Q&A).
+                  No synthesis yet — click &ldquo;Re-synthesize from current Q&amp;A&rdquo; above (need {Math.max(0, 5 - data.qa_counts.rufus)} more Rufus Q&amp;A).
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -921,7 +921,7 @@ function StructuredSynthesisView({
         <div className="rounded border-2 border-green-300 bg-green-50 p-3">
           <div className="text-xs font-semibold text-green-900 mb-1">💪 Moat statement</div>
           <div className="text-sm text-green-900 italic">
-            "{structured.moat_statement}"
+            &ldquo;{structured.moat_statement}&rdquo;
           </div>
         </div>
       )}
