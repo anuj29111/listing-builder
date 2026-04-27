@@ -99,24 +99,30 @@ export async function POST(request: Request) {
 
     const rufusOnly = row.questions.filter((q) => q.source === 'rufus')
 
-    const pass1: QAPair[] = []
-    for (const norm of AMY_PASS1_NORMALIZED) {
-      const match = rufusOnly.find(
-        (q) => q.question.toLowerCase().trim() === norm
-      )
-      if (match) pass1.push(match)
-    }
-
-    if (pass1.length < AMY_PASS1_QUESTIONS.length) {
+    if (rufusOnly.length < AMY_PASS1_QUESTIONS.length) {
       return corsJson(
         {
-          error: `Pass 1 incomplete: found ${pass1.length}/${AMY_PASS1_QUESTIONS.length} framing answers. Re-run Pass 1.`,
-          found: pass1.length,
+          error: `Need at least ${AMY_PASS1_QUESTIONS.length} Rufus answers; have ${rufusOnly.length}. Run Pass 1 first.`,
+          found: rufusOnly.length,
           expected: AMY_PASS1_QUESTIONS.length,
         },
         400
       )
     }
+
+    // Try exact match against Amy's 5 framing questions first;
+    // fallback to first-5-by-capture-order if extension typed varied phrasings.
+    const exact: QAPair[] = []
+    for (const norm of AMY_PASS1_NORMALIZED) {
+      const match = rufusOnly.find(
+        (q) => q.question.toLowerCase().trim() === norm
+      )
+      if (match) exact.push(match)
+    }
+    const pass1: QAPair[] =
+      exact.length === AMY_PASS1_QUESTIONS.length
+        ? exact
+        : rufusOnly.slice(0, AMY_PASS1_QUESTIONS.length)
 
     const result = await persistPass2Questions({
       asin: cleanedAsin,

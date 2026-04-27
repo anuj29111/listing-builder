@@ -49,17 +49,27 @@ interface AsinQuestionsRow {
 }
 
 /**
- * Find the 5 Amy Pass-1 framing answers in the ASIN's Q&A array.
- * Match is exact-text (case-insensitive). Returns null if any are missing.
+ * Find the 5 Pass-1 framing answers in the ASIN's Q&A array.
+ *  1) Try exact-text match against Amy's 5 framing questions (preferred — clean signal).
+ *  2) Fallback: take the first 5 Rufus entries by capture order. Covers the case where
+ *     the Chrome extension typed varied phrasings, ran in auto-chips mode by accident,
+ *     or any other situation where the exact 5 strings aren't present verbatim.
+ *  Returns null only if there aren't even 5 Rufus entries.
  */
 function extractPass1FromQA(qa: QAPair[]): QAPair[] | null {
   const rufusOnly = qa.filter((q) => q.source === 'rufus')
-  const pass1: QAPair[] = []
+  if (rufusOnly.length < AMY_PASS1_QUESTIONS.length) return null
+
+  // (1) exact match
+  const exact: QAPair[] = []
   for (const norm of AMY_PASS1_NORMALIZED) {
     const match = rufusOnly.find((q) => q.question.toLowerCase().trim() === norm)
-    if (match) pass1.push(match)
+    if (match) exact.push(match)
   }
-  return pass1.length === AMY_PASS1_QUESTIONS.length ? pass1 : null
+  if (exact.length === AMY_PASS1_QUESTIONS.length) return exact
+
+  // (2) fallback — first 5 by capture order
+  return rufusOnly.slice(0, AMY_PASS1_QUESTIONS.length)
 }
 
 async function getPass1Answers(
