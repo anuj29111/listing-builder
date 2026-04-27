@@ -1,18 +1,21 @@
 /**
  * POST /api/rufus-qna/run-loop
  *
- * Body: { asin: string, country_id: string, marketplace?: string }
+ * Body: { asin: string, country_id: string, marketplace?: string, source?: 'amy_loop'|'manual'|'bulk', notes?: string }
  *
  * Entry point for the Full Amy Loop:
  *   1. Creates an lb_rufus_jobs row with loop_mode='full_amy_loop' (status='queued')
- *   2. Creates a single lb_rufus_job_items row with loop_phase='pass1',
+ *   2. Creates an lb_rufus_loop_runs row (status='queued', references job)
+ *   3. Creates a single lb_rufus_job_items row with loop_phase='pass1',
  *      custom_questions = Amy's 5 framing questions, status='pending'
+ *   4. Wires the loop_run.pass1_item_id to that item
+ *   5. Creates an lb_asin_review_status row if missing
  *
- * Returns the job_id and item_id so the UI can poll for progress.
+ * Returns the job_id, loop_run_id, and pass1_item_id so the UI can poll for progress.
  *
  * The orchestrator (in queue/route.ts POST handler) takes over from there:
- *   - Pass 1 completes → handlePass1Completion → creates pass2 item
- *   - Pass 2 completes → handlePass2Completion → writes synthesis_md
+ *   - Pass 1 completes → handlePass1Completion → persists Pass 2 questions, creates pass2 item
+ *   - Pass 2 completes → handlePass2Completion → persists synthesis with version
  */
 import { createAdminClient } from '@/lib/supabase/server'
 import {
@@ -50,10 +53,12 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { asin, country_id, marketplace } = body as {
+    const { asin, country_id, marketplace, source, notes } = body as {
       asin?: string
       country_id?: string
       marketplace?: string
+      source?: 'amy_loop' | 'manual' | 'bulk'
+      notes?: string
     }
 
     if (!asin || !/^[A-Z0-9]{10}$/.test(asin.trim().toUpperCase())) {
@@ -86,7 +91,7 @@ export async function POST(request: Request) {
         marketplace_domain: resolvedMarketplace,
         source: 'amy_loop',
         status: 'queued',
-        total_asins: 1, // pass1 only initially; orchestrator bumps to 2 after pass1
+        total_asins: 1,
         completed_asins: 0,
         failed_asins: 0,
         created_by: createdById,
@@ -99,6 +104,31 @@ export async function POST(request: Request) {
       console.error('Failed to create Amy loop job:', jobErr)
       return corsJson(
         { error: `Failed to create job: ${jobErr?.message}` },
+        500
+      )
+    }
+
+    // Create the loop_run row
+    const { data: loopRun, error: loopErr } = await adminClient
+      .from('lb_rufus_loop_runs')
+      .insert({
+        asin: cleanedAsin,
+        country_id,
+        marketplace_domain: resolvedMarketplace,
+        job_id: job.id,
+        status: 'queued',
+        source: source ?? 'amy_loop',
+        notes: notes ?? null,
+        created_by: createdById,
+      })
+      .select('id')
+      .single<{ id: string }>()
+
+    if (loopErr || !loopRun) {
+      console.error('Failed to create loop_run:', loopErr)
+      await adminClient.from('lb_rufus_jobs').delete().eq('id', job.id)
+      return corsJson(
+        { error: `Failed to create loop_run: ${loopErr?.message}` },
         500
       )
     }
@@ -120,7 +150,7 @@ export async function POST(request: Request) {
 
     if (itemErr || !item) {
       console.error('Failed to create Pass 1 item:', itemErr)
-      // Roll back the job
+      await adminClient.from('lb_rufus_loop_runs').delete().eq('id', loopRun.id)
       await adminClient.from('lb_rufus_jobs').delete().eq('id', job.id)
       return corsJson(
         { error: `Failed to create Pass 1 item: ${itemErr?.message}` },
@@ -128,9 +158,28 @@ export async function POST(request: Request) {
       )
     }
 
+    // Wire loop_run → pass1_item_id
+    await adminClient
+      .from('lb_rufus_loop_runs')
+      .update({ pass1_item_id: item.id })
+      .eq('id', loopRun.id)
+
+    // Ensure review_status row exists (best effort — non-fatal)
+    await adminClient
+      .from('lb_asin_review_status')
+      .upsert(
+        {
+          asin: cleanedAsin,
+          country_id,
+          marketplace_domain: resolvedMarketplace,
+        },
+        { onConflict: 'asin,country_id' }
+      )
+
     return corsJson({
       success: true,
       job_id: job.id,
+      loop_run_id: loopRun.id,
       pass1_item_id: item.id,
       asin: cleanedAsin,
       marketplace: resolvedMarketplace,

@@ -1,21 +1,25 @@
 /**
  * POST /api/rufus-qna/generate-pass2
  *
- * Body: { asin: string, marketplace?: string }
+ * Body: {
+ *   asin: string,
+ *   marketplace?: string,
+ *   loop_run_id?: string,        // optional: link to a specific loop run
+ *   source?: 'manual'|'regen'    // default 'manual'
+ * }
  *
  * Reads Pass 1 answers from lb_asin_questions for this ASIN, then calls Claude
- * to generate 15 product-specific follow-up questions. Returns the questions
- * but does NOT enqueue them — caller chooses whether to use them.
- *
- * Used for:
- *   - Manual UI flow ("show me what Pass 2 would look like before running it")
- *   - Re-generate Pass 2 if first attempt was poor quality
- *   - Internal call from orchestrator (handlePass1Completion uses generatePass2Questions directly)
+ * to generate 15 product-specific follow-up questions. ALWAYS persists to
+ * lb_rufus_pass2_questions for full audit trail. Does NOT enqueue them as a
+ * job item — caller chooses whether to use them (UI preview / regen flow).
  */
 import { createAdminClient } from '@/lib/supabase/server'
 import { corsJson, corsOptions, validateExtensionKey } from '@/lib/rufus-cors'
 import { getAuthenticatedUser } from '@/lib/auth'
-import { generatePass2Questions } from '@/lib/rufus-claude'
+import {
+  AMY_PASS1_QUESTIONS,
+  persistPass2Questions,
+} from '@/lib/rufus-orchestrator'
 
 interface QAPair {
   question: string
@@ -24,13 +28,9 @@ interface QAPair {
   votes?: number
 }
 
-const AMY_PASS1_QUESTION_TEXTS = [
-  'What is this product for?',
-  'What do people like about this product?',
-  "What don't people like about this product?",
-  'What are people buying instead and why?',
-  'Why do people choose this product over alternatives?',
-]
+const AMY_PASS1_NORMALIZED = AMY_PASS1_QUESTIONS.map((q) =>
+  q.toLowerCase().trim()
+)
 
 export async function OPTIONS() {
   return corsOptions()
@@ -38,26 +38,32 @@ export async function OPTIONS() {
 
 export async function POST(request: Request) {
   try {
-    // Dual auth: session cookie (UI) OR Bearer key (Claude/scripts/cron)
-    let authed = false
+    let userId: string | null = null
     try {
-      await getAuthenticatedUser()
-      authed = true
+      const { lbUser } = await getAuthenticatedUser()
+      userId = lbUser.id
     } catch {
       const adminCheck = createAdminClient()
-      authed = await validateExtensionKey(request, adminCheck)
-    }
-    if (!authed) {
-      return corsJson(
-        { error: 'Not authenticated (need session cookie or Rufus Bearer key)' },
-        401
-      )
+      const ok = await validateExtensionKey(request, adminCheck)
+      if (!ok) {
+        return corsJson(
+          { error: 'Not authenticated (need session cookie or Rufus Bearer key)' },
+          401
+        )
+      }
     }
 
     const body = await request.json()
-    const { asin, marketplace = 'amazon.com' } = body as {
+    const {
+      asin,
+      marketplace = 'amazon.com',
+      loop_run_id,
+      source,
+    } = body as {
       asin?: string
       marketplace?: string
+      loop_run_id?: string
+      source?: 'manual' | 'regen'
     }
 
     if (!asin || !/^[A-Z0-9]{10}$/.test(asin.trim().toUpperCase())) {
@@ -67,7 +73,6 @@ export async function POST(request: Request) {
     const cleanedAsin = asin.trim().toUpperCase()
     const adminClient = createAdminClient()
 
-    // Resolve country
     const { data: country } = await adminClient
       .from('lb_countries')
       .select('id')
@@ -78,7 +83,6 @@ export async function POST(request: Request) {
       return corsJson({ error: `Unknown marketplace: ${marketplace}` }, 400)
     }
 
-    // Read Pass 1 answers
     const { data: row } = await adminClient
       .from('lb_asin_questions')
       .select('questions')
@@ -95,41 +99,43 @@ export async function POST(request: Request) {
 
     const rufusOnly = row.questions.filter((q) => q.source === 'rufus')
 
-    // Try to find the 5 Amy framing questions
     const pass1: QAPair[] = []
-    for (const amyQ of AMY_PASS1_QUESTION_TEXTS) {
-      const norm = amyQ.toLowerCase().trim()
+    for (const norm of AMY_PASS1_NORMALIZED) {
       const match = rufusOnly.find(
         (q) => q.question.toLowerCase().trim() === norm
       )
       if (match) pass1.push(match)
     }
 
-    if (pass1.length < AMY_PASS1_QUESTION_TEXTS.length) {
+    if (pass1.length < AMY_PASS1_QUESTIONS.length) {
       return corsJson(
         {
-          error: `Pass 1 incomplete: found ${pass1.length}/${AMY_PASS1_QUESTION_TEXTS.length} framing answers. Re-run Pass 1.`,
+          error: `Pass 1 incomplete: found ${pass1.length}/${AMY_PASS1_QUESTIONS.length} framing answers. Re-run Pass 1.`,
           found: pass1.length,
-          expected: AMY_PASS1_QUESTION_TEXTS.length,
+          expected: AMY_PASS1_QUESTIONS.length,
         },
         400
       )
     }
 
-    // Generate Pass 2 via Claude
-    const questions = await generatePass2Questions(
-      cleanedAsin,
-      marketplace,
-      pass1
-    )
+    const result = await persistPass2Questions({
+      asin: cleanedAsin,
+      countryId: country.id,
+      marketplaceDomain: marketplace,
+      pass1,
+      loopRunId: loop_run_id ?? null,
+      source: source ?? 'manual',
+      generatedBy: userId,
+    })
 
     return corsJson({
       success: true,
       asin: cleanedAsin,
       marketplace,
-      pass1_used: pass1.length,
-      questions,
-      questions_count: questions.length,
+      pass2_question_set_id: result.id,
+      questions: result.questions,
+      questions_count: result.questions.length,
+      cost_usd: result.cost_usd,
     })
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Internal server error'

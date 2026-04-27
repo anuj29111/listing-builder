@@ -1,19 +1,24 @@
 /**
  * POST /api/rufus-qna/generate-synthesis
  *
- * Body: { asin: string, marketplace?: string, save_to_item_id?: string }
+ * Body: {
+ *   asin: string,
+ *   marketplace?: string,
+ *   save_to_item_id?: string,         // optional back-compat: also write synthesis_md to a job item
+ *   loop_run_id?: string,             // optional: link to a specific loop run
+ *   source?: 'manual_regen'|'backfill'|'bulk' // default 'manual_regen'
+ * }
  *
  * Reads ALL source='rufus' Q&A from lb_asin_questions for this ASIN, then
- * calls Claude to produce a listing_recommendations.md synthesis.
+ * calls Claude to produce a listing_recommendations.md synthesis + structured JSON.
  *
- * Returns the synthesis markdown. If save_to_item_id is provided, also writes
- * synthesis_md to that lb_rufus_job_items row (used by the Amy Loop UI to
- * persist the synthesis next to the loop run that produced it).
+ * ALWAYS persists to lb_rufus_synthesis with auto-incremented version (per asin/country).
+ * Returns the synthesis row id, version, markdown, and structured fields.
  */
 import { createAdminClient } from '@/lib/supabase/server'
 import { corsJson, corsOptions, validateExtensionKey } from '@/lib/rufus-cors'
 import { getAuthenticatedUser } from '@/lib/auth'
-import { generateSynthesis } from '@/lib/rufus-claude'
+import { persistSynthesis } from '@/lib/rufus-orchestrator'
 
 interface QAPair {
   question: string
@@ -29,19 +34,19 @@ export async function OPTIONS() {
 export async function POST(request: Request) {
   try {
     // Dual auth: session cookie (UI) OR Bearer key (Claude/scripts/cron)
-    let authed = false
+    let userId: string | null = null
     try {
-      await getAuthenticatedUser()
-      authed = true
+      const { lbUser } = await getAuthenticatedUser()
+      userId = lbUser.id
     } catch {
       const adminCheck = createAdminClient()
-      authed = await validateExtensionKey(request, adminCheck)
-    }
-    if (!authed) {
-      return corsJson(
-        { error: 'Not authenticated (need session cookie or Rufus Bearer key)' },
-        401
-      )
+      const ok = await validateExtensionKey(request, adminCheck)
+      if (!ok) {
+        return corsJson(
+          { error: 'Not authenticated (need session cookie or Rufus Bearer key)' },
+          401
+        )
+      }
     }
 
     const body = await request.json()
@@ -49,10 +54,14 @@ export async function POST(request: Request) {
       asin,
       marketplace = 'amazon.com',
       save_to_item_id,
+      loop_run_id,
+      source,
     } = body as {
       asin?: string
       marketplace?: string
       save_to_item_id?: string
+      loop_run_id?: string
+      source?: 'manual_regen' | 'backfill' | 'bulk'
     }
 
     if (!asin || !/^[A-Z0-9]{10}$/.test(asin.trim().toUpperCase())) {
@@ -64,9 +73,9 @@ export async function POST(request: Request) {
 
     const { data: country } = await adminClient
       .from('lb_countries')
-      .select('id')
+      .select('id, amazon_domain')
       .eq('amazon_domain', marketplace)
-      .single<{ id: string }>()
+      .single<{ id: string; amazon_domain: string }>()
 
     if (!country) {
       return corsJson({ error: `Unknown marketplace: ${marketplace}` }, 400)
@@ -94,13 +103,21 @@ export async function POST(request: Request) {
       )
     }
 
-    const synthesis = await generateSynthesis(cleanedAsin, marketplace, rufusOnly)
+    const synth = await persistSynthesis({
+      asin: cleanedAsin,
+      countryId: country.id,
+      marketplaceDomain: marketplace,
+      qaPairs: rufusOnly,
+      loopRunId: loop_run_id ?? null,
+      source: source ?? 'manual_regen',
+      generatedBy: userId,
+    })
 
-    // Optionally persist to a job item
+    // Optionally back-compat: write synthesis_md to a job item too
     if (save_to_item_id) {
       await adminClient
         .from('lb_rufus_job_items')
-        .update({ synthesis_md: synthesis })
+        .update({ synthesis_md: synth.synthesis_md })
         .eq('id', save_to_item_id)
     }
 
@@ -108,8 +125,12 @@ export async function POST(request: Request) {
       success: true,
       asin: cleanedAsin,
       marketplace,
+      synthesis_id: synth.id,
+      version: synth.version,
       qa_count_used: rufusOnly.length,
-      synthesis_md: synthesis,
+      synthesis_md: synth.synthesis_md,
+      structured: synth.structured,
+      cost_usd: synth.cost_usd,
       saved_to_item_id: save_to_item_id ?? null,
     })
   } catch (e) {
